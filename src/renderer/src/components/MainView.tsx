@@ -1,6 +1,7 @@
 import type { ViewKey } from '@shared/types'
 import { todayKey } from '@shared/dates'
 import { useAppStore } from '../store/useAppStore'
+import { AiDailySummary } from './AiDailySummary'
 import { BatchBar } from './BatchBar'
 import { BoardView } from './BoardView'
 import { CalendarView } from './CalendarView'
@@ -183,6 +184,8 @@ export function MainView(): React.ReactNode {
                 defaultDueDate={view === 'today' || view === 'next7' ? todayKey() : null}
               />
             ) : null}
+
+            {view === 'today' ? <AiDailySummary /> : null}
 
             {loading ? (
               <div className="skeleton-list" aria-label="加载中">

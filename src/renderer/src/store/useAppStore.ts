@@ -17,6 +17,11 @@ import type {
   ViewKey
 } from '@shared/types'
 import { toDateKey } from '@shared/dates'
+import {
+  AI_DEFAULT_BASE_URL,
+  AI_DEFAULT_MODEL,
+  AI_DEFAULT_TIMEOUT_MS
+} from '@shared/ai'
 
 interface ToastOptions {
   actionLabel?: string
@@ -136,7 +141,12 @@ const DEFAULT_SETTINGS: Settings = {
   r2SecretAccessKey: '',
   r2Prefix: 'tickflow/snapshots/',
   r2AutoSync: false,
-  r2LastSync: null
+  r2LastSync: null,
+  aiEnabled: true,
+  aiBaseUrl: AI_DEFAULT_BASE_URL,
+  aiModel: AI_DEFAULT_MODEL,
+  aiToken: '',
+  aiTimeoutMs: AI_DEFAULT_TIMEOUT_MS
 }
 
 function errorMessage(error: unknown): string {

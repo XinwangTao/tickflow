@@ -43,8 +43,10 @@ function recurrenceRule(kind: string, task: TaskWithMeta): string | null {
 function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
   const refresh = useAppStore((state) => state.refresh)
   const showToast = useAppStore((state) => state.showToast)
+  const aiEnabled = useAppStore((state) => state.settings.aiEnabled)
   const [subtasks, setSubtasks] = useState<TaskWithMeta[]>([])
   const [value, setValue] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
 
   const load = async (): Promise<void> => {
     try {
@@ -95,15 +97,65 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
     }
   }
 
+  const breakdown = async (): Promise<void> => {
+    if (aiBusy) return
+    setAiBusy(true)
+    try {
+      const response = await window.api.ai.breakdownSubtasks(task.id)
+      if (!response.ok) {
+        showToast(
+          `AI 拆解不可用，已使用规则拆解${response.warning ? `：${response.warning}` : ''}`,
+          'info',
+          { duration: 5000 }
+        )
+      }
+      if (response.subtasks.length === 0) {
+        showToast('没有可拆解的内容，请补充任务备注或手动添加子任务', 'info')
+        return
+      }
+      for (const draft of response.subtasks) {
+        await window.api.tasks.create({
+          listId: task.listId,
+          parentId: task.id,
+          title: draft.title,
+          priority: draft.priority,
+          dueDate: draft.dueDate,
+          dueTime: draft.dueTime,
+          allDay: draft.allDay
+        })
+      }
+      await load()
+      await refresh()
+    } catch (error) {
+      showToast(`AI 拆解失败：${String(error)}`, 'error', { duration: 5000 })
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
   const done = subtasks.filter((subtask) => subtask.status === 'completed').length
 
   return (
     <section className="detail-section">
       <div className="detail-section-head">
         <span>子任务</span>
-        <span>
-          {done}/{subtasks.length}
-        </span>
+        <div className="detail-section-actions">
+          <span>
+            {done}/{subtasks.length}
+          </span>
+          {aiEnabled ? (
+            <button
+              type="button"
+              className={`icon-btn ${aiBusy ? 'active' : ''}`}
+              title="AI 拆解子任务"
+              aria-label="AI 拆解子任务"
+              disabled={aiBusy}
+              onClick={() => void breakdown()}
+            >
+              <Icon name="sparkles" size={13} />
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="subtask-list">
         {subtasks.map((subtask) => (

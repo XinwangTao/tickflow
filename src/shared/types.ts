@@ -83,6 +83,11 @@ export interface Settings {
   r2Prefix: string
   r2AutoSync: boolean
   r2LastSync: string | null
+  aiEnabled: boolean
+  aiBaseUrl: string
+  aiModel: string
+  aiToken: string
+  aiTimeoutMs: number
 }
 
 export interface SyncResult {

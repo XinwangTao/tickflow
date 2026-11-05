@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { AppInfo } from '@shared/types'
+import {
+  AI_DEFAULT_BASE_URL,
+  AI_DEFAULT_MODEL,
+  AI_DEFAULT_TIMEOUT_MS
+} from '@shared/ai'
 import { R2_CORS_POLICY } from '@shared/r2-cors'
 import { LIST_COLORS } from '../lib/colors'
 import { formatDateTime } from '../lib/format'
@@ -33,6 +38,14 @@ export function SettingsDialog(): React.ReactNode {
     prefix: settings.r2Prefix,
     autoSync: settings.r2AutoSync
   })
+  const [ai, setAi] = useState({
+    enabled: settings.aiEnabled,
+    baseUrl: settings.aiBaseUrl,
+    model: settings.aiModel,
+    token: settings.aiToken,
+    timeoutMs: String(settings.aiTimeoutMs)
+  })
+  const [aiTesting, setAiTesting] = useState(false)
 
   useEffect(() => {
     void window.api.app.info().then(setInfo)
@@ -60,6 +73,33 @@ export function SettingsDialog(): React.ReactNode {
     const result = await window.api.sync.now()
     showToast(result.message, result.ok ? 'success' : 'error', { duration: 6000 })
     if (result.ok) await setSettings({})
+  }
+
+  const saveAi = async (): Promise<void> => {
+    const timeout = Number(ai.timeoutMs)
+    await setSettings({
+      aiEnabled: ai.enabled,
+      aiBaseUrl: ai.baseUrl.trim() || AI_DEFAULT_BASE_URL,
+      aiModel: ai.model.trim() || AI_DEFAULT_MODEL,
+      aiToken: ai.token.trim(),
+      aiTimeoutMs:
+        Number.isFinite(timeout) && timeout >= 1000
+          ? Math.min(timeout, 120000)
+          : AI_DEFAULT_TIMEOUT_MS
+    })
+  }
+
+  const testAi = async (): Promise<void> => {
+    await saveAi()
+    setAiTesting(true)
+    try {
+      const result = await window.api.ai.test()
+      showToast(result.message, result.ok ? 'success' : 'error', { duration: 6000 })
+    } catch (error) {
+      showToast(`AI 连接测试失败：${String(error)}`, 'error', { duration: 6000 })
+    } finally {
+      setAiTesting(false)
+    }
   }
 
   const copyCors = async (): Promise<void> => {
@@ -198,6 +238,80 @@ export function SettingsDialog(): React.ReactNode {
             ))}
           </select>
         </div>
+      </section>
+
+      <section className="settings-section">
+        <h3>AI 助手（CC Switch）</h3>
+        <div className="settings-row">
+          <span className="settings-label">启用 AI</span>
+          <button
+            type="button"
+            className={`switch ${ai.enabled ? 'on' : ''}`}
+            role="switch"
+            aria-checked={ai.enabled}
+            onClick={() => setAi({ ...ai, enabled: !ai.enabled })}
+          >
+            <span />
+          </button>
+        </div>
+        <div className="sync-grid">
+          <label className="field sync-grid-wide">
+            <span className="field-label">Base URL</span>
+            <input
+              className="input"
+              value={ai.baseUrl}
+              placeholder={AI_DEFAULT_BASE_URL}
+              onChange={(event) => setAi({ ...ai, baseUrl: event.target.value })}
+            />
+          </label>
+          <label className="field sync-grid-wide">
+            <span className="field-label">模型 ID</span>
+            <input
+              className="input"
+              value={ai.model}
+              placeholder={AI_DEFAULT_MODEL}
+              onChange={(event) => setAi({ ...ai, model: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Token（可选）</span>
+            <input
+              className="input"
+              type="password"
+              value={ai.token}
+              placeholder="本机服务通常留空"
+              onChange={(event) => setAi({ ...ai, token: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">超时（毫秒）</span>
+            <input
+              className="input"
+              type="number"
+              min={1000}
+              max={120000}
+              value={ai.timeoutMs}
+              onChange={(event) => setAi({ ...ai, timeoutMs: event.target.value })}
+            />
+          </label>
+        </div>
+        <div className="settings-actions">
+          <button type="button" className="btn" onClick={() => void saveAi()}>
+            保存 AI 配置
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={aiTesting}
+            onClick={() => void testAi()}
+          >
+            {aiTesting ? '测试中…' : '测试连接'}
+          </button>
+        </div>
+        <p className="settings-note">
+          默认连接本机 CC Switch（{AI_DEFAULT_BASE_URL}）。模型名需与 /v1/models 返回的 id
+          完全一致；AI 超时或不可用时会自动回落到本地规则解析，不影响任务创建。
+        </p>
       </section>
 
       <section className="settings-section">

@@ -1,5 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
+import { aiConfigFromSettings, buildSummaryInput } from '@shared/ai'
+import { todayKey } from '@shared/dates'
 import type {
   ApplyTemplateInput,
   CreateFilterInput,
@@ -16,6 +18,12 @@ import type {
   UpdateTaskInput
 } from '@shared/types'
 import { getDataDir, getDb } from './db'
+import {
+  breakdownSubtasksWithAi,
+  parseQuickAddWithAi,
+  summarizeTodayWithAi,
+  testAiConnection
+} from './ai'
 import { exportData, importJson } from './data'
 import * as filterRepo from './db/filters'
 import * as habitRepo from './db/habits'
@@ -147,5 +155,36 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.settingsGet, () => settingsRepo.getSettings(getDb()))
   ipcMain.handle(IPC.settingsSet, (_event, patch: Partial<Settings>) =>
     settingsRepo.setSettings(getDb(), patch)
+  )
+
+  ipcMain.handle(IPC.aiQuickAdd, (_event, input: string) => {
+    const db = getDb()
+    return parseQuickAddWithAi(
+      input,
+      listRepo.listLists(db).map((list) => list.name),
+      { config: aiConfigFromSettings(settingsRepo.getSettings(db)) }
+    )
+  })
+  ipcMain.handle(IPC.aiSubtasks, (_event, taskId: string) => {
+    const db = getDb()
+    const task = taskRepo.getTaskWithMeta(db, taskId)
+    if (!task) throw new Error('任务不存在')
+    return breakdownSubtasksWithAi(
+      { title: task.title, notes: task.notes, listName: task.listName },
+      { config: aiConfigFromSettings(settingsRepo.getSettings(db)) }
+    )
+  })
+  ipcMain.handle(IPC.aiSummary, () => {
+    const db = getDb()
+    const tasks = [
+      ...taskRepo.queryTasks(db, { view: 'today' }),
+      ...taskRepo.queryTasks(db, { view: 'completed' })
+    ]
+    return summarizeTodayWithAi(buildSummaryInput(tasks, todayKey()), {
+      config: aiConfigFromSettings(settingsRepo.getSettings(db))
+    })
+  })
+  ipcMain.handle(IPC.aiTest, () =>
+    testAiConnection(aiConfigFromSettings(settingsRepo.getSettings(getDb())))
   )
 }

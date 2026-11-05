@@ -39,6 +39,7 @@ export type IconName =
   | 'list'
   | 'check-circle'
   | 'folder'
+  | 'sparkles'
 
 const ICONS: Record<IconName, ReactNode> = {
   check: <path d="M5 12.5l4.2 4.2L19 7.5" />,
@@ -215,6 +216,13 @@ const ICONS: Record<IconName, ReactNode> = {
   ),
   folder: (
     <path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4l2 2h6a2.5 2.5 0 0 1 2.5 2.5v7A2.5 2.5 0 0 1 18 19H6a2.5 2.5 0 0 1-2.5-2.5z" />
+  ),
+  sparkles: (
+    <>
+      <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z" />
+      <path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" />
+      <path d="M5 15l.6 1.7 1.7.6-1.7.6L5 19.6l-.6-1.7-1.7-.6 1.7-.6z" />
+    </>
   )
 }
 

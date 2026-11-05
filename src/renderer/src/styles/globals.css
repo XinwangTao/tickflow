@@ -626,6 +626,92 @@ input[type="checkbox"] {
   color: var(--muted);
 }
 
+.quick-add-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: var(--accent-soft);
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.quick-add-ai:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+}
+
+.quick-add-ai:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.quick-add-ai.busy {
+  color: var(--accent);
+}
+
+/* ---------- AI 今日总结 ---------- */
+
+.ai-summary-card {
+  margin: 2px 0 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, var(--panel), var(--panel-2));
+}
+
+.ai-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-summary-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.ai-summary-text {
+  margin: 8px 0 4px;
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.ai-summary-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.ai-summary-list li::before {
+  content: '·';
+  margin-right: 6px;
+  color: var(--accent);
+}
+
+.ai-summary-note,
+.ai-summary-empty {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .quick-add-preview {
   display: flex;
   flex-wrap: wrap;
@@ -2164,6 +2250,17 @@ kbd {
   color: var(--muted);
   font-size: 11px;
   letter-spacing: 0.3px;
+}
+
+.detail-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-section-actions .icon-btn {
+  width: 22px;
+  height: 22px;
 }
 
 .subtask-list {

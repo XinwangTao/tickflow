@@ -1,5 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Settings } from '@shared/types'
+import {
+  AI_DEFAULT_BASE_URL,
+  AI_DEFAULT_MODEL,
+  AI_DEFAULT_TIMEOUT_MS
+} from '@shared/ai'
 
 const DEFAULTS: Settings = {
   theme: 'dark',
@@ -14,7 +19,12 @@ const DEFAULTS: Settings = {
   r2SecretAccessKey: '',
   r2Prefix: 'tickflow/snapshots/',
   r2AutoSync: false,
-  r2LastSync: null
+  r2LastSync: null,
+  aiEnabled: true,
+  aiBaseUrl: AI_DEFAULT_BASE_URL,
+  aiModel: AI_DEFAULT_MODEL,
+  aiToken: '',
+  aiTimeoutMs: AI_DEFAULT_TIMEOUT_MS
 }
 
 export function getSettings(db: DatabaseSync): Settings {
@@ -41,7 +51,12 @@ export function getSettings(db: DatabaseSync): Settings {
     r2SecretAccessKey: map.get('r2SecretAccessKey') || '',
     r2Prefix: map.get('r2Prefix') || DEFAULTS.r2Prefix,
     r2AutoSync: map.get('r2AutoSync') === '1',
-    r2LastSync: map.get('r2LastSync') || null
+    r2LastSync: map.get('r2LastSync') || null,
+    aiEnabled: map.get('aiEnabled') !== '0',
+    aiBaseUrl: map.get('aiBaseUrl') || DEFAULTS.aiBaseUrl,
+    aiModel: map.get('aiModel') || DEFAULTS.aiModel,
+    aiToken: map.get('aiToken') || '',
+    aiTimeoutMs: Number(map.get('aiTimeoutMs') ?? DEFAULTS.aiTimeoutMs) || DEFAULTS.aiTimeoutMs
   }
 }
 

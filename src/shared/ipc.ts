@@ -1,4 +1,10 @@
 import type {
+  AiQuickAddResponse,
+  AiSubtasksResponse,
+  AiSummaryResponse,
+  AiTestResult
+} from './ai'
+import type {
   AppInfo,
   ApplyTemplateInput,
   Counts,
@@ -80,7 +86,11 @@ export const IPC = {
   dataExport: 'data:export',
   dataImport: 'data:import',
   settingsGet: 'settings:get',
-  settingsSet: 'settings:set'
+  settingsSet: 'settings:set',
+  aiQuickAdd: 'ai:quick-add',
+  aiSubtasks: 'ai:subtasks',
+  aiSummary: 'ai:summary',
+  aiTest: 'ai:test'
 } as const
 
 export interface TickFlowApi {
@@ -161,5 +171,11 @@ export interface TickFlowApi {
   settings: {
     get(): Promise<Settings>
     set(patch: Partial<Settings>): Promise<Settings>
+  }
+  ai: {
+    parseQuickAdd(input: string): Promise<AiQuickAddResponse>
+    breakdownSubtasks(taskId: string): Promise<AiSubtasksResponse>
+    dailySummary(): Promise<AiSummaryResponse>
+    test(): Promise<AiTestResult>
   }
 }
