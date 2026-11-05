@@ -21,3 +21,6 @@ mobile/android/app/src/main/assets/public/
 mobile/android/app/src/main/assets/capacitor.config.json
 mobile/android/capacitor-cordova-android-plugins/
 mobile/android/.idea/
+
+# 本地循环运行日志
+tickflow.loop.log
