@@ -4,6 +4,8 @@ import {
   AI_DEFAULT_MODEL,
   aiConfigFromSettings,
   buildSummaryInput,
+  buildSummaryPrompt,
+  localDateKeyFromIso,
   normalizeAiModels,
   normalizeAiQuickAdd,
   parseAiJson,
@@ -289,7 +291,8 @@ describe('summarizeTodayWithAi', () => {
         priority: 3,
         dueDate: '2026-11-04',
         dueTime: '10:00',
-        listName: '工作'
+        listName: '工作',
+        overdue: true
       },
       {
         title: '整理会议纪要',
@@ -297,7 +300,8 @@ describe('summarizeTodayWithAi', () => {
         priority: 1,
         dueDate: '2026-11-05',
         dueTime: null,
-        listName: '工作'
+        listName: '工作',
+        overdue: false
       }
     ],
     completedCount: 1,
@@ -338,8 +342,21 @@ describe('summarizeTodayWithAi', () => {
   })
 })
 
+describe('localDateKeyFromIso', () => {
+  it('按本地时区归日，凌晨完成不会算到前一天', () => {
+    expect(localDateKeyFromIso(new Date(2026, 10, 5, 0, 30).toISOString())).toBe('2026-11-05')
+    expect(localDateKeyFromIso(new Date(2026, 10, 5, 23, 30).toISOString())).toBe('2026-11-05')
+  })
+
+  it('空值与非法时间戳返回 null', () => {
+    expect(localDateKeyFromIso(null)).toBeNull()
+    expect(localDateKeyFromIso('')).toBeNull()
+    expect(localDateKeyFromIso('not-a-date')).toBeNull()
+  })
+})
+
 describe('buildSummaryInput', () => {
-  it('只保留今日相关任务并统计完成/逾期', () => {
+  it('只保留今日待办与今日完成，并按本地时区统计完成数', () => {
     const base = {
       dueTime: null,
       listName: '收集箱',
@@ -355,16 +372,69 @@ describe('buildSummaryInput', () => {
         title: '今天完成',
         status: 'completed',
         dueDate: null,
-        completedAt: '2026-11-05T08:00:00.000Z'
+        completedAt: new Date(2026, 10, 5, 8, 0).toISOString()
       },
-      { ...base, id: '4', title: '以后的任务', status: 'open', dueDate: '2026-11-20' }
+      { ...base, id: '4', title: '以后的任务', status: 'open', dueDate: '2026-11-20' },
+      {
+        ...base,
+        id: '5',
+        title: '昨天完成但今天到期',
+        status: 'completed',
+        dueDate: '2026-11-05',
+        completedAt: new Date(2026, 10, 4, 20, 0).toISOString()
+      },
+      {
+        ...base,
+        id: '6',
+        title: '凌晨完成',
+        status: 'completed',
+        dueDate: null,
+        completedAt: new Date(2026, 10, 5, 0, 30).toISOString()
+      },
+      {
+        ...base,
+        id: '7',
+        title: '今天完成但未来到期',
+        status: 'completed',
+        dueDate: '2026-11-20',
+        completedAt: new Date(2026, 10, 5, 9, 0).toISOString()
+      }
     ] as unknown as TaskWithMeta[]
 
     const input = buildSummaryInput(tasks, '2026-11-05')
-    expect(input.tasks.map((task) => task.title)).toEqual(['今日任务', '逾期任务', '今天完成'])
+    expect(input.tasks.map((task) => task.title)).toEqual([
+      '今日任务',
+      '逾期任务',
+      '今天完成',
+      '凌晨完成',
+      '今天完成但未来到期'
+    ])
     expect(input.openCount).toBe(2)
-    expect(input.completedCount).toBe(1)
+    expect(input.completedCount).toBe(3)
     expect(input.overdueCount).toBe(1)
+    expect(input.tasks.find((task) => task.title === '逾期任务')?.overdue).toBe(true)
+    expect(input.tasks.find((task) => task.title === '今日任务')?.overdue).toBe(false)
+
+    const prompt = buildSummaryPrompt(input)
+    expect(prompt).toContain('"overdue":true')
+    expect(prompt).toContain('"dueDate":"2026-11-03"')
+  })
+
+  it('同一任务重复出现时只统计一次', () => {
+    const task = {
+      id: '1',
+      title: '重复任务',
+      status: 'open',
+      dueDate: '2026-11-05',
+      dueTime: null,
+      listName: '收集箱',
+      priority: 0,
+      completedAt: null
+    } as unknown as TaskWithMeta
+
+    const input = buildSummaryInput([task, task], '2026-11-05')
+    expect(input.tasks).toHaveLength(1)
+    expect(input.openCount).toBe(1)
   })
 })
 

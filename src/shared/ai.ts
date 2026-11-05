@@ -49,6 +49,8 @@ export interface AiSummaryTask {
   dueDate: string | null
   dueTime: string | null
   listName: string
+  /** 未完成且截止日期早于总结日期，供 AI 直接区分逾期项。 */
+  overdue: boolean
 }
 
 export interface AiSummaryInput {
@@ -147,6 +149,18 @@ function weekdayLabel(date: Date): string {
 export function describeAiError(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+/**
+ * 把数据库里的 ISO 时间戳（UTC）转成本地日期键。
+ * 直接截取 ISO 前 10 位会在 UTC+8 等时区把凌晨完成的任务算到前一天，
+ * 因此“今日完成”统计必须走本地时区；非法时间戳返回 null。
+ */
+export function localDateKeyFromIso(value: string | null | undefined): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return toDateKey(date)
 }
 
 /** 配置读取：设置页保存的值优先，缺省时回落到本机 CC Switch。 */
@@ -439,8 +453,10 @@ export function buildSummaryPrompt(input: AiSummaryInput): string {
         title: task.title,
         status: task.status,
         priority: task.priority,
+        dueDate: task.dueDate,
         dueTime: task.dueTime,
-        list: task.listName
+        list: task.listName,
+        overdue: task.overdue
       }))
     )}`,
     '请用中文写一份简短的今日计划总结，只返回 JSON，不要 Markdown 代码块或解释。',
@@ -462,11 +478,15 @@ export function buildSummaryInput(tasks: TaskWithMeta[], date: string): AiSummar
   const relevant: TaskWithMeta[] = []
   for (const task of tasks) {
     if (seen.has(task.id)) continue
+    // 完成时间在数据库中是 UTC ISO，必须换算成本地日期，
+    // 否则 UTC+8 凌晨完成的任务会被归到前一天。
     const completedToday =
-      task.status === 'completed' && Boolean(task.completedAt?.slice(0, 10) === date)
-    const dueTodayOrOverdue =
+      task.status === 'completed' && localDateKeyFromIso(task.completedAt) === date
+    // 只有未完成且截止日期不晚于今天的任务才算今日待办；
+    // 已完成任务只看完成时间，不因截止日期是今天而重复计入。
+    const openDueTodayOrOverdue =
       task.status === 'open' && Boolean(task.dueDate && task.dueDate <= date)
-    if (!completedToday && !dueTodayOrOverdue && task.dueDate !== date) continue
+    if (!completedToday && !openDueTodayOrOverdue) continue
     seen.add(task.id)
     relevant.push(task)
   }
@@ -477,16 +497,15 @@ export function buildSummaryInput(tasks: TaskWithMeta[], date: string): AiSummar
     priority: task.priority,
     dueDate: task.dueDate,
     dueTime: task.dueTime,
-    listName: task.listName
+    listName: task.listName,
+    overdue: task.status === 'open' && Boolean(task.dueDate && task.dueDate < date)
   }))
 
   return {
     date,
     tasks: rows,
-    completedCount: relevant.filter((task) => task.status === 'completed').length,
-    openCount: relevant.filter((task) => task.status === 'open').length,
-    overdueCount: relevant.filter(
-      (task) => task.status === 'open' && Boolean(task.dueDate && task.dueDate < date)
-    ).length
+    completedCount: rows.filter((task) => task.status === 'completed').length,
+    openCount: rows.filter((task) => task.status === 'open').length,
+    overdueCount: rows.filter((task) => task.overdue).length
   }
 }
