@@ -1,0 +1,145 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { parseQuickAdd } from '@shared/quick-add'
+import { describeRecurrence, formatDueLabel } from '../lib/format'
+import { PRIORITY_COLORS, PRIORITY_LABELS } from '../lib/colors'
+import { useAppStore } from '../store/useAppStore'
+import { Icon } from './Icon'
+
+interface QuickAddProps {
+  defaultListId: string
+  defaultDueDate?: string | null
+}
+
+export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps): React.ReactNode {
+  const lists = useAppStore((state) => state.lists)
+  const createTask = useAppStore((state) => state.createTask)
+  const showToast = useAppStore((state) => state.showToast)
+  const focusToken = useAppStore((state) => state.quickAddFocus)
+
+  const [value, setValue] = useState('')
+  const [focused, setFocused] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (focusToken > 0) inputRef.current?.focus()
+  }, [focusToken])
+
+  const parsed = useMemo(() => parseQuickAdd(value), [value])
+  const hasMeta =
+    Boolean(parsed.dueDate) ||
+    parsed.priority > 0 ||
+    parsed.tags.length > 0 ||
+    Boolean(parsed.listName) ||
+    Boolean(parsed.recurrence)
+
+  const resolveList = (name: string | null): (typeof lists)[number] | undefined => {
+    if (!name) return undefined
+    const lowered = name.toLowerCase()
+    return lists.find((list) => list.name.toLowerCase() === lowered)
+  }
+
+  const submit = async (): Promise<void> => {
+    const text = value.trim()
+    if (!text) return
+
+    const result = parseQuickAdd(text)
+    const matched = resolveList(result.listName)
+    const fallback =
+      lists.find((list) => list.id === defaultListId) ??
+      lists.find((list) => list.isInbox) ??
+      lists[0]
+
+    const target = matched ?? fallback
+    if (!target) {
+      showToast('没有可用清单，请先创建一个清单', 'error')
+      return
+    }
+    if (result.listName && !matched) {
+      showToast(`未找到清单「${result.listName}」，已放入「${target.name}」`, 'info')
+    }
+
+    const created = await createTask({
+      listId: target.id,
+      title: result.title,
+      priority: result.priority,
+      dueDate: result.dueDate ?? defaultDueDate ?? null,
+      dueTime: result.dueTime,
+      allDay: result.allDay,
+      recurrence: result.recurrence,
+      tagNames: result.tags
+    })
+
+    if (created) {
+      setValue('')
+      inputRef.current?.focus()
+    }
+  }
+
+  return (
+    <section className={`quick-add ${focused ? 'focused' : ''}`}>
+      <div className="quick-add-bar">
+        <Icon name="plus" size={17} className="quick-add-icon" />
+        <input
+          ref={inputRef}
+          className="quick-add-input"
+          value={value}
+          placeholder="添加任务，试试「明天下午3点 交周报 #工作 !高」"
+          onChange={(event) => setValue(event.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              void submit()
+            }
+          }}
+          aria-label="快速添加任务"
+        />
+        {value.trim() ? <kbd className="quick-add-enter">↵</kbd> : null}
+      </div>
+
+      {focused && hasMeta ? (
+        <div className="quick-add-preview">
+          {parsed.dueDate ? (
+            <span className="preview-chip">
+              <Icon name="calendar" size={12} />
+              {formatDueLabel(parsed.dueDate, parsed.dueTime, parsed.allDay)}
+            </span>
+          ) : null}
+          {parsed.recurrence ? (
+            <span className="preview-chip">
+              <Icon name="rotate" size={12} />
+              {describeRecurrence(parsed.recurrence)}
+            </span>
+          ) : null}
+          {parsed.priority > 0 ? (
+            <span
+              className="preview-chip"
+              style={{ color: PRIORITY_COLORS[parsed.priority] }}
+            >
+              <Icon name="flag" size={12} />
+              {PRIORITY_LABELS[parsed.priority]}优先级
+            </span>
+          ) : null}
+          {parsed.tags.map((tag) => (
+            <span className="preview-chip" key={tag}>
+              <Icon name="tag" size={12} />#{tag}
+            </span>
+          ))}
+          {parsed.listName ? (
+            <span className="preview-chip">
+              <Icon name="folder" size={12} />
+              {parsed.listName}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {focused ? (
+        <div className="quick-add-hint">
+          支持：明天下午 3 点 · 每周一 · #标签 · !高 · ~清单
+        </div>
+      ) : null}
+    </section>
+  )
+}
