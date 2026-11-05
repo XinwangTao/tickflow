@@ -10,6 +10,7 @@ import {
   buildSubtasksPrompt,
   buildSummaryPrompt,
   describeAiError,
+  filterNewSubtasks,
   isListNameMentioned,
   mergeQuickAddWithRule,
   normalizeAiQuickAdd,
@@ -87,10 +88,17 @@ export async function parseQuickAddWithAi(
 
 /** 子任务拆解：AI 失败时按换行/标点做规则拆分。 */
 export async function breakdownSubtasksWithAi(
-  task: { title: string; notes?: string; listName?: string },
+  task: {
+    title: string
+    notes?: string
+    listName?: string
+    existingSubtasks?: string[]
+  },
   runtime: AiRuntime
 ): Promise<AiSubtasksResponse> {
-  const fallback = ruleSubtasks(task)
+  // 主任务与已有子任务都不应重复创建；重复点击 AI 拆解时也能保持幂等。
+  const excludedTitles = [task.title, ...(task.existingSubtasks ?? [])]
+  const fallback = filterNewSubtasks(ruleSubtasks(task), excludedTitles)
   if (disabledConfig(runtime.config) || !task.title.trim()) {
     return {
       ok: false,
@@ -111,9 +119,15 @@ export async function breakdownSubtasksWithAi(
       },
       { fetch: runtime.fetch }
     )
-    const subtasks = normalizeAiSubtasks(parseAiJson(text))
-    if (!subtasks) throw new Error('AI 返回结构无法识别')
-    return { ok: true, source: 'ai', subtasks, warning: null }
+    const parsed = normalizeAiSubtasks(parseAiJson(text))
+    if (!parsed) throw new Error('AI 返回结构无法识别')
+    const subtasks = filterNewSubtasks(parsed, excludedTitles)
+    return {
+      ok: true,
+      source: 'ai',
+      subtasks,
+      warning: subtasks.length === 0 ? 'AI 返回的子任务均已存在，未重复添加' : null
+    }
   } catch (error) {
     return {
       ok: false,

@@ -372,6 +372,34 @@ export function mergeQuickAddWithRule(
   }
 }
 
+function normalizeSubtaskTitle(title: string | null | undefined): string {
+  return typeof title === 'string' ? title.replace(/\s+/g, '').toLowerCase() : ''
+}
+
+/**
+ * 过滤掉与主任务或已有子任务重名（忽略大小写与空白）的拆解结果。
+ * 重复点击 AI 拆解或模型重复建议时，避免给同一任务反复添加相同子任务。
+ */
+export function filterNewSubtasks(
+  drafts: AiSubtaskDraft[],
+  existingTitles: Array<string | null | undefined>
+): AiSubtaskDraft[] {
+  const seen = new Set<string>()
+  for (const title of existingTitles) {
+    const key = normalizeSubtaskTitle(title)
+    if (key) seen.add(key)
+  }
+
+  const result: AiSubtaskDraft[] = []
+  for (const draft of drafts) {
+    const key = normalizeSubtaskTitle(draft.title)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(draft)
+  }
+  return result
+}
+
 /** 校验 AI 拆解结果，兼容 {subtasks:[...]} 与纯数组两种输出。 */
 export function normalizeAiSubtasks(raw: unknown): AiSubtaskDraft[] | null {
   const items = Array.isArray(raw)
@@ -391,7 +419,10 @@ export function normalizeAiSubtasks(raw: unknown): AiSubtaskDraft[] | null {
           : null
     if (!record) continue
     const title = typeof record.title === 'string' ? record.title.trim() : ''
-    if (!title || drafts.some((draft) => draft.title === title)) continue
+    const titleKey = normalizeSubtaskTitle(title)
+    if (!title || drafts.some((draft) => normalizeSubtaskTitle(draft.title) === titleKey)) {
+      continue
+    }
     const dueTime = normalizeTime(record.dueTime)
     drafts.push({
       title,
@@ -506,14 +537,20 @@ export function buildSubtasksPrompt(input: {
   title: string
   notes?: string
   listName?: string
+  existingSubtasks?: string[]
 }): string {
+  const existing = (input.existingSubtasks ?? [])
+    .map((title) => title.trim())
+    .filter(Boolean)
+    .slice(0, 30)
   return [
     `主任务：${input.title}`,
     input.listName ? `所属清单：${input.listName}` : '',
     input.notes ? `备注：${input.notes}` : '',
+    existing.length ? `已有子任务（不要重复，也不要改写）：${existing.join('、')}` : '',
     '请把主任务拆解为 3-8 个可独立执行的子任务，只返回 JSON，不要 Markdown 代码块或解释。',
     '格式：{"subtasks":[{"title":"子任务标题","priority":0}]}。priority 为 0-3，可省略。',
-    '子任务要具体、动词开头、彼此不重复；不要输出与主任务同名的条目。'
+    '子任务要具体、动词开头、彼此不重复；不要输出与主任务或已有子任务同名的条目。'
   ]
     .filter(Boolean)
     .join('\n')

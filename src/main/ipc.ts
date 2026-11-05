@@ -199,8 +199,14 @@ export function registerIpc(): void {
     const db = getDb()
     const task = taskRepo.getTaskWithMeta(db, taskId)
     if (!task) throw new Error('任务不存在')
+    const existing = taskRepo.queryTasks(db, { view: 'subtasks', parentId: taskId })
     return breakdownSubtasksWithAi(
-      { title: task.title, notes: task.notes, listName: task.listName },
+      {
+        title: task.title,
+        notes: task.notes,
+        listName: task.listName,
+        existingSubtasks: existing.map((item) => item.title)
+      },
       { config: aiConfigFromSettings(settingsRepo.getSettings(db)) }
     )
   })

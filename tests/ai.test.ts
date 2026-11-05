@@ -8,8 +8,10 @@ import {
   AI_SUMMARY_MAX_TOKENS,
   aiConfigFromSettings,
   buildQuickAddPrompt,
+  buildSubtasksPrompt,
   buildSummaryInput,
   buildSummaryPrompt,
+  filterNewSubtasks,
   isListNameMentioned,
   localDateKeyFromIso,
   mergeQuickAddWithRule,
@@ -528,6 +530,95 @@ describe('breakdownSubtasksWithAi', () => {
 
   it('规则拆解不会返回与主任务同名的子任务', () => {
     expect(ruleSubtasks({ title: '写周报' })).toEqual([])
+  })
+
+  it('已有子任务会写进提示词，并要求模型不要重复', () => {
+    const prompt = buildSubtasksPrompt({
+      title: '准备季度汇报',
+      notes: '收集数据；写幻灯片',
+      existingSubtasks: ['收集数据', '   ', '预约会议室']
+    })
+    expect(prompt).toContain('已有子任务（不要重复，也不要改写）：收集数据、预约会议室')
+    expect(prompt).toContain('不要输出与主任务或已有子任务同名')
+  })
+
+  it('过滤掉与主任务或已有子任务重名（忽略大小写和空白）的条目', () => {
+    const drafts = [
+      { title: '收集数据', priority: 0 as const, dueDate: null, dueTime: null, allDay: true },
+      { title: '写 幻灯片', priority: 0 as const, dueDate: null, dueTime: null, allDay: true },
+      { title: '预约会议室', priority: 0 as const, dueDate: null, dueTime: null, allDay: true },
+      { title: '写幻灯片', priority: 0 as const, dueDate: null, dueTime: null, allDay: true }
+    ]
+    expect(
+      filterNewSubtasks(drafts, ['准备季度汇报', ' 收集数据 ', '写幻灯片']).map(
+        (draft) => draft.title
+      )
+    ).toEqual(['预约会议室'])
+  })
+
+  it('AI 返回重复或已有子任务时只保留新条目', async () => {
+    let prompt = ''
+    const response = await breakdownSubtasksWithAi(
+      {
+        title: '准备季度汇报',
+        notes: '收集数据；写幻灯片',
+        existingSubtasks: ['收集数据']
+      },
+      {
+        config: CONFIG,
+        fetch: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }
+          prompt = body.messages[0].content
+          return textResponse(
+            JSON.stringify({
+              subtasks: [
+                { title: '准备季度汇报' },
+                { title: '收集数据' },
+                { title: '写幻灯片' }
+              ]
+            })
+          )
+        }
+      }
+    )
+
+    expect(prompt).toContain('已有子任务（不要重复，也不要改写）：收集数据')
+    expect(response.ok).toBe(true)
+    expect(response.source).toBe('ai')
+    expect(response.subtasks.map((item) => item.title)).toEqual(['写幻灯片'])
+    expect(response.warning).toBeNull()
+  })
+
+  it('AI 返回的子任务全部已存在时不再重复添加', async () => {
+    const response = await breakdownSubtasksWithAi(
+      { title: '准备季度汇报', existingSubtasks: ['收集数据', '写幻灯片'] },
+      {
+        config: CONFIG,
+        fetch: async () =>
+          textResponse(
+            JSON.stringify({ subtasks: [{ title: '收集数据' }, { title: '写 幻灯片' }] })
+          )
+      }
+    )
+
+    expect(response.ok).toBe(true)
+    expect(response.subtasks).toEqual([])
+    expect(response.warning).toContain('均已存在')
+  })
+
+  it('规则降级同样跳过已有子任务', async () => {
+    const response = await breakdownSubtasksWithAi(
+      {
+        title: '准备季度汇报',
+        notes: '1. 收集数据；2. 写幻灯片；3. 预约会议室',
+        existingSubtasks: ['收集数据']
+      },
+      { config: CONFIG, fetch: failFetch('timeout') }
+    )
+
+    expect(response.ok).toBe(false)
+    expect(response.source).toBe('rule')
+    expect(response.subtasks.map((item) => item.title)).toEqual(['写幻灯片', '预约会议室'])
   })
 })
 

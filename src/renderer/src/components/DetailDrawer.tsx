@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import type { Attachment, Priority, Reminder, TaskWithMeta } from '@shared/types'
+import { filterNewSubtasks } from '@shared/ai'
 import { fromDateKey, todayKey } from '@shared/dates'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../lib/colors'
 import {
@@ -109,12 +110,25 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
           'info',
           { duration: 5000 }
         )
+      } else if (response.warning) {
+        showToast(response.warning, 'info', { duration: 5000 })
       }
-      if (response.subtasks.length === 0) {
-        showToast('没有可拆解的内容，请补充任务备注或手动添加子任务', 'info')
+      // 主进程已按数据库现有子任务过滤；这里再按当前面板状态兜底，
+      // 避免连续点击或列表刚好刷新时写入重复子任务。
+      const drafts = filterNewSubtasks(
+        response.subtasks,
+        [task.title, ...subtasks.map((item) => item.title)]
+      )
+      if (drafts.length === 0) {
+        showToast(
+          response.ok
+            ? '没有新的子任务可添加，可能已存在或内容不足'
+            : '没有可拆解的内容，请补充任务备注或手动添加子任务',
+          'info'
+        )
         return
       }
-      for (const draft of response.subtasks) {
+      for (const draft of drafts) {
         await window.api.tasks.create({
           listId: task.listId,
           parentId: task.id,
