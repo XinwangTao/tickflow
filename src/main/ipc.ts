@@ -26,6 +26,7 @@ import {
 } from './attachments'
 import {
   breakdownSubtasksWithAi,
+  listAiModels,
   parseQuickAddWithAi,
   summarizeTodayWithAi,
   testAiConnection
@@ -213,6 +214,9 @@ export function registerIpc(): void {
       config: aiConfigFromSettings(settingsRepo.getSettings(db))
     })
   })
+  ipcMain.handle(IPC.aiModels, () =>
+    listAiModels(aiConfigFromSettings(settingsRepo.getSettings(getDb())))
+  )
   ipcMain.handle(IPC.aiTest, () =>
     testAiConnection(aiConfigFromSettings(settingsRepo.getSettings(getDb())))
   )

@@ -14,13 +14,14 @@ import {
   ruleQuickAdd,
   ruleSubtasks,
   type AiConfig,
+  type AiModelsResult,
   type AiQuickAddResponse,
   type AiSubtasksResponse,
   type AiSummaryInput,
   type AiSummaryResponse,
   type AiTestResult
 } from '@shared/ai'
-import { requestAiText, type FetchLike } from './ai-client'
+import { requestAiModels, requestAiText, type FetchLike } from './ai-client'
 
 export interface AiRuntime {
   config: AiConfig
@@ -144,6 +145,26 @@ export async function summarizeTodayWithAi(
   }
 }
 
+/** 拉取本机模型目录：不要求已选模型，方便用户先发现再填写。 */
+export async function listAiModels(
+  config: AiConfig,
+  options: { fetch?: FetchLike } = {}
+): Promise<AiModelsResult> {
+  if (!config.baseUrl.trim()) {
+    return { ok: false, models: [], message: '未配置 AI Base URL' }
+  }
+  try {
+    const models = await requestAiModels(config, { fetch: options.fetch })
+    return { ok: true, models, message: `已获取 ${models.length} 个本机模型` }
+  } catch (error) {
+    return {
+      ok: false,
+      models: [],
+      message: `获取模型列表失败：${describeAiError(error)}`
+    }
+  }
+}
+
 /** 设置页“测试连接”：发一条最小请求，返回模型与耗时。 */
 export async function testAiConnection(
   config: AiConfig,
@@ -158,8 +179,9 @@ export async function testAiConnection(
       config,
       {
         system: '你只需回复 OK。',
-        prompt: '回复 OK',
-        maxTokens: 16,
+        prompt: 'Reply with exactly: OK',
+        // 推理模型会先用掉一部分 token 生成 thinking 块，预算过小会只剩 thinking。
+        maxTokens: 256,
         temperature: 0
       },
       { fetch: options.fetch }

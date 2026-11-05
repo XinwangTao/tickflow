@@ -4,6 +4,7 @@ import {
   AI_DEFAULT_MODEL,
   aiConfigFromSettings,
   buildSummaryInput,
+  normalizeAiModels,
   normalizeAiQuickAdd,
   parseAiJson,
   ruleSubtasks,
@@ -12,11 +13,12 @@ import {
 } from '../src/shared/ai'
 import {
   breakdownSubtasksWithAi,
+  listAiModels,
   parseQuickAddWithAi,
   summarizeTodayWithAi,
   testAiConnection
 } from '../src/main/ai'
-import type { FetchLike } from '../src/main/ai-client'
+import { resolveModelsUrl, type FetchLike } from '../src/main/ai-client'
 import type { TaskWithMeta } from '../src/shared/types'
 
 const NOW = new Date(2026, 10, 5, 9, 0, 0)
@@ -39,6 +41,12 @@ function responseWith(payload: unknown): Response {
 
 function textResponse(text: string): Response {
   return responseWith({ content: [{ type: 'text', text }] })
+}
+
+function modelsResponse(ids: string[]): Response {
+  return responseWith({
+    data: ids.map((id) => ({ type: 'model', id, display_name: id.split('--').pop() }))
+  })
 }
 
 function failFetch(message = 'connect ECONNREFUSED'): FetchLike {
@@ -90,6 +98,34 @@ describe('normalizeAiQuickAdd', () => {
     const result = normalizeAiQuickAdd({ title: '写周报', dueDate: '2026-02-30' }, NOW)
     expect(result?.dueDate).toBeNull()
     expect(normalizeAiQuickAdd({ title: '  ' }, NOW)).toBeNull()
+  })
+})
+
+describe('normalizeAiModels', () => {
+  it('逐字保留 /v1/models 的 id，并去重', () => {
+    const models = normalizeAiModels({
+      data: [
+        { id: 'ccs-claude-openai--glm-5.3-flash', display_name: 'glm-5.3-flash' },
+        { id: ' ccs-claude-openai--glm-5.3-flash ' },
+        { id: 'ccs-claude-cn222--kimi-k2.7-code', displayName: 'kimi' },
+        { id: '' }
+      ]
+    })
+    expect(models).toEqual([
+      { id: 'ccs-claude-openai--glm-5.3-flash', displayName: 'glm-5.3-flash' },
+      { id: 'ccs-claude-cn222--kimi-k2.7-code', displayName: 'kimi' }
+    ])
+  })
+
+  it('兼容纯数组与字符串条目，非法结构返回空数组', () => {
+    expect(normalizeAiModels(['model-a', { id: 'model-b' }])).toEqual([
+      { id: 'model-a', displayName: null },
+      { id: 'model-b', displayName: null }
+    ])
+    expect(normalizeAiModels({ models: [{ id: 'model-c' }] })).toEqual([
+      { id: 'model-c', displayName: null }
+    ])
+    expect(normalizeAiModels({ nope: true })).toEqual([])
   })
 })
 
@@ -332,12 +368,56 @@ describe('buildSummaryInput', () => {
   })
 })
 
+describe('listAiModels', () => {
+  it('从本机 /v1/models 拉取逐字一致的模型 id', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const result = await listAiModels(CONFIG, {
+      fetch: async (url, init) => {
+        calls.push({ url, init })
+        return modelsResponse([AI_DEFAULT_MODEL, 'ccs-claude-cn222--kimi-k2.7-code'])
+      }
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.models.map((model) => model.id)).toEqual([
+      AI_DEFAULT_MODEL,
+      'ccs-claude-cn222--kimi-k2.7-code'
+    ])
+    expect(calls[0].url).toBe('http://127.0.0.1:15721/v1/models')
+    expect(calls[0].init?.method).toBe('GET')
+    const headers = calls[0].init?.headers as Record<string, string>
+    expect(headers['anthropic-version']).toBe('2023-06-01')
+    expect(headers['x-api-key']).toBe('local-token')
+  })
+
+  it('兼容填写到 /v1 的 Base URL', () => {
+    expect(resolveModelsUrl('http://127.0.0.1:15721/v1/')).toBe(
+      'http://127.0.0.1:15721/v1/models'
+    )
+    expect(resolveModelsUrl('')).toBe('http://127.0.0.1:15721/v1/models')
+  })
+
+  it('服务不可用时返回可展示的错误而不抛错', async () => {
+    const result = await listAiModels(CONFIG, { fetch: failFetch('服务未启动') })
+    expect(result.ok).toBe(false)
+    expect(result.models).toEqual([])
+    expect(result.message).toContain('服务未启动')
+  })
+})
+
 describe('testAiConnection', () => {
-  it('成功时返回模型与耗时', async () => {
-    const result = await testAiConnection(CONFIG, { fetch: async () => textResponse('OK') })
+  it('成功时返回模型与耗时，并给推理模型留足 token', async () => {
+    let body: Record<string, unknown> = {}
+    const result = await testAiConnection(CONFIG, {
+      fetch: async (_url, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return textResponse('OK')
+      }
+    })
     expect(result.ok).toBe(true)
     expect(result.model).toBe(AI_DEFAULT_MODEL)
     expect(result.latencyMs).toBeGreaterThanOrEqual(0)
+    expect(Number(body.max_tokens)).toBeGreaterThanOrEqual(256)
   })
 
   it('失败时返回可展示的错误信息', async () => {

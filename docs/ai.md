@@ -19,12 +19,18 @@ AI 只提供增强：超时、服务未启动、模型报错或返回结构非�
 
 设置保存在本机 SQLite 的 `settings` 表，Token 不会上传或写入日志。
 
+设置页「模型 ID」右侧提供 **获取模型列表**：点击后请求本机 `GET /v1/models`，
+把返回的 `id` 原样放进下拉框，避免手工抄写出大小写或分隔符错误。若当前填写的
+模型不在目录中，设置页会给出提示。
+
 ### 查看本机可用模型
 
 ```bash
 curl -s http://127.0.0.1:15721/v1/models \
   -H "anthropic-version: 2023-06-01"
 ```
+
+也可以直接在设置页点「获取模型列表」，无需手动执行命令。
 
 当前环境验证可用的示例 `id`（直接照抄，不要改大小写或分隔符）：
 
@@ -65,6 +71,17 @@ authorization: Bearer <aiToken，可选>
 
 非 2xx 响应会抛出 `AI 接口返回 <status>：<前 200 字符>`；超时抛出 `AI 请求超时`。
 错误信息最终只用于 toast 与降级原因展示，不会中断操作。
+
+### 模型目录
+
+`GET {baseUrl}/v1/models`，请求头同上。客户端兼容 `{ "data": [...] }` 与纯数组，
+只读取 `id`（逐字保留）与可选的 `display_name`，去重后最多返回 200 个。
+非 2xx 返回 `AI 模型列表返回 <status>：<前 200 字符>`，超时返回
+`AI 模型列表请求超时`；设置页会把这些信息直接展示在 toast 中。
+
+「测试连接」会发送一条 `max_tokens: 256` 的最小请求。推理模型会先输出 thinking
+块，预算过小（例如 16）时可能只有 thinking 没有正文，从而误报失败；256 能覆盖
+thinking + 简短回复。
 
 ## 3. 三个首批功能
 
@@ -123,9 +140,9 @@ authorization: Bearer <aiToken，可选>
 | 文件 | 职责 |
 | --- | --- |
 | `src/shared/ai.ts` | 类型、默认值、提示词、JSON 提取、归一化、规则降级 |
-| `src/main/ai-client.ts` | `/v1/messages` 请求、鉴权头、超时、响应文本提取 |
-| `src/main/ai.ts` | 三个功能的编排与降级、连接测试 |
-| `src/main/ipc.ts` | `ai:quick-add` / `ai:subtasks` / `ai:summary` / `ai:test` |
+| `src/main/ai-client.ts` | `/v1/messages` 与 `/v1/models` 请求、鉴权头、超时、响应文本提取 |
+| `src/main/ai.ts` | 三个功能的编排与降级、模型列表、连接测试 |
+| `src/main/ipc.ts` | `ai:quick-add` / `ai:subtasks` / `ai:summary` / `ai:models` / `ai:test` |
 | `src/renderer/src/components/QuickAdd.tsx` | AI 快速添加入口 |
 | `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口 |
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片 |
@@ -135,7 +152,7 @@ authorization: Bearer <aiToken，可选>
 
 ```bash
 npm run typecheck
-npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败、非法 JSON、开关关闭等路径
+npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败、非法 JSON、模型目录、开关关闭等路径
 ```
 
 手工验证 AI 连通性：设置页点击「测试连接」，或执行：
@@ -144,7 +161,7 @@ npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败�
 curl -s http://127.0.0.1:15721/v1/messages \
   -H "content-type: application/json" \
   -H "anthropic-version: 2023-06-01" \
-  -d '{"model":"ccs-claude-openai--ccs-claude-openai-2--glm-5.3-flash","max_tokens":16,"messages":[{"role":"user","content":"回复 OK"}]}'
+  -d '{"model":"ccs-claude-openai--ccs-claude-openai-2--glm-5.3-flash","max_tokens":256,"messages":[{"role":"user","content":"Reply with exactly: OK"}]}'
 ```
 
 ## 6. 隐私与边界

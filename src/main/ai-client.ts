@@ -1,4 +1,9 @@
-import { AI_ANTHROPIC_VERSION, type AiConfig } from '@shared/ai'
+import {
+  AI_ANTHROPIC_VERSION,
+  normalizeAiModels,
+  type AiConfig,
+  type AiModelInfo
+} from '@shared/ai'
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -20,6 +25,27 @@ export function resolveMessagesUrl(baseUrl: string): string {
   if (!base) base = 'http://127.0.0.1:15721'
   if (base.endsWith('/v1')) return `${base}/messages`
   return `${base}/v1/messages`
+}
+
+/** 拼接 /v1/models 地址，规则与 messages 一致。 */
+export function resolveModelsUrl(baseUrl: string): string {
+  let base = (baseUrl || '').trim()
+  while (base.endsWith('/')) base = base.slice(0, -1)
+  if (!base) base = 'http://127.0.0.1:15721'
+  if (base.endsWith('/v1')) return `${base}/models`
+  return `${base}/v1/models`
+}
+
+function aiHeaders(config: AiConfig): Record<string, string> {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'anthropic-version': AI_ANTHROPIC_VERSION
+  }
+  if (config.token) {
+    headers['x-api-key'] = config.token
+    headers.authorization = `Bearer ${config.token}`
+  }
+  return headers
 }
 
 /** 从 Anthropic content blocks（兼容 OpenAI choices）中提取纯文本。 */
@@ -66,14 +92,7 @@ export async function requestAiText(
   const timer = setTimeout(() => controller.abort(), timeout)
 
   try {
-    const headers: Record<string, string> = {
-      'content-type': 'application/json',
-      'anthropic-version': AI_ANTHROPIC_VERSION
-    }
-    if (config.token) {
-      headers['x-api-key'] = config.token
-      headers.authorization = `Bearer ${config.token}`
-    }
+    const headers = aiHeaders(config)
 
     const body = JSON.stringify({
       model: config.model,
@@ -107,6 +126,46 @@ export async function requestAiText(
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('AI 请求超时')
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 读取本机 /v1/models 目录，返回逐字一致的模型 id 供设置页选择。 */
+export async function requestAiModels(
+  config: AiConfig,
+  options: AiClientOptions = {}
+): Promise<AiModelInfo[]> {
+  const fetchImpl = options.fetch ?? fetch
+  const controller = new AbortController()
+  const timeout = config.timeoutMs > 0 ? config.timeoutMs : 15_000
+  const timer = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetchImpl(resolveModelsUrl(config.baseUrl), {
+      method: 'GET',
+      headers: aiHeaders(config),
+      signal: controller.signal
+    })
+
+    if (!response.ok) {
+      let detail = ''
+      try {
+        detail = (await response.text()).slice(0, 200)
+      } catch {
+        detail = ''
+      }
+      throw new Error(`AI 模型列表返回 ${response.status}${detail ? `：${detail}` : ''}`)
+    }
+
+    const models = normalizeAiModels(await response.json())
+    if (models.length === 0) throw new Error('AI 模型列表为空')
+    return models
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('AI 模型列表请求超时')
     }
     throw error
   } finally {

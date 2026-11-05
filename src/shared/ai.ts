@@ -79,6 +79,55 @@ export interface AiTestResult {
   latencyMs?: number
 }
 
+export interface AiModelInfo {
+  id: string
+  displayName: string | null
+}
+
+export interface AiModelsResult {
+  ok: boolean
+  models: AiModelInfo[]
+  message: string
+}
+
+/** 解析 /v1/models：兼容 Anthropic 的 { data: [...] } 与纯数组，id 保持逐字不变。 */
+export function normalizeAiModels(raw: unknown): AiModelInfo[] {
+  const payload =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : null
+  const items = Array.isArray(raw)
+    ? raw
+    : Array.isArray(payload?.data)
+      ? (payload.data as unknown[])
+      : Array.isArray(payload?.models)
+        ? (payload.models as unknown[])
+        : []
+  const models: AiModelInfo[] = []
+  const seen = new Set<string>()
+  for (const item of items) {
+    const record =
+      typeof item === 'string'
+        ? { id: item }
+        : item && typeof item === 'object'
+          ? (item as Record<string, unknown>)
+          : null
+    if (!record) continue
+    const id = typeof record.id === 'string' ? record.id.trim() : ''
+    if (!id || seen.has(id)) continue
+    const display =
+      typeof record.display_name === 'string'
+        ? record.display_name.trim()
+        : typeof record.displayName === 'string'
+          ? record.displayName.trim()
+          : ''
+    seen.add(id)
+    models.push({ id, displayName: display || null })
+    if (models.length >= 200) break
+  }
+  return models
+}
+
 const PRIORITY_BY_TEXT: Record<string, Priority> = {
   高: 3,
   紧急: 3,

@@ -3,7 +3,8 @@ import type { AppInfo } from '@shared/types'
 import {
   AI_DEFAULT_BASE_URL,
   AI_DEFAULT_MODEL,
-  AI_DEFAULT_TIMEOUT_MS
+  AI_DEFAULT_TIMEOUT_MS,
+  type AiModelInfo
 } from '@shared/ai'
 import { R2_CORS_POLICY } from '@shared/r2-cors'
 import { LIST_COLORS } from '../lib/colors'
@@ -46,6 +47,8 @@ export function SettingsDialog(): React.ReactNode {
     timeoutMs: String(settings.aiTimeoutMs)
   })
   const [aiTesting, setAiTesting] = useState(false)
+  const [aiModels, setAiModels] = useState<AiModelInfo[]>([])
+  const [aiModelsBusy, setAiModelsBusy] = useState(false)
 
   useEffect(() => {
     void window.api.app.info().then(setInfo)
@@ -99,6 +102,20 @@ export function SettingsDialog(): React.ReactNode {
       showToast(`AI 连接测试失败：${String(error)}`, 'error', { duration: 6000 })
     } finally {
       setAiTesting(false)
+    }
+  }
+
+  const loadAiModels = async (): Promise<void> => {
+    await saveAi()
+    setAiModelsBusy(true)
+    try {
+      const result = await window.api.ai.models()
+      if (result.ok) setAiModels(result.models)
+      showToast(result.message, result.ok ? 'success' : 'error', { duration: 6000 })
+    } catch (error) {
+      showToast(`获取模型列表失败：${String(error)}`, 'error', { duration: 6000 })
+    } finally {
+      setAiModelsBusy(false)
     }
   }
 
@@ -290,6 +307,26 @@ export function SettingsDialog(): React.ReactNode {
               onChange={(event) => setAi({ ...ai, model: event.target.value })}
             />
           </label>
+          {aiModels.length > 0 ? (
+            <label className="field sync-grid-wide">
+              <span className="field-label">本机模型（{aiModels.length}）</span>
+              <select
+                className="input"
+                value={aiModels.some((model) => model.id === ai.model) ? ai.model : ''}
+                onChange={(event) => {
+                  if (event.target.value) setAi({ ...ai, model: event.target.value })
+                }}
+              >
+                <option value="">从 /v1/models 选择模型…</option>
+                {aiModels.map((model) => (
+                  <option value={model.id} key={model.id}>
+                    {model.id}
+                    {model.displayName ? ` · ${model.displayName}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="field">
             <span className="field-label">Token（可选）</span>
             <input
@@ -312,6 +349,12 @@ export function SettingsDialog(): React.ReactNode {
             />
           </label>
         </div>
+        {aiModels.length > 0 &&
+        !aiModels.some((model) => model.id === ai.model) ? (
+          <p className="field-hint">
+            当前模型不在本机 /v1/models 列表里，请从上方选择或核对大小写与分隔符。
+          </p>
+        ) : null}
         <div className="settings-actions">
           <button type="button" className="btn" onClick={() => void saveAi()}>
             保存 AI 配置
@@ -324,10 +367,18 @@ export function SettingsDialog(): React.ReactNode {
           >
             {aiTesting ? '测试中…' : '测试连接'}
           </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={aiModelsBusy}
+            onClick={() => void loadAiModels()}
+          >
+            {aiModelsBusy ? '获取中…' : '获取模型列表'}
+          </button>
         </div>
         <p className="settings-note">
           默认连接本机 CC Switch（{AI_DEFAULT_BASE_URL}）。模型名需与 /v1/models 返回的 id
-          完全一致；AI 超时或不可用时会自动回落到本地规则解析，不影响任务创建。
+          完全一致，可点「获取模型列表」直接从本机目录选择；AI 超时或不可用时会自动回落到本地规则解析，不影响任务创建。
         </p>
       </section>
 

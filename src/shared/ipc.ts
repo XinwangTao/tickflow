@@ -1,4 +1,5 @@
 import type {
+  AiModelsResult,
   AiQuickAddResponse,
   AiSubtasksResponse,
   AiSummaryResponse,
@@ -101,6 +102,7 @@ export const IPC = {
   aiQuickAdd: 'ai:quick-add',
   aiSubtasks: 'ai:subtasks',
   aiSummary: 'ai:summary',
+  aiModels: 'ai:models',
   aiTest: 'ai:test'
 } as const
 
@@ -198,6 +200,7 @@ export interface TickFlowApi {
     parseQuickAdd(input: string): Promise<AiQuickAddResponse>
     breakdownSubtasks(taskId: string): Promise<AiSubtasksResponse>
     dailySummary(): Promise<AiSummaryResponse>
+    models(): Promise<AiModelsResult>
     test(): Promise<AiTestResult>
   }
 }
