@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  AI_CONNECTION_MAX_TOKENS,
   AI_DEFAULT_BASE_URL,
   AI_DEFAULT_MODEL,
+  AI_QUICK_ADD_MAX_TOKENS,
+  AI_SUBTASKS_MAX_TOKENS,
+  AI_SUMMARY_MAX_TOKENS,
   aiConfigFromSettings,
   buildQuickAddPrompt,
   buildSummaryInput,
@@ -319,6 +323,7 @@ describe('parseQuickAddWithAi', () => {
     expect(headers['x-api-key']).toBe('local-token')
     const body = JSON.parse(String(calls[0].init?.body)) as Record<string, unknown>
     expect(body.model).toBe(AI_DEFAULT_MODEL)
+    expect(body.max_tokens).toBe(AI_QUICK_ADD_MAX_TOKENS)
     expect(body.messages).toBeTruthy()
   })
 
@@ -461,16 +466,36 @@ describe('parseQuickAddWithAi', () => {
     expect(response.ok).toBe(false)
     expect(response.result.title).toBe('写周报')
   })
+
+  it('模型只返回 thinking 时提示输出预算不足并降级', async () => {
+    const response = await parseQuickAddWithAi('写周报', [], {
+      config: CONFIG,
+      now: NOW,
+      fetch: async () =>
+        responseWith({
+          content: [{ type: 'thinking', thinking: '先想一下…' }],
+          stop_reason: 'max_tokens'
+        })
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.source).toBe('rule')
+    expect(response.result.title).toBe('写周报')
+    expect(response.warning).toContain('推理过程')
+    expect(response.warning).toContain('输出预算不足')
+  })
 })
 
 describe('breakdownSubtasksWithAi', () => {
   it('解析 AI 返回的子任务', async () => {
+    let body: Record<string, unknown> = {}
     const response = await breakdownSubtasksWithAi(
       { title: '准备季度汇报', notes: '收集数据；写幻灯片', listName: '工作' },
       {
         config: CONFIG,
-        fetch: async () =>
-          textResponse(
+        fetch: async (_url, init) => {
+          body = JSON.parse(String(init?.body)) as Record<string, unknown>
+          return textResponse(
             JSON.stringify({
               subtasks: [
                 { title: '收集数据', priority: 2 },
@@ -478,6 +503,7 @@ describe('breakdownSubtasksWithAi', () => {
               ]
             })
           )
+        }
       }
     )
 
@@ -485,6 +511,7 @@ describe('breakdownSubtasksWithAi', () => {
     expect(response.source).toBe('ai')
     expect(response.subtasks.map((item) => item.title)).toEqual(['收集数据', '写幻灯片'])
     expect(response.subtasks[0].priority).toBe(2)
+    expect(body.max_tokens).toBe(AI_SUBTASKS_MAX_TOKENS)
   })
 
   it('AI 不可用时按备注换行/分号规则拆解', async () => {
@@ -533,22 +560,26 @@ describe('summarizeTodayWithAi', () => {
   }
 
   it('解析 AI 总结', async () => {
+    let body: Record<string, unknown> = {}
     const response = await summarizeTodayWithAi(input, {
       config: CONFIG,
-      fetch: async () =>
-        textResponse(
+      fetch: async (_url, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return textResponse(
           JSON.stringify({
             summary: '今天有 1 个逾期任务需要优先处理。',
             highlights: ['交周报已逾期'],
             suggestions: ['先完成交周报']
           })
         )
+      }
     })
 
     expect(response.ok).toBe(true)
     expect(response.source).toBe('ai')
     expect(response.summary.summary).toContain('逾期')
     expect(response.summary.suggestions).toEqual(['先完成交周报'])
+    expect(body.max_tokens).toBe(AI_SUMMARY_MAX_TOKENS)
   })
 
   it('AI 不可用时生成基于统计的本地总结', async () => {
@@ -710,7 +741,8 @@ describe('testAiConnection', () => {
     expect(result.ok).toBe(true)
     expect(result.model).toBe(AI_DEFAULT_MODEL)
     expect(result.latencyMs).toBeGreaterThanOrEqual(0)
-    expect(Number(body.max_tokens)).toBeGreaterThanOrEqual(256)
+    expect(Number(body.max_tokens)).toBe(AI_CONNECTION_MAX_TOKENS)
+    expect(AI_CONNECTION_MAX_TOKENS).toBeGreaterThanOrEqual(512)
   })
 
   it('失败时返回可展示的错误信息', async () => {

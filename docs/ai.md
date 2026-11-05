@@ -58,7 +58,7 @@ authorization: Bearer <aiToken，可选>
 ```json
 {
   "model": "ccs-claude-openai--ccs-claude-openai-2--glm-5.3-flash",
-  "max_tokens": 600,
+  "max_tokens": 1200,
   "temperature": 0.1,
   "system": "你是任务管理应用 TickFlow 的解析器。你只输出严格 JSON。",
   "messages": [{ "role": "user", "content": "<提示词>" }]
@@ -68,6 +68,11 @@ authorization: Bearer <aiToken，可选>
 响应解析兼容 `content: [{ type: "text", text: "..." }]`，会忽略 thinking 块；
 也兼容 OpenAI 风格的 `choices[0].message.content` 与纯字符串 `content`。
 模型返回的 Markdown 代码块或前后解释文字会被容忍，客户端只提取第一个 JSON 值。
+
+不同功能的 `max_tokens`：快速添加 1200、子任务拆解 1600、今日总结 1600、测试连接 768。
+推理模型会先用掉一部分 token 输出 thinking，预算过小时可能只有 thinking、没有正文；
+如果响应 `stop_reason` 为 `max_tokens`（或 OpenAI `finish_reason` 为 `length`）且没有
+正文，客户端会提示「AI 只返回了推理过程，正文为空（输出预算不足）」，而不是笼统地报空。
 
 非 2xx 响应会抛出 `AI 接口返回 <status>：<前 200 字符>`；超时抛出 `AI 请求超时`。
 错误信息最终只用于 toast 与降级原因展示，不会中断操作。
@@ -79,9 +84,9 @@ authorization: Bearer <aiToken，可选>
 非 2xx 返回 `AI 模型列表返回 <status>：<前 200 字符>`，超时返回
 `AI 模型列表请求超时`；设置页会把这些信息直接展示在 toast 中。
 
-「测试连接」会发送一条 `max_tokens: 256` 的最小请求。推理模型会先输出 thinking
-块，预算过小（例如 16）时可能只有 thinking 没有正文，从而误报失败；256 能覆盖
-thinking + 简短回复。
+「测试连接」会发送一条 `max_tokens: 768` 的最小请求。推理模型会先输出 thinking
+块，预算过小时可能只有 thinking 没有正文，从而误报失败；768 能为 thinking + 简短回复
+留出余量，且 `max_tokens` 只是上限，不会强制生成更多内容。
 
 ## 3. 三个首批功能
 
@@ -141,6 +146,7 @@ thinking + 简短回复。
 | 请求超时 | 同上，超时时间由 `aiTimeoutMs` 控制，默认 15 秒 |
 | 非 2xx / 模型不存在 | 同上；错误摘要进入 toast 与 `warning` 字段 |
 | 返回非 JSON 或字段缺失 | `parseAiJson` / `normalize*` 返回 null，按失败降级 |
+| 只有 thinking、正文被 `max_tokens` 截断 | 同上；toast 提示「AI 只返回了推理过程，正文为空（输出预算不足）」 |
 | 返回日期非法、优先级越界 | 只丢弃非法字段，保留其余合法结果，不整体失败 |
 | 快速添加的清单名不存在 | 放入当前默认清单，并提示「未找到清单 X，已放入 Y」 |
 
@@ -166,7 +172,8 @@ thinking + 简短回复。
 npm run typecheck
 npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败、非法 JSON、模型目录、开关关闭、
                          # 清单猜测过滤、显式 #标签/!优先级/~清单 合并、AI 漏掉日期/时间/重复
-                         # 时按规则补齐、今日总结的本地日期归日与“今日完成”统计等路径
+                         # 时按规则补齐、各功能 max_tokens 预算、只有 thinking 时的降级提示、
+                         # 今日总结的本地日期归日与“今日完成”统计等路径
 ```
 
 手工验证 AI 连通性：设置页点击「测试连接」，或执行：
@@ -175,7 +182,7 @@ npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败�
 curl -s http://127.0.0.1:15721/v1/messages \
   -H "content-type: application/json" \
   -H "anthropic-version: 2023-06-01" \
-  -d '{"model":"ccs-claude-openai--ccs-claude-openai-2--glm-5.3-flash","max_tokens":256,"messages":[{"role":"user","content":"Reply with exactly: OK"}]}'
+  -d '{"model":"ccs-claude-openai--ccs-claude-openai-2--glm-5.3-flash","max_tokens":768,"messages":[{"role":"user","content":"Reply with exactly: OK"}]}'
 ```
 
 ## 6. 隐私与边界

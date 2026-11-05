@@ -10,6 +10,16 @@ export const AI_DEFAULT_MODEL = 'ccs-claude-openai--ccs-claude-openai-2--glm-5.3
 export const AI_DEFAULT_TIMEOUT_MS = 15_000
 export const AI_ANTHROPIC_VERSION = '2023-06-01'
 
+/**
+ * 推理模型会先输出 thinking 块，max_tokens 同时覆盖 thinking 与正文。
+ * 预算过小（例如 256）时经常只有 thinking、没有 JSON，从而误降级；
+ * 这里给各功能留出足够余量，max_tokens 只是上限，不会强制生成更多内容。
+ */
+export const AI_QUICK_ADD_MAX_TOKENS = 1200
+export const AI_SUBTASKS_MAX_TOKENS = 1600
+export const AI_SUMMARY_MAX_TOKENS = 1600
+export const AI_CONNECTION_MAX_TOKENS = 768
+
 export interface AiConfig {
   enabled: boolean
   baseUrl: string

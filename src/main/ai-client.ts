@@ -121,7 +121,22 @@ export async function requestAiText(
 
     const payload: unknown = await response.json()
     const text = extractAiText(payload)
-    if (!text) throw new Error('AI 返回内容为空')
+    if (!text) {
+      // 推理模型可能把 max_tokens 全花在 thinking 上，正文为空。
+      // 这种失败应给出可操作提示，而不是笼统的“返回内容为空”。
+      const record =
+        payload && typeof payload === 'object' && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : null
+      const firstChoice =
+        Array.isArray(record?.choices) && record.choices[0] && typeof record.choices[0] === 'object'
+          ? (record.choices[0] as Record<string, unknown>)
+          : null
+      if (record?.stop_reason === 'max_tokens' || firstChoice?.finish_reason === 'length') {
+        throw new Error('AI 只返回了推理过程，正文为空（输出预算不足），请重试或更换模型')
+      }
+      throw new Error('AI 返回内容为空')
+    }
     return text
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {

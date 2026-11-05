@@ -1,6 +1,10 @@
 import {
+  AI_CONNECTION_MAX_TOKENS,
+  AI_QUICK_ADD_MAX_TOKENS,
   AI_QUICK_ADD_SYSTEM,
+  AI_SUBTASKS_MAX_TOKENS,
   AI_SUBTASK_SYSTEM,
+  AI_SUMMARY_MAX_TOKENS,
   AI_SUMMARY_SYSTEM,
   buildQuickAddPrompt,
   buildSubtasksPrompt,
@@ -56,7 +60,7 @@ export async function parseQuickAddWithAi(
       {
         system: AI_QUICK_ADD_SYSTEM,
         prompt: buildQuickAddPrompt(input, { now, lists }),
-        maxTokens: 600,
+        maxTokens: AI_QUICK_ADD_MAX_TOKENS,
         temperature: 0.1
       },
       { fetch: runtime.fetch }
@@ -102,7 +106,7 @@ export async function breakdownSubtasksWithAi(
       {
         system: AI_SUBTASK_SYSTEM,
         prompt: buildSubtasksPrompt(task),
-        maxTokens: 800,
+        maxTokens: AI_SUBTASKS_MAX_TOKENS,
         temperature: 0.3
       },
       { fetch: runtime.fetch }
@@ -136,7 +140,7 @@ export async function summarizeTodayWithAi(
       {
         system: AI_SUMMARY_SYSTEM,
         prompt: buildSummaryPrompt(input),
-        maxTokens: 700,
+        maxTokens: AI_SUMMARY_MAX_TOKENS,
         temperature: 0.4
       },
       { fetch: runtime.fetch }
@@ -190,7 +194,7 @@ export async function testAiConnection(
         system: '你只需回复 OK。',
         prompt: 'Reply with exactly: OK',
         // 推理模型会先用掉一部分 token 生成 thinking 块，预算过小会只剩 thinking。
-        maxTokens: 256,
+        maxTokens: AI_CONNECTION_MAX_TOKENS,
         temperature: 0
       },
       { fetch: options.fetch }
