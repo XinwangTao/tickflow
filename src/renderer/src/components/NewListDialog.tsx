@@ -1,23 +1,41 @@
 import { useState } from 'react'
+import type { TodoList } from '@shared/types'
 import { LIST_COLORS } from '../lib/colors'
 import { useAppStore } from '../store/useAppStore'
 import { Modal } from './Modal'
 
-export function NewListDialog(): React.ReactNode {
-  const close = useAppStore((state) => state.setNewListOpen)
+export function NewListDialog({
+  list = null,
+  onClose
+}: {
+  list?: TodoList | null
+  onClose?: () => void
+}): React.ReactNode {
+  const storeClose = useAppStore((state) => state.setNewListOpen)
   const createList = useAppStore((state) => state.createList)
-  const [name, setName] = useState('')
-  const [color, setColor] = useState(LIST_COLORS[0])
-  const [emoji, setEmoji] = useState('')
+  const updateList = useAppStore((state) => state.updateList)
+  const close = onClose ?? (() => storeClose(false))
 
-  const submit = (): void => {
+  const [name, setName] = useState(list?.name ?? '')
+  const [color, setColor] = useState(list?.color ?? LIST_COLORS[0])
+  const [emoji, setEmoji] = useState(list?.emoji ?? '')
+
+  const submit = async (): Promise<void> => {
     if (!name.trim()) return
-    void createList(name, color, emoji.trim() || null)
-    close(false)
+    if (list) {
+      await updateList(list.id, {
+        name: name.trim(),
+        color,
+        emoji: emoji.trim() || null
+      })
+    } else {
+      await createList(name, color, emoji.trim() || null)
+    }
+    close()
   }
 
   return (
-    <Modal title="新建清单" onClose={() => close(false)} width={420}>
+    <Modal title={list ? '编辑清单' : '新建清单'} onClose={close} width={420}>
       <label className="field">
         <span className="field-label">名称</span>
         <input
@@ -28,7 +46,7 @@ export function NewListDialog(): React.ReactNode {
           placeholder="例如：工作、阅读、家务"
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') submit()
+            if (event.key === 'Enter') void submit()
           }}
         />
       </label>
@@ -61,16 +79,16 @@ export function NewListDialog(): React.ReactNode {
       </label>
 
       <div className="modal-actions">
-        <button type="button" className="btn" onClick={() => close(false)}>
+        <button type="button" className="btn" onClick={close}>
           取消
         </button>
         <button
           type="button"
           className="btn btn-primary"
           disabled={!name.trim()}
-          onClick={submit}
+          onClick={() => void submit()}
         >
-          创建
+          {list ? '保存' : '创建'}
         </button>
       </div>
     </Modal>

@@ -1,9 +1,18 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { TaskWithMeta } from '@shared/types'
-import { todayKey, toDateKey } from '@shared/dates'
-import { monthDays, monthLabel, shiftDateKey, weekDays, weekLabel, weekdayLabels } from '../lib/calendar'
+import { fromDateKey, todayKey, toDateKey } from '@shared/dates'
+import {
+  monthDays,
+  monthLabel,
+  shiftDateKey,
+  weekDays,
+  weekLabel,
+  weekdayLabels
+} from '../lib/calendar'
+import { formatDateLabel } from '../lib/format'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
+import { TaskCard } from './TaskCard'
 
 interface CalendarViewProps {
   tasks: TaskWithMeta[]
@@ -11,6 +20,14 @@ interface CalendarViewProps {
   weekStart: 0 | 1
   onShiftMonth: (delta: number) => void
   onSetMonth: (month: string) => void
+}
+
+function weekdayIndex(day: Date, weekStart: 0 | 1): number {
+  return weekStart === 1
+    ? day.getDay() === 0
+      ? 6
+      : day.getDay() - 1
+    : day.getDay()
 }
 
 export function CalendarView({
@@ -23,8 +40,9 @@ export function CalendarView({
   const updateTask = useAppStore((state) => state.updateTask)
   const openDetail = useAppStore((state) => state.openDetail)
 
-  const [mode, setMode] = useState<'month' | 'week'>('month')
+  const [mode, setMode] = useState<'month' | 'week' | 'day'>('month')
   const [weekAnchor, setWeekAnchor] = useState(todayKey())
+  const [selectedDay, setSelectedDay] = useState(todayKey())
   const [dropTarget, setDropTarget] = useState<string | null>(null)
 
   const byDay = useMemo(() => {
@@ -44,17 +62,25 @@ export function CalendarView({
     return map
   }, [tasks])
 
-  const days = mode === 'month' ? monthDays(month, weekStart) : weekDays(weekAnchor, weekStart)
+  const days =
+    mode === 'month'
+      ? monthDays(month, weekStart)
+      : mode === 'week'
+        ? weekDays(weekAnchor, weekStart)
+        : [fromDateKey(weekAnchor)]
   const labels = weekdayLabels(weekStart)
   const today = todayKey()
+  const selectedTasks = byDay.get(selectedDay) ?? []
 
   const shift = (delta: number): void => {
     if (mode === 'month') onShiftMonth(delta)
-    else setWeekAnchor((anchor) => shiftDateKey(anchor, delta * 7))
+    else if (mode === 'week') setWeekAnchor((anchor) => shiftDateKey(anchor, delta * 7))
+    else setWeekAnchor((anchor) => shiftDateKey(anchor, delta))
   }
 
   const goToday = (): void => {
     setWeekAnchor(today)
+    setSelectedDay(today)
     onSetMonth(today.slice(0, 7))
   }
 
@@ -88,7 +114,14 @@ export function CalendarView({
     </button>
   )
 
-  const title = mode === 'month' ? monthLabel(month) : weekLabel(weekAnchor, weekStart)
+  const title =
+    mode === 'month'
+      ? monthLabel(month)
+      : mode === 'week'
+        ? weekLabel(weekAnchor, weekStart)
+        : formatDateLabel(weekAnchor)
+
+  const selectedDate = fromDateKey(selectedDay)
 
   return (
     <section className="calendar-view">
@@ -119,6 +152,13 @@ export function CalendarView({
             >
               周
             </button>
+            <button
+              type="button"
+              className={mode === 'day' ? 'selected' : ''}
+              onClick={() => setMode('day')}
+            >
+              日
+            </button>
           </div>
         </div>
       </div>
@@ -140,7 +180,10 @@ export function CalendarView({
                   key={key}
                   className={`calendar-cell ${inMonth ? '' : 'outside'} ${
                     key === today ? 'today' : ''
-                  } ${dropTarget === key ? 'drop' : ''}`}
+                  } ${key === selectedDay ? 'selected' : ''} ${
+                    dropTarget === key ? 'drop' : ''
+                  }`}
+                  onClick={() => setSelectedDay(key)}
                   onDragOver={(event) => {
                     event.preventDefault()
                     setDropTarget(key)
@@ -164,7 +207,7 @@ export function CalendarView({
             })}
           </div>
         </>
-      ) : (
+      ) : mode === 'week' ? (
         <div className="calendar-week">
           {days.map((day, index) => {
             const key = toDateKey(day)
@@ -173,8 +216,9 @@ export function CalendarView({
               <div
                 key={key}
                 className={`calendar-week-col ${key === today ? 'today' : ''} ${
-                  dropTarget === key ? 'drop' : ''
-                }`}
+                  key === selectedDay ? 'selected' : ''
+                } ${dropTarget === key ? 'drop' : ''}`}
+                onClick={() => setSelectedDay(key)}
                 onDragOver={(event) => {
                   event.preventDefault()
                   setDropTarget(key)
@@ -197,7 +241,50 @@ export function CalendarView({
             )
           })}
         </div>
+      ) : (
+        <div
+          className={`calendar-day-view ${dropTarget === weekAnchor ? 'drop' : ''}`}
+          onDragOver={(event) => {
+            event.preventDefault()
+            setDropTarget(weekAnchor)
+          }}
+          onDragLeave={() => setDropTarget(null)}
+          onDrop={(event) => handleDrop(weekAnchor, event)}
+        >
+          <div className="calendar-week-head">
+            <span>{labels[weekdayIndex(fromDateKey(weekAnchor), weekStart)]}</span>
+            <strong>{fromDateKey(weekAnchor).getDate()}</strong>
+          </div>
+          <div className="calendar-week-body">
+            {(byDay.get(weekAnchor) ?? []).length === 0 ? (
+              <span className="calendar-week-empty">这一天还没有任务</span>
+            ) : (
+              (byDay.get(weekAnchor) ?? []).map((task) => (
+                <Fragment key={task.id}>{renderChip(task)}</Fragment>
+              ))
+            )}
+          </div>
+        </div>
       )}
+
+      {mode !== 'day' ? (
+        <div className="calendar-day-panel">
+          <div className="calendar-day-panel-head">
+            <strong>
+              {formatDateLabel(selectedDay)} · {selectedDate.getMonth() + 1}月
+              {selectedDate.getDate()}日
+            </strong>
+            <span>{selectedTasks.length} 个任务</span>
+          </div>
+          <div className="calendar-day-panel-body">
+            {selectedTasks.length === 0 ? (
+              <span className="calendar-day-panel-empty">这一天还没有任务</span>
+            ) : (
+              selectedTasks.map((task) => <TaskCard key={task.id} task={task} showList />)
+            )}
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

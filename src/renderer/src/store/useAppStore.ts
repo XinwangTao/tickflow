@@ -4,9 +4,11 @@ import type {
   CreateTaskInput,
   CustomFilter,
   FilterQuery,
+  GroupBy,
   ListMode,
   ListWithCount,
   Settings,
+  SortBy,
   Tag,
   TaskQuery,
   TaskWithMeta,
@@ -60,6 +62,8 @@ interface AppState {
   tasks: TaskWithMeta[]
   loading: boolean
   listMode: ListMode
+  sortBy: SortBy
+  groupBy: GroupBy
   calendarMonth: string
   selectionMode: boolean
   selectedIds: string[]
@@ -76,6 +80,9 @@ interface AppState {
   selectView: (view: ViewKey) => Promise<void>
   refresh: () => Promise<void>
   setListMode: (mode: ListMode) => void
+  setSortBy: (sort: SortBy) => void
+  setGroupBy: (group: GroupBy) => void
+  reorderLists: (ids: string[]) => Promise<void>
   shiftCalendarMonth: (delta: number) => void
   setCalendarMonth: (month: string) => void
   setSelectionMode: (enabled: boolean) => void
@@ -153,6 +160,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   tasks: [],
   loading: false,
   listMode: 'list',
+  sortBy: 'default',
+  groupBy: 'none',
   calendarMonth: currentMonth(),
   selectionMode: false,
   selectedIds: [],
@@ -241,6 +250,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setListMode: (mode) => set({ listMode: mode }),
+  setSortBy: (sort) => set({ sortBy: sort }),
+  setGroupBy: (group) => set({ groupBy: group }),
+
+  reorderLists: async (ids) => {
+    try {
+      await window.api.lists.reorder(ids)
+      await get().refresh()
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
 
   shiftCalendarMonth: (delta) => {
     const [year, month] = get().calendarMonth.split('-').map(Number)

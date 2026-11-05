@@ -23,6 +23,8 @@ export function PomodoroView(): React.ReactNode {
   const [mode, setMode] = useState<'focus' | 'break'>('focus')
   const [focusMinutes, setFocusMinutes] = useState(25)
   const [breakMinutes, setBreakMinutes] = useState(5)
+  const [longBreakMinutes, setLongBreakMinutes] = useState(15)
+  const [breakDuration, setBreakDuration] = useState(5)
   const [remaining, setRemaining] = useState(25 * 60)
   const [running, setRunning] = useState(false)
   const [endsAt, setEndsAt] = useState<number | null>(null)
@@ -32,8 +34,28 @@ export function PomodoroView(): React.ReactNode {
   const [sessions, setSessions] = useState<PomodoroSession[]>([])
   const [taskTitles, setTaskTitles] = useState<Record<string, string>>({})
 
-  const stateRef = useRef({ mode, focusMinutes, breakMinutes, taskId, startedAt })
-  stateRef.current = { mode, focusMinutes, breakMinutes, taskId, startedAt }
+  const focusSessions = sessions.filter((session) => session.mode === 'focus')
+
+  const stateRef = useRef({
+    mode,
+    focusMinutes,
+    breakMinutes,
+    longBreakMinutes,
+    breakDuration,
+    taskId,
+    startedAt,
+    focusCount: focusSessions.length
+  })
+  stateRef.current = {
+    mode,
+    focusMinutes,
+    breakMinutes,
+    longBreakMinutes,
+    breakDuration,
+    taskId,
+    startedAt,
+    focusCount: focusSessions.length
+  }
   const completingRef = useRef(false)
 
   const loadSessions = useCallback(async (): Promise<void> => {
@@ -82,7 +104,7 @@ export function PomodoroView(): React.ReactNode {
     completingRef.current = true
     const current = stateRef.current
     const totalMinutes =
-      current.mode === 'focus' ? current.focusMinutes : current.breakMinutes
+      current.mode === 'focus' ? current.focusMinutes : current.breakDuration
     const started =
       current.startedAt ?? new Date(Date.now() - totalMinutes * 60_000).toISOString()
 
@@ -101,11 +123,20 @@ export function PomodoroView(): React.ReactNode {
       setEndsAt(null)
       setStartedAt(null)
       const next = current.mode === 'focus' ? 'break' : 'focus'
+      let message = ''
+      if (next === 'break') {
+        const nextFocusCount = current.focusCount + 1
+        const isLong = nextFocusCount % 4 === 0
+        const nextBreak = isLong ? current.longBreakMinutes : current.breakMinutes
+        setBreakDuration(nextBreak)
+        setRemaining(nextBreak * 60)
+        message = isLong ? '专注完成，进入长休息' : '专注完成，休息一下'
+      } else {
+        setRemaining(current.focusMinutes * 60)
+        message = '休息结束，继续专注'
+      }
       setMode(next)
-      setRemaining((next === 'focus' ? current.focusMinutes : current.breakMinutes) * 60)
       await loadSessions()
-      const message =
-        current.mode === 'focus' ? '专注完成，休息一下' : '休息结束，继续专注'
       showToast(message, 'success')
       try {
         if ('Notification' in window) {
@@ -133,12 +164,11 @@ export function PomodoroView(): React.ReactNode {
     return () => window.clearInterval(timer)
   }, [running, endsAt, finish])
 
-  const totalSeconds = (mode === 'focus' ? focusMinutes : breakMinutes) * 60
+  const totalSeconds = (mode === 'focus' ? focusMinutes : breakDuration) * 60
   const progress = totalSeconds > 0 ? 1 - remaining / totalSeconds : 0
   const radius = 92
   const circumference = 2 * Math.PI * radius
   const selectedTask = tasks.find((task) => task.id === taskId)
-  const focusSessions = sessions.filter((session) => session.mode === 'focus')
   const todayMinutes = focusSessions.reduce((sum, session) => sum + session.durationMinutes, 0)
   const goal = 4
   const goalDone = Math.min(goal, focusSessions.length)
@@ -169,7 +199,12 @@ export function PomodoroView(): React.ReactNode {
     setRunning(false)
     setEndsAt(null)
     setStartedAt(null)
-    setRemaining((next === 'focus' ? focusMinutes : breakMinutes) * 60)
+    if (next === 'break') {
+      setBreakDuration(breakMinutes)
+      setRemaining(breakMinutes * 60)
+    } else {
+      setRemaining(focusMinutes * 60)
+    }
   }
 
   return (
@@ -234,6 +269,11 @@ export function PomodoroView(): React.ReactNode {
               <Icon name="rotate" size={15} />
               重置
             </button>
+            {mode === 'break' ? (
+              <button type="button" className="btn" onClick={() => switchMode('focus')}>
+                跳过休息
+              </button>
+            ) : null}
           </div>
 
           <div className="pomodoro-settings">
@@ -266,6 +306,22 @@ export function PomodoroView(): React.ReactNode {
                   setBreakMinutes(value)
                   if (!running && mode === 'break') setRemaining(value * 60)
                 }}
+              />
+              分钟
+            </label>
+            <label>
+              长休息
+              <input
+                type="number"
+                min={5}
+                max={60}
+                value={longBreakMinutes}
+                disabled={running}
+                onChange={(event) =>
+                  setLongBreakMinutes(
+                    Math.min(60, Math.max(5, Number(event.target.value) || 15))
+                  )
+                }
               />
               分钟
             </label>

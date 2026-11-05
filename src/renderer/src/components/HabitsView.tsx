@@ -74,10 +74,12 @@ function HabitHeatmap({
 function HabitCard({
   habit,
   onToggle,
+  onEdit,
   onDelete
 }: {
   habit: HabitWithStats
   onToggle: (date: string) => void
+  onEdit: () => void
   onDelete: () => void
 }): React.ReactNode {
   const today = todayKey()
@@ -118,6 +120,15 @@ function HabitCard({
         </button>
         <button
           type="button"
+          className="icon-btn"
+          aria-label="编辑习惯"
+          title="编辑习惯"
+          onClick={onEdit}
+        >
+          <Icon name="pencil" size={14} />
+        </button>
+        <button
+          type="button"
           className="icon-btn danger"
           aria-label="删除习惯"
           title="删除习惯"
@@ -138,29 +149,53 @@ function HabitCard({
 }
 
 function HabitModal({
+  habit = null,
   onClose,
   onSaved
 }: {
+  habit?: HabitWithStats | null
   onClose: () => void
   onSaved: () => void
 }): React.ReactNode {
   const showToast = useAppStore((state) => state.showToast)
-  const [name, setName] = useState('')
-  const [icon, setIcon] = useState('')
-  const [color, setColor] = useState(HABIT_COLORS[0])
-  const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily')
-  const [target, setTarget] = useState(7)
+  const [name, setName] = useState(habit?.name ?? '')
+  const [icon, setIcon] = useState(habit?.icon ?? '')
+  const [color, setColor] = useState(habit?.color ?? HABIT_COLORS[0])
+  const [frequency, setFrequency] = useState<'daily' | 'weekly'>(
+    habit?.frequency ?? 'daily'
+  )
+  const [target, setTarget] = useState(habit?.targetPerWeek ?? 7)
 
   const submit = async (): Promise<void> => {
     if (!name.trim()) return
     try {
-      await window.api.habits.create({
-        name,
-        icon: icon.trim() || null,
-        color,
-        frequency,
-        targetPerWeek: target
-      })
+      if (habit) {
+        await window.api.habits.update(habit.id, {
+          name,
+          icon: icon.trim() || null,
+          color,
+          frequency,
+          targetPerWeek: target
+        })
+      } else {
+        await window.api.habits.create({
+          name,
+          icon: icon.trim() || null,
+          color,
+          frequency,
+          targetPerWeek: target
+        })
+      }
+      onSaved()
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const archive = async (): Promise<void> => {
+    if (!habit) return
+    try {
+      await window.api.habits.update(habit.id, { archived: true })
       onSaved()
     } catch (error) {
       showToast(String(error), 'error')
@@ -168,7 +203,7 @@ function HabitModal({
   }
 
   return (
-    <Modal title="新建习惯" onClose={onClose} width={440}>
+    <Modal title={habit ? '编辑习惯' : '新建习惯'} onClose={onClose} width={440}>
       <label className="field">
         <span className="field-label">名称</span>
         <input
@@ -241,6 +276,11 @@ function HabitModal({
         />
       </label>
       <div className="modal-actions">
+        {habit ? (
+          <button type="button" className="btn" onClick={() => void archive()}>
+            归档
+          </button>
+        ) : null}
         <button type="button" className="btn" onClick={onClose}>
           取消
         </button>
@@ -250,7 +290,7 @@ function HabitModal({
           disabled={!name.trim()}
           onClick={() => void submit()}
         >
-          创建
+          {habit ? '保存' : '创建'}
         </button>
       </div>
     </Modal>
@@ -263,6 +303,7 @@ export function HabitsView(): React.ReactNode {
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<HabitWithStats | null>(null)
+  const [editTarget, setEditTarget] = useState<HabitWithStats | null>(null)
 
   const load = async (): Promise<void> => {
     setLoading(true)
@@ -349,6 +390,7 @@ export function HabitsView(): React.ReactNode {
               key={habit.id}
               habit={habit}
               onToggle={(date) => void toggle(habit, date)}
+              onEdit={() => setEditTarget(habit)}
               onDelete={() => setDeleteTarget(habit)}
             />
           ))}
@@ -360,6 +402,17 @@ export function HabitsView(): React.ReactNode {
           onClose={() => setModalOpen(false)}
           onSaved={() => {
             setModalOpen(false)
+            void load()
+          }}
+        />
+      ) : null}
+
+      {editTarget ? (
+        <HabitModal
+          habit={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => {
+            setEditTarget(null)
             void load()
           }}
         />

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { TaskWithMeta } from '@shared/types'
+import { useEffect, useRef, useState } from 'react'
+import type { Priority, TaskWithMeta } from '@shared/types'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../lib/colors'
 import { describeRecurrence, formatDueLabel, isOverdue } from '../lib/format'
 import { useAppStore } from '../store/useAppStore'
@@ -32,13 +32,27 @@ export function TaskRow({
   const restoreTask = useAppStore((state) => state.restoreTask)
   const purgeTask = useAppStore((state) => state.purgeTask)
   const openDetail = useAppStore((state) => state.openDetail)
+  const lists = useAppStore((state) => state.lists)
 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(task.title)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setDraft(task.title)
   }, [task.title])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = (event: MouseEvent): void => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [menuOpen])
 
   const completed = task.status === 'completed'
   const overdue = isOverdue(task.dueDate, task.dueTime, task.allDay)
@@ -55,7 +69,7 @@ export function TaskRow({
     <div
       className={`task-row ${completed ? 'completed' : ''} ${isTrash ? 'trash' : ''} ${
         selected ? 'selected' : ''
-      }`}
+      } ${menuOpen ? 'menu-open' : ''}`}
       draggable={canDrag && !completed && !isTrash && !selectionMode}
       onDragStart={(event) => {
         if (!canDrag) return
@@ -242,6 +256,77 @@ export function TaskRow({
                 <Icon name="rotate" size={15} />
               </button>
             ) : null}
+            <div className="task-more" ref={menuRef}>
+              <button
+                type="button"
+                className="icon-btn"
+                title="更多"
+                aria-label="更多操作"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setMenuOpen((value) => !value)
+                }}
+              >
+                <Icon name="more" size={15} />
+              </button>
+              {menuOpen ? (
+                <div
+                  className="task-menu"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <span className="task-menu-title">优先级</span>
+                  <div className="task-menu-priorities">
+                    {PRIORITY_LABELS.map((label, value) => (
+                      <button
+                        type="button"
+                        key={label}
+                        className={task.priority === value ? 'selected' : ''}
+                        style={
+                          task.priority === value && value > 0
+                            ? {
+                                color: PRIORITY_COLORS[value],
+                                borderColor: PRIORITY_COLORS[value]
+                              }
+                            : undefined
+                        }
+                        onClick={() => {
+                          void updateTask(task.id, { priority: value as Priority })
+                          setMenuOpen(false)
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="task-menu-title">移动到清单</span>
+                  <select
+                    className="input task-menu-select"
+                    value={task.listId}
+                    onChange={(event) => {
+                      void updateTask(task.id, { listId: event.target.value })
+                      setMenuOpen(false)
+                    }}
+                  >
+                    {lists.map((list) => (
+                      <option value={list.id} key={list.id}>
+                        {list.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="task-menu-delete"
+                    onClick={() => {
+                      void removeTask(task.id)
+                      setMenuOpen(false)
+                    }}
+                  >
+                    <Icon name="trash" size={14} />
+                    删除任务
+                  </button>
+                </div>
+              ) : null}
+            </div>
             <button
               type="button"
               className="icon-btn danger"

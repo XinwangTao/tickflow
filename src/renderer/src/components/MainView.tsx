@@ -14,6 +14,7 @@ import { StatsView } from './StatsView'
 import { TaskList } from './TaskList'
 import { TemplatesView } from './TemplatesView'
 import { TimelineView } from './TimelineView'
+import { ViewOptionsMenu } from './ViewOptionsMenu'
 import { ViewSwitcher } from './ViewSwitcher'
 
 function titleFor(
@@ -77,6 +78,8 @@ export function MainView(): React.ReactNode {
   const settings = useAppStore((state) => state.settings)
   const loading = useAppStore((state) => state.loading)
   const listMode = useAppStore((state) => state.listMode)
+  const sortBy = useAppStore((state) => state.sortBy)
+  const groupBy = useAppStore((state) => state.groupBy)
   const selectionMode = useAppStore((state) => state.selectionMode)
   const selectedIds = useAppStore((state) => state.selectedIds)
   const setSelectionMode = useAppStore((state) => state.setSelectionMode)
@@ -118,6 +121,7 @@ export function MainView(): React.ReactNode {
         </div>
         <div className="main-actions">
           {isTaskView && !isFlat && !isFilter ? <ViewSwitcher /> : null}
+          {isTaskView && !isFlat && listMode === 'list' ? <ViewOptionsMenu /> : null}
           {isTaskView && !isFlat && listMode === 'list' ? (
             <button
               type="button"
@@ -203,6 +207,8 @@ export function MainView(): React.ReactNode {
                 tasks={tasks}
                 view={view}
                 showList={showList}
+                sortBy={sortBy}
+                groupBy={groupBy}
                 selectionMode={selectionMode}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelection}

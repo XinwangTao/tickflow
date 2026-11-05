@@ -327,3 +327,7 @@ export interface CreateFilterInput {
   name: string
   query: FilterQuery
 }
+
+export type SortBy = 'default' | 'due' | 'priority' | 'created' | 'title'
+
+export type GroupBy = 'none' | 'list' | 'priority'

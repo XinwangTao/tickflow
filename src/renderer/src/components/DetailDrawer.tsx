@@ -468,6 +468,22 @@ export function DetailDrawer(): React.ReactNode {
 
           <label className="detail-field">
             <span className="field-label">
+              <Icon name="calendar" size={13} /> 开始日期
+            </span>
+            <input
+              className="input"
+              type="date"
+              value={task.startDate ?? ''}
+              onChange={(event) =>
+                void updateTask(task.id, {
+                  startDate: event.target.value || null
+                })
+              }
+            />
+          </label>
+
+          <label className="detail-field">
+            <span className="field-label">
               <Icon name="tag" size={13} /> 标签
             </span>
             <input

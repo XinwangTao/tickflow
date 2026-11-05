@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ListWithCount } from '@shared/types'
 import { Icon, type IconName } from './Icon'
 import { FilterModal } from './FilterModal'
 import { Modal } from './Modal'
+import { NewListDialog } from './NewListDialog'
 import { useAppStore } from '../store/useAppStore'
 
 interface SmartItemProps {
@@ -38,6 +40,7 @@ export function Sidebar(): React.ReactNode {
   const updateList = useAppStore((state) => state.updateList)
   const deleteList = useAppStore((state) => state.deleteList)
   const deleteFilter = useAppStore((state) => state.deleteFilter)
+  const reorderLists = useAppStore((state) => state.reorderLists)
   const setSearchOpen = useAppStore((state) => state.setSearchOpen)
 
   const [menuId, setMenuId] = useState<string | null>(null)
@@ -49,6 +52,8 @@ export function Sidebar(): React.ReactNode {
     id: string
     name: string
   } | null>(null)
+  const [editTarget, setEditTarget] = useState<ListWithCount | null>(null)
+  const [dragListId, setDragListId] = useState<string | null>(null)
   const renameInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -73,6 +78,20 @@ export function Sidebar(): React.ReactNode {
     const name = draftName.trim()
     if (name) void updateList(editingId, { name })
     setEditingId(null)
+  }
+
+  const handleDropList = (targetId: string): void => {
+    if (!dragListId || dragListId === targetId) return
+    const ids = lists.filter((list) => !list.isInbox).map((list) => list.id)
+    const from = ids.indexOf(dragListId)
+    const to = ids.indexOf(targetId)
+    if (from < 0 || to < 0) return
+    const next = [...ids]
+    const [moved] = next.splice(from, 1)
+    if (!moved) return
+    next.splice(to, 0, moved)
+    void reorderLists(next)
+    setDragListId(null)
   }
 
   return (
@@ -119,7 +138,25 @@ export function Sidebar(): React.ReactNode {
           {lists.filter((list) => !list.isInbox).map((list) => {
             const active = view === `list:${list.id}`
             return (
-              <div className="side-row" key={list.id}>
+              <div
+                className={`side-row ${dragListId === list.id ? 'dragging' : ''}`}
+                key={list.id}
+                draggable={!list.isInbox}
+                onDragStart={(event) => {
+                  if (list.isInbox) return
+                  event.dataTransfer.setData('text/plain', list.id)
+                  event.dataTransfer.effectAllowed = 'move'
+                  setDragListId(list.id)
+                }}
+                onDragOver={(event) => {
+                  if (!list.isInbox) event.preventDefault()
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  handleDropList(list.id)
+                }}
+                onDragEnd={() => setDragListId(null)}
+              >
                 <button
                   type="button"
                   className={`side-item ${active ? 'active' : ''}`}
@@ -162,6 +199,15 @@ export function Sidebar(): React.ReactNode {
                 </button>
                 {menuId === list.id ? (
                   <div className="side-popover" onMouseDown={(event) => event.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditTarget(list)
+                        setMenuId(null)
+                      }}
+                    >
+                      编辑清单
+                    </button>
                     <button
                       type="button"
                       onClick={() => startRename(list.id, list.name)}
@@ -316,6 +362,13 @@ export function Sidebar(): React.ReactNode {
             </button>
           </div>
         </Modal>
+      ) : null}
+
+      {editTarget ? (
+        <NewListDialog
+          list={editTarget}
+          onClose={() => setEditTarget(null)}
+        />
       ) : null}
 
       {filterModalOpen ? (
