@@ -7,6 +7,7 @@ import type {
 import type {
   AppInfo,
   ApplyTemplateInput,
+  Attachment,
   Counts,
   CreateFilterInput,
   CreateHabitInput,
@@ -21,6 +22,7 @@ import type {
   PomodoroInput,
   PomodoroSession,
   Reminder,
+  ReminderCenterData,
   ReminderWithTask,
   Settings,
   StatsOverview,
@@ -60,10 +62,17 @@ export const IPC = {
   tasksReorder: 'tasks:reorder',
   tasksCounts: 'tasks:counts',
   tagsList: 'tags:list',
+  tagsUpdate: 'tags:update',
+  tagsDelete: 'tags:delete',
   remindersList: 'reminders:list',
+  remindersCenter: 'reminders:center',
   remindersCreate: 'reminders:create',
   remindersRemove: 'reminders:remove',
   remindersMissedEvent: 'reminders:missed',
+  attachmentsList: 'attachments:list',
+  attachmentsAdd: 'attachments:add',
+  attachmentsOpen: 'attachments:open',
+  attachmentsRemove: 'attachments:remove',
   habitsList: 'habits:list',
   habitsCreate: 'habits:create',
   habitsUpdate: 'habits:update',
@@ -85,6 +94,8 @@ export const IPC = {
   syncResultEvent: 'sync:result',
   dataExport: 'data:export',
   dataImport: 'data:import',
+  dataOpenDir: 'data:open-dir',
+  dataBackup: 'data:backup',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   aiQuickAdd: 'ai:quick-add',
@@ -126,12 +137,21 @@ export interface TickFlowApi {
   }
   tags: {
     list(): Promise<Array<Tag & { taskCount: number }>>
+    update(id: string, name: string): Promise<void>
+    remove(id: string): Promise<void>
   }
   reminders: {
     list(taskId: string): Promise<Reminder[]>
+    center(): Promise<ReminderCenterData>
     create(taskId: string, triggerAt: string): Promise<Reminder>
     remove(id: string): Promise<void>
     onMissed(callback: (items: ReminderWithTask[]) => void): () => void
+  }
+  attachments: {
+    list(taskId: string): Promise<Attachment[]>
+    add(taskId: string, sourcePath?: string): Promise<Attachment | null>
+    open(id: string): Promise<void>
+    remove(id: string): Promise<void>
   }
   habits: {
     list(): Promise<HabitWithStats[]>
@@ -167,6 +187,8 @@ export interface TickFlowApi {
   data: {
     export(format: 'json' | 'csv' | 'ics'): Promise<{ canceled: boolean; path?: string }>
     importJson(): Promise<{ canceled: boolean; counts?: ImportCounts }>
+    openDir(): Promise<string>
+    backup(): Promise<string>
   }
   settings: {
     get(): Promise<Settings>

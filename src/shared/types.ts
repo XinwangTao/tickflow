@@ -183,6 +183,21 @@ export interface ReminderWithTask extends Reminder {
   taskTitle: string
 }
 
+export interface ReminderCenterData {
+  upcoming: ReminderWithTask[]
+  recent: ReminderWithTask[]
+}
+
+export interface Attachment {
+  id: string
+  taskId: string
+  name: string
+  storedName: string
+  size: number
+  mime: string
+  createdAt: string
+}
+
 export type HabitFrequency = 'daily' | 'weekly'
 
 export interface Habit {
@@ -335,4 +350,4 @@ export interface CreateFilterInput {
 
 export type SortBy = 'default' | 'due' | 'priority' | 'created' | 'title'
 
-export type GroupBy = 'none' | 'list' | 'priority'
+export type GroupBy = 'none' | 'list' | 'priority' | 'date'

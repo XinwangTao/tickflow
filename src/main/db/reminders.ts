@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Reminder, ReminderWithTask } from '@shared/types'
+import type { Reminder, ReminderCenterData, ReminderWithTask } from '@shared/types'
 import { uuidv7 } from '@shared/uuid'
 import { logChange } from './change-log'
 import { getDeviceId, nowIso } from './util'
@@ -81,6 +81,49 @@ export function listDueReminders(db: DatabaseSync, now: string = nowIso()): Remi
     ...toReminder(row),
     taskTitle: String(row.task_title)
   }))
+}
+
+export function listReminderCenter(
+  db: DatabaseSync,
+  now: string = nowIso()
+): ReminderCenterData {
+  const upcomingRows = db
+    .prepare(
+      `SELECT r.*, t.title AS task_title
+       FROM reminders r
+       JOIN tasks t ON t.id = r.task_id
+       WHERE r.sent_at IS NULL
+         AND r.trigger_at > ?
+         AND t.deleted_at IS NULL
+         AND t.status = 'open'
+       ORDER BY r.trigger_at ASC
+       LIMIT 50`
+    )
+    .all(now) as unknown as Array<ReminderRow & { task_title: string }>
+
+  const cutoff = new Date(new Date(now).getTime() - 30 * 86_400_000).toISOString()
+  const recentRows = db
+    .prepare(
+      `SELECT r.*, t.title AS task_title
+       FROM reminders r
+       JOIN tasks t ON t.id = r.task_id
+       WHERE r.sent_at IS NOT NULL
+         AND r.sent_at >= ?
+         AND t.deleted_at IS NULL
+       ORDER BY r.sent_at DESC
+       LIMIT 50`
+    )
+    .all(cutoff) as unknown as Array<ReminderRow & { task_title: string }>
+
+  const toItem = (row: ReminderRow & { task_title: string }): ReminderWithTask => ({
+    ...toReminder(row),
+    taskTitle: String(row.task_title)
+  })
+
+  return {
+    upcoming: upcomingRows.map(toItem),
+    recent: recentRows.map(toItem)
+  }
 }
 
 export function markReminderSent(

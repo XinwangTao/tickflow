@@ -72,6 +72,50 @@ export function ensureTag(db: DatabaseSync, rawName: string): Tag {
   return created
 }
 
+export function renameTag(db: DatabaseSync, id: string, rawName: string): void {
+  const name = rawName.trim()
+  if (!name) throw new Error('标签名称不能为空')
+
+  const source = db.prepare('SELECT * FROM tags WHERE id = ?').get(id) as unknown as
+    | TagRow
+    | undefined
+  if (!source || source.deleted_at) throw new Error('标签不存在')
+  if (source.name === name) return
+
+  const now = nowIso()
+  const existing = db.prepare('SELECT * FROM tags WHERE name = ?').get(name) as unknown as
+    | TagRow
+    | undefined
+
+  if (existing && existing.id !== id) {
+    if (existing.deleted_at) {
+      db.prepare('UPDATE tags SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(
+        now,
+        existing.id
+      )
+    }
+    db.prepare(
+      `INSERT OR IGNORE INTO task_tags(task_id, tag_id)
+       SELECT task_id, ? FROM task_tags WHERE tag_id = ?`
+    ).run(existing.id, id)
+    db.prepare('DELETE FROM task_tags WHERE tag_id = ?').run(id)
+    db.prepare('UPDATE tags SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
+    logChange(db, 'tag', id, 'delete', { id, deletedAt: now, mergedInto: existing.id })
+    logChange(db, 'tag', existing.id, 'update', { id: existing.id, name, deletedAt: null })
+    return
+  }
+
+  db.prepare('UPDATE tags SET name = ?, updated_at = ? WHERE id = ?').run(name, now, id)
+  logChange(db, 'tag', id, 'update', { id, name })
+}
+
+export function deleteTag(db: DatabaseSync, id: string): void {
+  const now = nowIso()
+  db.prepare('UPDATE tags SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
+  db.prepare('DELETE FROM task_tags WHERE tag_id = ?').run(id)
+  logChange(db, 'tag', id, 'delete', { id, deletedAt: now })
+}
+
 export function setTaskTags(db: DatabaseSync, taskId: string, names: string[]): void {
   db.prepare('DELETE FROM task_tags WHERE task_id = ?').run(taskId)
   const unique = Array.from(new Set(names.map((name) => name.trim()).filter(Boolean)))

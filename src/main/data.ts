@@ -1,8 +1,9 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ImportCounts } from '@shared/types'
+import { backupNow, getDataDir } from './db'
 import { getInboxId } from './db/lists'
 import { getDeviceId, nowIso } from './db/util'
 import { logChange } from './db/change-log'
@@ -37,6 +38,17 @@ function icsEscape(value: string): string {
 
 function stamp(): string {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+}
+
+export async function openDataDir(): Promise<string> {
+  const dir = getDataDir()
+  const error = await shell.openPath(dir)
+  if (error) throw new Error(`无法打开数据目录：${error}`)
+  return dir
+}
+
+export function createManualBackup(): string {
+  return backupNow()
 }
 
 export async function exportData(

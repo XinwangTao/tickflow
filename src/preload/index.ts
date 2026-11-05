@@ -47,10 +47,13 @@ const api: TickFlowApi = {
     counts: () => ipcRenderer.invoke(IPC.tasksCounts)
   },
   tags: {
-    list: () => ipcRenderer.invoke(IPC.tagsList)
+    list: () => ipcRenderer.invoke(IPC.tagsList),
+    update: (id, name) => ipcRenderer.invoke(IPC.tagsUpdate, id, name),
+    remove: (id) => ipcRenderer.invoke(IPC.tagsDelete, id)
   },
   reminders: {
     list: (taskId) => ipcRenderer.invoke(IPC.remindersList, taskId),
+    center: () => ipcRenderer.invoke(IPC.remindersCenter),
     create: (taskId, triggerAt) => ipcRenderer.invoke(IPC.remindersCreate, taskId, triggerAt),
     remove: (id) => ipcRenderer.invoke(IPC.remindersRemove, id),
     onMissed: (callback) => {
@@ -62,6 +65,13 @@ const api: TickFlowApi = {
         ipcRenderer.removeListener(IPC.remindersMissedEvent, listener)
       }
     }
+  },
+  attachments: {
+    list: (taskId) => ipcRenderer.invoke(IPC.attachmentsList, taskId),
+    add: (taskId, sourcePath) =>
+      ipcRenderer.invoke(IPC.attachmentsAdd, taskId, sourcePath),
+    open: (id) => ipcRenderer.invoke(IPC.attachmentsOpen, id),
+    remove: (id) => ipcRenderer.invoke(IPC.attachmentsRemove, id)
   },
   habits: {
     list: () => ipcRenderer.invoke(IPC.habitsList),
@@ -107,7 +117,9 @@ const api: TickFlowApi = {
   },
   data: {
     export: (format) => ipcRenderer.invoke(IPC.dataExport, format),
-    importJson: () => ipcRenderer.invoke(IPC.dataImport)
+    importJson: () => ipcRenderer.invoke(IPC.dataImport),
+    openDir: () => ipcRenderer.invoke(IPC.dataOpenDir),
+    backup: () => ipcRenderer.invoke(IPC.dataBackup)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

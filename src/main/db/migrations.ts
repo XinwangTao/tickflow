@@ -183,6 +183,25 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_filters_deleted ON filters(deleted_at);
       `)
     }
+  },
+  {
+    version: 5,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS attachments (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          stored_name TEXT NOT NULL,
+          size INTEGER NOT NULL DEFAULT 0,
+          mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+          created_at TEXT NOT NULL,
+          device_id TEXT NOT NULL
+        ) STRICT;
+
+        CREATE INDEX IF NOT EXISTS idx_attachments_task ON attachments(task_id);
+      `)
+    }
   }
 ]
 

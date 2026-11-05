@@ -19,12 +19,19 @@ import type {
 } from '@shared/types'
 import { getDataDir, getDb } from './db'
 import {
+  addAttachment,
+  openAttachment,
+  removeAttachment,
+  removeTaskAttachments
+} from './attachments'
+import {
   breakdownSubtasksWithAi,
   parseQuickAddWithAi,
   summarizeTodayWithAi,
   testAiConnection
 } from './ai'
-import { exportData, importJson } from './data'
+import { createManualBackup, exportData, importJson, openDataDir } from './data'
+import { listAttachments } from './db/attachments'
 import * as filterRepo from './db/filters'
 import * as habitRepo from './db/habits'
 import * as listRepo from './db/lists'
@@ -83,7 +90,10 @@ export function registerIpc(): void {
   )
   ipcMain.handle(IPC.tasksRemove, (_event, id: string) => taskRepo.removeTask(getDb(), id))
   ipcMain.handle(IPC.tasksRestore, (_event, id: string) => taskRepo.restoreTask(getDb(), id))
-  ipcMain.handle(IPC.tasksPurge, (_event, id: string) => taskRepo.purgeTask(getDb(), id))
+  ipcMain.handle(IPC.tasksPurge, (_event, id: string) => {
+    removeTaskAttachments(id)
+    return taskRepo.purgeTask(getDb(), id)
+  })
   ipcMain.handle(IPC.tasksReorder, (_event, listId: string, orderedIds: string[]) =>
     taskRepo.reorderTasks(getDb(), listId, orderedIds)
   )
@@ -91,15 +101,32 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.tagsList, () => tagRepo.listTags(getDb()))
 
+  ipcMain.handle(IPC.tagsUpdate, (_event, id: string, name: string) =>
+    tagRepo.renameTag(getDb(), id, name)
+  )
+  ipcMain.handle(IPC.tagsDelete, (_event, id: string) => tagRepo.deleteTag(getDb(), id))
+
   ipcMain.handle(IPC.remindersList, (_event, taskId: string) =>
     reminderRepo.listReminders(getDb(), taskId)
   )
+  ipcMain.handle(IPC.remindersCenter, () => reminderRepo.listReminderCenter(getDb()))
   ipcMain.handle(IPC.remindersCreate, (_event, taskId: string, triggerAt: string) =>
     reminderRepo.createReminder(getDb(), taskId, triggerAt)
   )
   ipcMain.handle(IPC.remindersRemove, (_event, id: string) =>
     reminderRepo.deleteReminder(getDb(), id)
   )
+
+  ipcMain.handle(IPC.attachmentsList, (_event, taskId: string) =>
+    listAttachments(getDb(), taskId)
+  )
+  ipcMain.handle(
+    IPC.attachmentsAdd,
+    (event, taskId: string, sourcePath?: string) =>
+      addAttachment(BrowserWindow.fromWebContents(event.sender), taskId, sourcePath)
+  )
+  ipcMain.handle(IPC.attachmentsOpen, (_event, id: string) => openAttachment(id))
+  ipcMain.handle(IPC.attachmentsRemove, (_event, id: string) => removeAttachment(id))
 
   ipcMain.handle(IPC.habitsList, () => habitRepo.listHabits(getDb()))
   ipcMain.handle(IPC.habitsCreate, (_event, input: CreateHabitInput) =>
@@ -151,6 +178,8 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.dataImport, (event) =>
     importJson(getDb(), BrowserWindow.fromWebContents(event.sender))
   )
+  ipcMain.handle(IPC.dataOpenDir, () => openDataDir())
+  ipcMain.handle(IPC.dataBackup, () => createManualBackup())
 
   ipcMain.handle(IPC.settingsGet, () => settingsRepo.getSettings(getDb()))
   ipcMain.handle(IPC.settingsSet, (_event, patch: Partial<Settings>) =>

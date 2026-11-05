@@ -8,21 +8,26 @@ import { ensureInbox } from './lists'
 let db: DatabaseSync | null = null
 let dataDir = ''
 
+function writeBackup(instance: DatabaseSync): string {
+  const backupDir = join(app.getPath('userData'), 'backups')
+  mkdirSync(backupDir, { recursive: true })
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const target = join(backupDir, `tickflow-${stamp}.db`)
+  instance.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`)
+
+  const backups = readdirSync(backupDir)
+    .filter((name) => name.startsWith('tickflow-') && name.endsWith('.db'))
+    .sort()
+  while (backups.length > 5) {
+    const oldest = backups.shift()
+    if (oldest) unlinkSync(join(backupDir, oldest))
+  }
+  return target
+}
+
 function backupDatabase(instance: DatabaseSync): void {
   try {
-    const backupDir = join(app.getPath('userData'), 'backups')
-    mkdirSync(backupDir, { recursive: true })
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const target = join(backupDir, `tickflow-${stamp}.db`)
-    instance.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`)
-
-    const backups = readdirSync(backupDir)
-      .filter((name) => name.startsWith('tickflow-') && name.endsWith('.db'))
-      .sort()
-    while (backups.length > 5) {
-      const oldest = backups.shift()
-      if (oldest) unlinkSync(join(backupDir, oldest))
-    }
+    writeBackup(instance)
   } catch (error) {
     console.error('[tickflow] 自动备份失败：', error)
   }
@@ -52,6 +57,10 @@ export function getDb(): DatabaseSync {
 
 export function getDataDir(): string {
   return dataDir
+}
+
+export function backupNow(): string {
+  return writeBackup(getDb())
 }
 
 export function closeDatabase(): void {
