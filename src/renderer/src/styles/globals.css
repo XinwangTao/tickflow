@@ -2982,6 +2982,23 @@ kbd {
   gap: 8px;
 }
 
+.sync-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.sync-grid-wide {
+  grid-column: 1 / -1;
+}
+
+.sync-copy {
+  height: 24px;
+  margin-left: 8px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
 @media (max-width: 1200px) {
   .kpi-row {
     grid-template-columns: repeat(2, 1fr);

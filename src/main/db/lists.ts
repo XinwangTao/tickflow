@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CreateListInput, ListWithCount, TodoList, UpdateListInput } from '@shared/types'
+import { INBOX_ID } from '@shared/types'
 import { uuidv7 } from '@shared/uuid'
 import { logChange } from './change-log'
 import { getDeviceId, nowIso } from './util'
@@ -56,12 +57,12 @@ export function listLists(db: DatabaseSync): ListWithCount[] {
 export function createList(
   db: DatabaseSync,
   input: CreateListInput,
-  options: { isInbox?: boolean } = {}
+  options: { isInbox?: boolean; id?: string } = {}
 ): TodoList {
   const name = input.name.trim()
   if (!name) throw new Error('清单名称不能为空')
 
-  const id = uuidv7()
+  const id = options.id ?? uuidv7()
   const now = nowIso()
   const color = input.color?.trim() || '#f5c542'
   const emoji = input.emoji ?? null
@@ -149,8 +150,32 @@ export function ensureInbox(db: DatabaseSync): TodoList {
   const row = db
     .prepare('SELECT * FROM lists WHERE is_inbox = 1 AND deleted_at IS NULL LIMIT 1')
     .get() as unknown as ListRow | undefined
-  if (row) return toList(row)
-  return createList(db, { name: '收集箱', color: '#f5c542', emoji: '📥' }, { isInbox: true })
+
+  if (row && row.id !== INBOX_ID) {
+    const fixed = getList(db, INBOX_ID)
+    if (fixed) {
+      const now = nowIso()
+      db.prepare('UPDATE tasks SET list_id = ? WHERE list_id = ?').run(INBOX_ID, row.id)
+      db.prepare(
+        'UPDATE lists SET deleted_at = ?, is_inbox = 0, updated_at = ? WHERE id = ?'
+      ).run(now, now, row.id)
+    } else {
+      db.prepare('UPDATE tasks SET list_id = ? WHERE list_id = ?').run(INBOX_ID, row.id)
+      db.prepare('UPDATE lists SET id = ?, updated_at = ? WHERE id = ?').run(
+        INBOX_ID,
+        nowIso(),
+        row.id
+      )
+    }
+  }
+
+  const fixed = getList(db, INBOX_ID)
+  if (fixed) return fixed
+  return createList(
+    db,
+    { name: '收集箱', color: '#f5c542', emoji: '📥' },
+    { isInbox: true, id: INBOX_ID }
+  )
 }
 
 export function getInboxId(db: DatabaseSync): string {

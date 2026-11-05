@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { AppInfo } from '@shared/types'
+import { R2_CORS_POLICY } from '@shared/r2-cors'
 import { LIST_COLORS } from '../lib/colors'
+import { formatDateTime } from '../lib/format'
 import { useAppStore } from '../store/useAppStore'
 import { Modal } from './Modal'
 
@@ -23,10 +25,51 @@ export function SettingsDialog(): React.ReactNode {
   const close = useAppStore((state) => state.setSettingsOpen)
   const showToast = useAppStore((state) => state.showToast)
   const [info, setInfo] = useState<AppInfo | null>(null)
+  const [r2, setR2] = useState({
+    endpoint: settings.r2Endpoint,
+    bucket: settings.r2Bucket,
+    accessKeyId: settings.r2AccessKeyId,
+    secretAccessKey: settings.r2SecretAccessKey,
+    prefix: settings.r2Prefix,
+    autoSync: settings.r2AutoSync
+  })
 
   useEffect(() => {
     void window.api.app.info().then(setInfo)
   }, [])
+
+  const saveSync = async (): Promise<void> => {
+    await setSettings({
+      r2Endpoint: r2.endpoint.trim(),
+      r2Bucket: r2.bucket.trim(),
+      r2AccessKeyId: r2.accessKeyId.trim(),
+      r2SecretAccessKey: r2.secretAccessKey.trim(),
+      r2Prefix: r2.prefix.trim() || 'tickflow/snapshots/',
+      r2AutoSync: r2.autoSync
+    })
+  }
+
+  const testConnection = async (): Promise<void> => {
+    await saveSync()
+    const result = await window.api.sync.test()
+    showToast(result.message, result.ok ? 'success' : 'error', { duration: 5000 })
+  }
+
+  const runSync = async (): Promise<void> => {
+    await saveSync()
+    const result = await window.api.sync.now()
+    showToast(result.message, result.ok ? 'success' : 'error', { duration: 6000 })
+    if (result.ok) await setSettings({})
+  }
+
+  const copyCors = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(R2_CORS_POLICY)
+      showToast('CORS 配置已复制', 'success')
+    } catch {
+      showToast('复制失败，请手动查看文档 docs/sync-r2.md', 'error')
+    }
+  }
 
   const handleExport = async (format: 'json' | 'csv' | 'ics'): Promise<void> => {
     try {
@@ -187,6 +230,92 @@ export function SettingsDialog(): React.ReactNode {
           </button>
         </div>
         <p className="settings-note">导入按 ID 合并，已存在的记录会跳过，不会删除现有数据。</p>
+      </section>
+
+      <section className="settings-section">
+        <h3>同步（Cloudflare R2）</h3>
+        <div className="sync-grid">
+          <label className="field sync-grid-wide">
+            <span className="field-label">Endpoint</span>
+            <input
+              className="input"
+              value={r2.endpoint}
+              placeholder="https://<account>.r2.cloudflarestorage.com"
+              onChange={(event) => setR2({ ...r2, endpoint: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Bucket</span>
+            <input
+              className="input"
+              value={r2.bucket}
+              placeholder="tickflow"
+              onChange={(event) => setR2({ ...r2, bucket: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">前缀</span>
+            <input
+              className="input"
+              value={r2.prefix}
+              placeholder="tickflow/snapshots/"
+              onChange={(event) => setR2({ ...r2, prefix: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Access Key ID</span>
+            <input
+              className="input"
+              value={r2.accessKeyId}
+              onChange={(event) => setR2({ ...r2, accessKeyId: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Secret Access Key</span>
+            <input
+              className="input"
+              type="password"
+              value={r2.secretAccessKey}
+              onChange={(event) =>
+                setR2({ ...r2, secretAccessKey: event.target.value })
+              }
+            />
+          </label>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">启动时自动同步</span>
+          <button
+            type="button"
+            className={`switch ${r2.autoSync ? 'on' : ''}`}
+            role="switch"
+            aria-checked={r2.autoSync}
+            onClick={() => setR2({ ...r2, autoSync: !r2.autoSync })}
+          >
+            <span />
+          </button>
+        </div>
+        <div className="settings-actions">
+          <button type="button" className="btn" onClick={() => void saveSync()}>
+            保存配置
+          </button>
+          <button type="button" className="btn" onClick={() => void testConnection()}>
+            测试连接
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => void runSync()}>
+            立即同步
+          </button>
+        </div>
+        <p className="settings-note">
+          上次同步：
+          {settings.r2LastSync ? formatDateTime(settings.r2LastSync) : '从未'}。
+          R2 密钥保存在本机数据库，建议使用仅限该桶的 API Token。
+        </p>
+        <p className="settings-note">
+          Android 端需要给 R2 桶配置 CORS（允许 https://localhost）。
+          <button type="button" className="btn sync-copy" onClick={() => void copyCors()}>
+            复制 CORS 配置
+          </button>
+        </p>
       </section>
 
       <section className="settings-section">

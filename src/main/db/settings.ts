@@ -7,7 +7,14 @@ const DEFAULTS: Settings = {
   weekStart: 1,
   defaultListId: null,
   showCompleted: false,
-  fontScale: 1
+  fontScale: 1,
+  r2Endpoint: '',
+  r2Bucket: '',
+  r2AccessKeyId: '',
+  r2SecretAccessKey: '',
+  r2Prefix: 'tickflow/snapshots/',
+  r2AutoSync: false,
+  r2LastSync: null
 }
 
 export function getSettings(db: DatabaseSync): Settings {
@@ -27,7 +34,14 @@ export function getSettings(db: DatabaseSync): Settings {
     weekStart: weekStart === '0' ? 0 : 1,
     defaultListId: map.get('defaultListId') || null,
     showCompleted: map.get('showCompleted') === '1',
-    fontScale: Number.isFinite(fontScale) && fontScale > 0 ? fontScale : 1
+    fontScale: Number.isFinite(fontScale) && fontScale > 0 ? fontScale : 1,
+    r2Endpoint: map.get('r2Endpoint') || '',
+    r2Bucket: map.get('r2Bucket') || '',
+    r2AccessKeyId: map.get('r2AccessKeyId') || '',
+    r2SecretAccessKey: map.get('r2SecretAccessKey') || '',
+    r2Prefix: map.get('r2Prefix') || DEFAULTS.r2Prefix,
+    r2AutoSync: map.get('r2AutoSync') === '1',
+    r2LastSync: map.get('r2LastSync') || null
   }
 }
 

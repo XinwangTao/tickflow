@@ -123,6 +123,21 @@
 - 验证：typecheck 0 错误；Vitest 35/35；Playwright E2E 1/1；electron-builder 构建成功
 - 限制：安装包未签名，Windows SmartScreen 可能提示；安装/卸载流程未做自动化
 
+## 6.5 P5 进行中（2026-11-05）
+
+已就绪：
+
+- Android 端：Capacitor 8 + React + Dexie，核心任务/清单/日历/搜索/详情/设置；APK `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（约 4.9MB，原创图标/启动图）
+- R2 同步：桌面与 Android 共用快照同步内核（全量快照 + `updated_at` LWW + tombstone），两端同步设置、测试连接、立即同步、启动自动同步；固定收集箱 ID
+- 文档：`docs/sync-r2.md`、`docs/android.md`、`scripts/android-wireless.ps1`
+- 验证：桌面 typecheck 0、Vitest 44/44、E2E、NSIS 安装包；移动 Web 手机视口全流程；Gradle assembleDebug 成功
+
+待完成：
+
+- 次日真机无线调试（APK 安装/启动/交互）
+- R2 实际网络同步（需用户提供 Endpoint/Bucket/Access Key/Secret，并在桶上配置 CORS）
+- Android 端习惯/番茄/统计等高级功能（当前为核心任务闭环）
+
 ## 7. 借鉴调研（1 回合）
 
 - **借鉴**：Super Productivity（Electron 本地优先、时间跟踪）、Vikunja（列表/看板/日历、自建同步）、Tasks.org（Android + CalDAV）——均只借鉴架构与交互模式。
@@ -141,7 +156,7 @@
 | P2 ✅ | 任务详情全字段、提醒、重复、标签、附件、日历/四象限/看板、拖拽、批量、撤销 | 已交付 2026-11-05：日历/四象限/看板/时间线、子任务、提醒、重复生成、批量撤销全部实测通过 |
 | P3 ✅ | 习惯、番茄、统计、导入导出、托盘/全局快捷键/通知（模板/过滤器移至 P4） | 已交付 2026-11-05：typecheck 0 错误、32/32 测试、构建与 CDP 实测通过 |
 | P4 ✅ | 模板/自定义过滤器、主题/动效/无障碍打磨、打包安装包、Playwright E2E | 已交付 2026-11-05：typecheck 0 错误、35/35 测试、E2E 1/1、NSIS 安装包构建成功 |
-| P5 | Android 端 + Cloudflare R2 同步 | 双端增删改同步、冲突可解释 |
+| P5 进行中 | Android 端 + Cloudflare R2 同步 | APK/同步代码就绪；次日真机无线调试；R2 凭据待配置 |
 
 ## 9. 成功标准
 

@@ -84,6 +84,14 @@ export default function App(): React.ReactNode {
     })
   }, [])
 
+  useEffect(() => {
+    return window.api.sync.onResult((result) => {
+      showToast(result.message, result.ok ? 'success' : 'error', {
+        duration: 5000
+      })
+    })
+  }, [showToast])
+
   const resolvedTheme =
     settings.theme === 'system' ? (systemDark ? 'dark' : 'light') : settings.theme
 

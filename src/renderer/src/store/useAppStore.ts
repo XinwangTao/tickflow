@@ -122,7 +122,14 @@ const DEFAULT_SETTINGS: Settings = {
   weekStart: 1,
   defaultListId: null,
   showCompleted: false,
-  fontScale: 1
+  fontScale: 1,
+  r2Endpoint: '',
+  r2Bucket: '',
+  r2AccessKeyId: '',
+  r2SecretAccessKey: '',
+  r2Prefix: 'tickflow/snapshots/',
+  r2AutoSync: false,
+  r2LastSync: null
 }
 
 function errorMessage(error: unknown): string {

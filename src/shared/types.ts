@@ -1,5 +1,8 @@
 export type Priority = 0 | 1 | 2 | 3
 
+/** 桌面与 Android 共用的固定收集箱 ID，避免同步后出现两个收集箱。 */
+export const INBOX_ID = '00000000-0000-7000-8000-000000000001'
+
 export type TaskStatus = 'open' | 'completed' | 'abandoned'
 
 export interface TodoList {
@@ -73,6 +76,20 @@ export interface Settings {
   defaultListId: string | null
   showCompleted: boolean
   fontScale: number
+  r2Endpoint: string
+  r2Bucket: string
+  r2AccessKeyId: string
+  r2SecretAccessKey: string
+  r2Prefix: string
+  r2AutoSync: boolean
+  r2LastSync: string | null
+}
+
+export interface SyncResult {
+  ok: boolean
+  message: string
+  downloaded?: number
+  updatedAt?: string
 }
 
 export type ViewKey =

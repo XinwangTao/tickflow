@@ -89,6 +89,22 @@ const api: TickFlowApi = {
     create: (input) => ipcRenderer.invoke(IPC.filtersCreate, input),
     remove: (id) => ipcRenderer.invoke(IPC.filtersDelete, id)
   },
+  sync: {
+    test: () => ipcRenderer.invoke(IPC.syncTest),
+    now: () => ipcRenderer.invoke(IPC.syncNow),
+    onResult: (callback) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        result: Parameters<typeof callback>[0]
+      ): void => {
+        callback(result)
+      }
+      ipcRenderer.on(IPC.syncResultEvent, listener)
+      return () => {
+        ipcRenderer.removeListener(IPC.syncResultEvent, listener)
+      }
+    }
+  },
   data: {
     export: (format) => ipcRenderer.invoke(IPC.dataExport, format),
     importJson: () => ipcRenderer.invoke(IPC.dataImport)

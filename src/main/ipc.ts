@@ -24,6 +24,7 @@ import * as pomodoroRepo from './db/pomodoro'
 import * as reminderRepo from './db/reminders'
 import * as settingsRepo from './db/settings'
 import * as statsRepo from './db/stats'
+import { syncNow, testSync } from './sync'
 import * as tagRepo from './db/tags'
 import * as taskRepo from './db/tasks'
 import * as templateRepo from './db/templates'
@@ -132,6 +133,9 @@ export function registerIpc(): void {
     filterRepo.createFilter(getDb(), input)
   )
   ipcMain.handle(IPC.filtersDelete, (_event, id: string) => filterRepo.deleteFilter(getDb(), id))
+
+  ipcMain.handle(IPC.syncTest, () => testSync(getDb()))
+  ipcMain.handle(IPC.syncNow, () => syncNow(getDb()))
 
   ipcMain.handle(IPC.dataExport, (event, format: 'json' | 'csv' | 'ics') =>
     exportData(getDb(), format, BrowserWindow.fromWebContents(event.sender))

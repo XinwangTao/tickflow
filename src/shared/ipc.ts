@@ -18,6 +18,7 @@ import type {
   ReminderWithTask,
   Settings,
   StatsOverview,
+  SyncResult,
   Tag,
   TaskQuery,
   TaskStatus,
@@ -73,6 +74,9 @@ export const IPC = {
   filtersList: 'filters:list',
   filtersCreate: 'filters:create',
   filtersDelete: 'filters:delete',
+  syncTest: 'sync:test',
+  syncNow: 'sync:now',
+  syncResultEvent: 'sync:result',
   dataExport: 'data:export',
   dataImport: 'data:import',
   settingsGet: 'settings:get',
@@ -144,6 +148,11 @@ export interface TickFlowApi {
     list(): Promise<CustomFilter[]>
     create(input: CreateFilterInput): Promise<CustomFilter>
     remove(id: string): Promise<void>
+  }
+  sync: {
+    test(): Promise<SyncResult>
+    now(): Promise<SyncResult>
+    onResult(callback: (result: SyncResult) => void): () => void
   }
   data: {
     export(format: 'json' | 'csv' | 'ics'): Promise<{ canceled: boolean; path?: string }>

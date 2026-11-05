@@ -1,9 +1,10 @@
 import { app, BrowserWindow, globalShortcut, shell } from 'electron'
 import { join } from 'node:path'
 import { IPC } from '@shared/ipc'
-import { closeDatabase, initDatabase } from './db'
+import { closeDatabase, getDb, initDatabase } from './db'
 import { registerIpc } from './ipc'
 import { startReminderScheduler, stopReminderScheduler } from './reminders'
+import { autoSync } from './sync'
 import { destroyTray, setupTray } from './tray'
 
 let mainWindow: BrowserWindow | null = null
@@ -68,7 +69,17 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.once('did-finish-load', () => {
-    if (mainWindow) startReminderScheduler(mainWindow)
+    if (mainWindow) {
+      startReminderScheduler(mainWindow)
+      setTimeout(() => {
+        if (!mainWindow) return
+        void autoSync(getDb())
+          .then((result) => {
+            if (result) mainWindow?.webContents.send(IPC.syncResultEvent, result)
+          })
+          .catch(() => undefined)
+      }, 2500)
+    }
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {

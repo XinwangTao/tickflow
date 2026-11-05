@@ -19,6 +19,7 @@
     "dist": "npm run build && electron-builder --win"
   },
   "dependencies": {
+    "aws4fetch": "^1.0.20",
     "chrono-node": "^2.10.3",
     "date-fns": "^4.4.0",
     "framer-motion": "^14.9.1",
