@@ -8,9 +8,11 @@ import {
   buildSummaryPrompt,
   isListNameMentioned,
   localDateKeyFromIso,
+  mergeExplicitQuickAdd,
   normalizeAiModels,
   normalizeAiQuickAdd,
   parseAiJson,
+  ruleQuickAdd,
   ruleSubtasks,
   type AiConfig,
   type AiSummaryInput
@@ -23,6 +25,7 @@ import {
   testAiConnection
 } from '../src/main/ai'
 import { resolveModelsUrl, type FetchLike } from '../src/main/ai-client'
+import type { QuickAddResult } from '../src/shared/quick-add'
 import type { TaskWithMeta } from '../src/shared/types'
 
 const NOW = new Date(2026, 10, 5, 9, 0, 0)
@@ -92,6 +95,56 @@ describe('buildQuickAddPrompt', () => {
     const prompt = buildQuickAddPrompt('明天开会', { now: NOW, lists: ['收集箱', '工作'] })
     expect(prompt).toContain('不要根据任务内容猜测')
     expect(prompt).toContain('收集箱、工作')
+  })
+
+  it('要求 AI 原样保留 #标签 / !优先级 / ~清单 显式语法', () => {
+    const prompt = buildQuickAddPrompt('明天开会 #工作 !高 ~收集箱', {
+      now: NOW,
+      lists: ['收集箱', '工作']
+    })
+    expect(prompt).toContain('#标签')
+    expect(prompt).toContain('!优先级')
+    expect(prompt).toContain('~清单')
+  })
+})
+
+describe('mergeExplicitQuickAdd', () => {
+  it('用规则解析补齐 AI 漏掉的显式标签、优先级与清单', () => {
+    const rule = ruleQuickAdd('明天下午3点 交周报 #工作 #重点 !高 ~生活', NOW)
+    const merged = mergeExplicitQuickAdd(
+      {
+        title: '交周报 #工作',
+        priority: 1,
+        tags: [],
+        listName: '工作',
+        dueDate: '2026-11-06',
+        dueTime: '16:00',
+        allDay: false,
+        recurrence: null
+      },
+      rule
+    )
+
+    expect(merged.title).toBe('交周报')
+    expect(merged.priority).toBe(3)
+    expect(merged.tags).toEqual(['工作', '重点'])
+    expect(merged.listName).toBe('生活')
+    // 日期时间等自然语言字段仍以 AI 结果为准。
+    expect(merged.dueTime).toBe('16:00')
+  })
+
+  it('没有显式标记时保持 AI 结果不变', () => {
+    const ai: QuickAddResult = {
+      title: '和张总吃饭',
+      priority: 2,
+      tags: ['聚餐'],
+      listName: null,
+      dueDate: '2026-11-07',
+      dueTime: '12:30',
+      allDay: false,
+      recurrence: null
+    }
+    expect(mergeExplicitQuickAdd(ai, ruleQuickAdd('后天中午和张总吃饭', NOW))).toEqual(ai)
   })
 })
 
@@ -255,6 +308,42 @@ describe('parseQuickAddWithAi', () => {
     expect(response.ok).toBe(true)
     expect(response.result.listName).toBe('工作')
     expect(response.result.dueDate).toBe('2026-11-05')
+  })
+
+  it('AI 漏掉显式 #标签 / !优先级 / ~清单 时由规则补齐', async () => {
+    const response = await parseQuickAddWithAi('明天下午3点 交周报 #工作 !高 ~生活', ['收集箱', '工作', '生活'], {
+      config: CONFIG,
+      now: NOW,
+      fetch: async () =>
+        textResponse(
+          JSON.stringify({
+            title: '交周报 #工作',
+            dueDate: '2026-11-06',
+            dueTime: '15:00',
+            priority: 0,
+            tags: []
+          })
+        )
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.source).toBe('ai')
+    expect(response.result.title).toBe('交周报')
+    expect(response.result.tags).toEqual(['工作'])
+    expect(response.result.priority).toBe(3)
+    expect(response.result.listName).toBe('生活')
+  })
+
+  it('显式 ~清单 覆盖 AI 猜测的清单', async () => {
+    const response = await parseQuickAddWithAi('明天下午3点 交工作周报 ~生活', ['收集箱', '工作', '生活'], {
+      config: CONFIG,
+      now: NOW,
+      fetch: async () =>
+        textResponse(JSON.stringify({ title: '交工作周报', dueTime: '15:00', listName: '工作' }))
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.result.listName).toBe('生活')
   })
 
   it('请求失败时降级为规则解析且不抛错', async () => {

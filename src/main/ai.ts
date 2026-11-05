@@ -7,6 +7,7 @@ import {
   buildSummaryPrompt,
   describeAiError,
   isListNameMentioned,
+  mergeExplicitQuickAdd,
   normalizeAiQuickAdd,
   normalizeAiSubtasks,
   normalizeAiSummary,
@@ -62,11 +63,13 @@ export async function parseQuickAddWithAi(
     )
     const parsed = normalizeAiQuickAdd(parseAiJson(text), now)
     if (!parsed) throw new Error('AI 返回结构无法识别')
+    // 用户显式写的 #标签 / !优先级 / ~清单 优先级高于模型输出，避免被漏掉或改写。
+    const merged = mergeExplicitQuickAdd(parsed, fallback)
     // 模型经常在用户没提清单时按任务内容猜一个；忽略猜测，留在当前清单。
     const result =
-      parsed.listName && !isListNameMentioned(input, parsed.listName)
-        ? { ...parsed, listName: null }
-        : parsed
+      merged.listName && !isListNameMentioned(input, merged.listName)
+        ? { ...merged, listName: null }
+        : merged
     return { ok: true, source: 'ai', result, warning: null }
   } catch (error) {
     return {

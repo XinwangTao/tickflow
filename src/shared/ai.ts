@@ -309,6 +309,42 @@ export function isListNameMentioned(input: string, listName: string | null): boo
   return name.length > 0 && normalize(input).includes(name)
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** 去掉标题里残留的 #标签、!优先级、~清单 显式标记。 */
+function stripExplicitQuickAddMarkers(title: string, rule: QuickAddResult): string {
+  let rest = title
+  for (const tag of rule.tags) {
+    rest = rest.replace(new RegExp(`[#＃]\\s*${escapeRegExp(tag)}`, 'gi'), ' ')
+  }
+  if (rule.listName) {
+    rest = rest.replace(new RegExp(`[~～]\\s*${escapeRegExp(rule.listName)}`, 'g'), ' ')
+  }
+  rest = rest.replace(/!\s*(?:高|中|低|紧急|重要|[123])/g, ' ')
+  return rest.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * #标签、!优先级、~清单 是用户在输入里显式写出的确定性信息。
+ * AI 有时会漏掉或改写它们，落库前用规则解析结果补齐/覆盖，
+ * 避免用户明确的输入被模型丢掉；日期、时间等自然语言字段仍以 AI 结果为准。
+ */
+export function mergeExplicitQuickAdd(ai: QuickAddResult, rule: QuickAddResult): QuickAddResult {
+  const tags = [...ai.tags]
+  for (const tag of rule.tags) {
+    if (!tags.includes(tag)) tags.push(tag)
+  }
+  return {
+    ...ai,
+    title: stripExplicitQuickAddMarkers(ai.title, rule) || ai.title,
+    priority: rule.priority > 0 ? rule.priority : ai.priority,
+    tags: tags.slice(0, 8),
+    listName: rule.listName ?? ai.listName
+  }
+}
+
 /** 校验 AI 拆解结果，兼容 {subtasks:[...]} 与纯数组两种输出。 */
 export function normalizeAiSubtasks(raw: unknown): AiSubtaskDraft[] | null {
   const items = Array.isArray(raw)
@@ -434,6 +470,7 @@ export function buildQuickAddPrompt(
     `用户输入：${input}`,
     '请把输入解析成一个任务，只返回 JSON，不要 Markdown 代码块或解释。',
     '字段：title（必填，去掉日期/标签/优先级等修饰后的任务标题）、dueDate（YYYY-MM-DD 或 null）、dueTime（HH:mm 或 null）、allDay（布尔）、priority（0=无 1=低 2=中 3=高）、tags（字符串数组，不含 #）、listName（仅当用户输入中明确出现某个可用清单名时填写；否则必须为 null，不要根据任务内容猜测）、recurrence（RFC5545 RRULE，如 FREQ=WEEKLY;BYDAY=MO；没有则 null）。',
+    '用户输入中的 #标签、!优先级（如 !高）、~清单 是显式语法，必须原样保留到 tags / priority / listName，且不要留在 title 里。',
     '相对日期以“当前时间”为基准；没有日期或时间时 dueDate/dueTime 返回 null。'
   ].join('\n')
 }
