@@ -6,6 +6,7 @@ import {
   buildSubtasksPrompt,
   buildSummaryPrompt,
   describeAiError,
+  isListNameMentioned,
   normalizeAiQuickAdd,
   normalizeAiSubtasks,
   normalizeAiSummary,
@@ -61,7 +62,12 @@ export async function parseQuickAddWithAi(
     )
     const parsed = normalizeAiQuickAdd(parseAiJson(text), now)
     if (!parsed) throw new Error('AI 返回结构无法识别')
-    return { ok: true, source: 'ai', result: parsed, warning: null }
+    // 模型经常在用户没提清单时按任务内容猜一个；忽略猜测，留在当前清单。
+    const result =
+      parsed.listName && !isListNameMentioned(input, parsed.listName)
+        ? { ...parsed, listName: null }
+        : parsed
+    return { ok: true, source: 'ai', result, warning: null }
   } catch (error) {
     return {
       ok: false,

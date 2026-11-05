@@ -298,6 +298,17 @@ export function normalizeAiQuickAdd(raw: unknown, now: Date = new Date()): Quick
   }
 }
 
+/**
+ * AI 常会在用户没提清单时按任务内容猜一个清单，写进错误清单比留在当前清单更难发现。
+ * 只有清单名（忽略大小写与空白）原样出现在用户输入里时才采纳 AI 的 listName。
+ */
+export function isListNameMentioned(input: string, listName: string | null): boolean {
+  if (!listName) return false
+  const normalize = (value: string): string => value.replace(/\s+/g, '').toLowerCase()
+  const name = normalize(listName)
+  return name.length > 0 && normalize(input).includes(name)
+}
+
 /** 校验 AI 拆解结果，兼容 {subtasks:[...]} 与纯数组两种输出。 */
 export function normalizeAiSubtasks(raw: unknown): AiSubtaskDraft[] | null {
   const items = Array.isArray(raw)
@@ -422,7 +433,7 @@ export function buildQuickAddPrompt(
     `可用清单：${listText}`,
     `用户输入：${input}`,
     '请把输入解析成一个任务，只返回 JSON，不要 Markdown 代码块或解释。',
-    '字段：title（必填，去掉日期/标签/优先级等修饰后的任务标题）、dueDate（YYYY-MM-DD 或 null）、dueTime（HH:mm 或 null）、allDay（布尔）、priority（0=无 1=低 2=中 3=高）、tags（字符串数组，不含 #）、listName（必须从可用清单中选择；无法确定时 null）、recurrence（RFC5545 RRULE，如 FREQ=WEEKLY;BYDAY=MO；没有则 null）。',
+    '字段：title（必填，去掉日期/标签/优先级等修饰后的任务标题）、dueDate（YYYY-MM-DD 或 null）、dueTime（HH:mm 或 null）、allDay（布尔）、priority（0=无 1=低 2=中 3=高）、tags（字符串数组，不含 #）、listName（仅当用户输入中明确出现某个可用清单名时填写；否则必须为 null，不要根据任务内容猜测）、recurrence（RFC5545 RRULE，如 FREQ=WEEKLY;BYDAY=MO；没有则 null）。',
     '相对日期以“当前时间”为基准；没有日期或时间时 dueDate/dueTime 返回 null。'
   ].join('\n')
 }

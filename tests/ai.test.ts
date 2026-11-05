@@ -3,8 +3,10 @@ import {
   AI_DEFAULT_BASE_URL,
   AI_DEFAULT_MODEL,
   aiConfigFromSettings,
+  buildQuickAddPrompt,
   buildSummaryInput,
   buildSummaryPrompt,
+  isListNameMentioned,
   localDateKeyFromIso,
   normalizeAiModels,
   normalizeAiQuickAdd,
@@ -67,6 +69,29 @@ describe('parseAiJson', () => {
   it('非法内容返回 null', () => {
     expect(parseAiJson('没有 JSON')).toBeNull()
     expect(parseAiJson('{"title": }')).toBeNull()
+  })
+})
+
+describe('isListNameMentioned', () => {
+  it('只有用户输入里明确出现清单名时才视为提到', () => {
+    expect(isListNameMentioned('明天下午3点交周报，放工作清单', '工作')).toBe(true)
+    expect(isListNameMentioned('今天买牛奶', '生活')).toBe(false)
+    expect(isListNameMentioned('后天中午和张总吃饭', '工作')).toBe(false)
+    expect(isListNameMentioned('', '工作')).toBe(false)
+    expect(isListNameMentioned('整理笔记', null)).toBe(false)
+  })
+
+  it('忽略大小写与空白', () => {
+    expect(isListNameMentioned('sync notes ~My List', 'my list')).toBe(true)
+    expect(isListNameMentioned('放到 工作 清单', '工 作')).toBe(true)
+  })
+})
+
+describe('buildQuickAddPrompt', () => {
+  it('要求 AI 只在输入明确提到清单时填写 listName', () => {
+    const prompt = buildQuickAddPrompt('明天开会', { now: NOW, lists: ['收集箱', '工作'] })
+    expect(prompt).toContain('不要根据任务内容猜测')
+    expect(prompt).toContain('收集箱、工作')
   })
 })
 
@@ -196,6 +221,40 @@ describe('parseQuickAddWithAi', () => {
     const body = JSON.parse(String(calls[0].init?.body)) as Record<string, unknown>
     expect(body.model).toBe(AI_DEFAULT_MODEL)
     expect(body.messages).toBeTruthy()
+  })
+
+  it('丢弃 AI 凭空猜测的清单，留在当前清单', async () => {
+    const response = await parseQuickAddWithAi('后天中午和张总吃饭', ['收集箱', '工作', '生活'], {
+      config: CONFIG,
+      now: NOW,
+      fetch: async () =>
+        textResponse(
+          JSON.stringify({
+            title: '和张总吃饭',
+            dueDate: '2026-11-07',
+            dueTime: '12:30',
+            listName: '工作'
+          })
+        )
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.source).toBe('ai')
+    expect(response.result.title).toBe('和张总吃饭')
+    expect(response.result.listName).toBeNull()
+  })
+
+  it('用户输入明确提到清单时保留 AI 的 listName', async () => {
+    const response = await parseQuickAddWithAi('明天下午3点交周报，放工作清单', ['收集箱', '工作'], {
+      config: CONFIG,
+      now: NOW,
+      fetch: async () =>
+        textResponse(JSON.stringify({ title: '交周报', dueTime: '15:00', listName: '工作' }))
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.result.listName).toBe('工作')
+    expect(response.result.dueDate).toBe('2026-11-05')
   })
 
   it('请求失败时降级为规则解析且不抛错', async () => {
