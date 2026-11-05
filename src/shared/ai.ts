@@ -271,8 +271,12 @@ export function parseAiJson(text: string): unknown {
   return null
 }
 
-/** 校验并收敛 AI 返回的快速添加结构；标题为空或结构非法时返回 null。 */
-export function normalizeAiQuickAdd(raw: unknown, now: Date = new Date()): QuickAddResult | null {
+/**
+ * 校验并收敛 AI 返回的快速添加结构；标题为空或结构非法时返回 null。
+ * 这里不替 AI 补日期：只有 dueTime 时保持 dueDate 为 null，
+ * 由 mergeQuickAddWithRule 用规则解析结果补齐，避免把“明天 15:00”补成今天。
+ */
+export function normalizeAiQuickAdd(raw: unknown): QuickAddResult | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const record = raw as Record<string, unknown>
   const title = typeof record.title === 'string' ? record.title.trim() : ''
@@ -291,7 +295,7 @@ export function normalizeAiQuickAdd(raw: unknown, now: Date = new Date()): Quick
     priority: normalizePriority(record.priority),
     tags: normalizeStringList(record.tags, 8),
     listName: listName || null,
-    dueDate: dueDate ?? (dueTime ? toDateKey(now) : null),
+    dueDate,
     dueTime,
     allDay: dueTime ? false : record.allDay === false ? false : true,
     recurrence
@@ -327,21 +331,34 @@ function stripExplicitQuickAddMarkers(title: string, rule: QuickAddResult): stri
 }
 
 /**
- * #标签、!优先级、~清单 是用户在输入里显式写出的确定性信息。
- * AI 有时会漏掉或改写它们，落库前用规则解析结果补齐/覆盖，
- * 避免用户明确的输入被模型丢掉；日期、时间等自然语言字段仍以 AI 结果为准。
+ * AI 结果与本地规则合并，规则只在 AI 缺失时补充：
+ * - #标签、!优先级、~清单 是用户显式写出的确定性信息，规则结果覆盖 AI；
+ * - 日期、时间、重复以 AI 为准，但 AI 漏掉时用规则解析补齐，
+ *   避免“明天下午3点”被模型只返回标题后丢掉日期时间；
+ * - 标题里残留的显式标记会被清掉。
  */
-export function mergeExplicitQuickAdd(ai: QuickAddResult, rule: QuickAddResult): QuickAddResult {
+export function mergeQuickAddWithRule(
+  ai: QuickAddResult,
+  rule: QuickAddResult,
+  now: Date = new Date()
+): QuickAddResult {
   const tags = [...ai.tags]
   for (const tag of rule.tags) {
     if (!tags.includes(tag)) tags.push(tag)
   }
+  const dueTime = ai.dueTime ?? rule.dueTime
+  const dueDate =
+    ai.dueDate ?? rule.dueDate ?? (dueTime ? toDateKey(now) : null)
   return {
     ...ai,
     title: stripExplicitQuickAddMarkers(ai.title, rule) || ai.title,
     priority: rule.priority > 0 ? rule.priority : ai.priority,
     tags: tags.slice(0, 8),
-    listName: rule.listName ?? ai.listName
+    listName: rule.listName ?? ai.listName,
+    dueDate,
+    dueTime,
+    recurrence: ai.recurrence ?? rule.recurrence,
+    allDay: dueTime ? false : ai.dueDate || !rule.dueDate ? ai.allDay : rule.allDay
   }
 }
 

@@ -7,7 +7,7 @@ import {
   buildSummaryPrompt,
   describeAiError,
   isListNameMentioned,
-  mergeExplicitQuickAdd,
+  mergeQuickAddWithRule,
   normalizeAiQuickAdd,
   normalizeAiSubtasks,
   normalizeAiSummary,
@@ -61,10 +61,10 @@ export async function parseQuickAddWithAi(
       },
       { fetch: runtime.fetch }
     )
-    const parsed = normalizeAiQuickAdd(parseAiJson(text), now)
+    const parsed = normalizeAiQuickAdd(parseAiJson(text))
     if (!parsed) throw new Error('AI 返回结构无法识别')
-    // 用户显式写的 #标签 / !优先级 / ~清单 优先级高于模型输出，避免被漏掉或改写。
-    const merged = mergeExplicitQuickAdd(parsed, fallback)
+    // 显式 #标签 / !优先级 / ~清单 以规则为准；AI 漏掉的日期、时间、重复用规则补齐。
+    const merged = mergeQuickAddWithRule(parsed, fallback, now)
     // 模型经常在用户没提清单时按任务内容猜一个；忽略猜测，留在当前清单。
     const result =
       merged.listName && !isListNameMentioned(input, merged.listName)

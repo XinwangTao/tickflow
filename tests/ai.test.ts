@@ -8,7 +8,7 @@ import {
   buildSummaryPrompt,
   isListNameMentioned,
   localDateKeyFromIso,
-  mergeExplicitQuickAdd,
+  mergeQuickAddWithRule,
   normalizeAiModels,
   normalizeAiQuickAdd,
   parseAiJson,
@@ -108,10 +108,10 @@ describe('buildQuickAddPrompt', () => {
   })
 })
 
-describe('mergeExplicitQuickAdd', () => {
+describe('mergeQuickAddWithRule', () => {
   it('用规则解析补齐 AI 漏掉的显式标签、优先级与清单', () => {
     const rule = ruleQuickAdd('明天下午3点 交周报 #工作 #重点 !高 ~生活', NOW)
-    const merged = mergeExplicitQuickAdd(
+    const merged = mergeQuickAddWithRule(
       {
         title: '交周报 #工作',
         priority: 1,
@@ -129,11 +129,53 @@ describe('mergeExplicitQuickAdd', () => {
     expect(merged.priority).toBe(3)
     expect(merged.tags).toEqual(['工作', '重点'])
     expect(merged.listName).toBe('生活')
-    // 日期时间等自然语言字段仍以 AI 结果为准。
+    // AI 已给出的日期/时间优先。
     expect(merged.dueTime).toBe('16:00')
   })
 
-  it('没有显式标记时保持 AI 结果不变', () => {
+  it('AI 漏掉日期、时间与重复时用规则补齐', () => {
+    const rule = ruleQuickAdd('明天下午3点 交周报 每周', NOW)
+    const merged = mergeQuickAddWithRule(
+      {
+        title: '交周报',
+        priority: 0,
+        tags: [],
+        listName: null,
+        dueDate: null,
+        dueTime: null,
+        allDay: true,
+        recurrence: null
+      },
+      rule
+    )
+
+    expect(merged.dueDate).toBe('2026-11-06')
+    expect(merged.dueTime).toBe('15:00')
+    expect(merged.allDay).toBe(false)
+    expect(merged.recurrence).toBe('FREQ=WEEKLY')
+  })
+
+  it('AI 只给出日期时用规则补时间', () => {
+    const merged = mergeQuickAddWithRule(
+      {
+        title: '交周报',
+        priority: 0,
+        tags: [],
+        listName: null,
+        dueDate: '2026-11-06',
+        dueTime: null,
+        allDay: true,
+        recurrence: null
+      },
+      ruleQuickAdd('明天下午3点 交周报', NOW)
+    )
+
+    expect(merged.dueDate).toBe('2026-11-06')
+    expect(merged.dueTime).toBe('15:00')
+    expect(merged.allDay).toBe(false)
+  })
+
+  it('没有可补充内容时保持 AI 结果不变', () => {
     const ai: QuickAddResult = {
       title: '和张总吃饭',
       priority: 2,
@@ -144,24 +186,21 @@ describe('mergeExplicitQuickAdd', () => {
       allDay: false,
       recurrence: null
     }
-    expect(mergeExplicitQuickAdd(ai, ruleQuickAdd('后天中午和张总吃饭', NOW))).toEqual(ai)
+    expect(mergeQuickAddWithRule(ai, ruleQuickAdd('后天中午和张总吃饭', NOW))).toEqual(ai)
   })
 })
 
 describe('normalizeAiQuickAdd', () => {
   it('收敛优先级、日期、标签与清单', () => {
-    const result = normalizeAiQuickAdd(
-      {
-        title: ' 交周报 ',
-        dueDate: '2026-11-06',
-        dueTime: '9:5',
-        priority: 9,
-        tags: ['#工作', '工作', ' 重要 '],
-        listName: ' 工作 ',
-        recurrence: 'freq=weekly;byday=mo'
-      },
-      NOW
-    )
+    const result = normalizeAiQuickAdd({
+      title: ' 交周报 ',
+      dueDate: '2026-11-06',
+      dueTime: '9:5',
+      priority: 9,
+      tags: ['#工作', '工作', ' 重要 '],
+      listName: ' 工作 ',
+      recurrence: 'freq=weekly;byday=mo'
+    })
     expect(result).toEqual({
       title: '交周报',
       dueDate: '2026-11-06',
@@ -174,10 +213,17 @@ describe('normalizeAiQuickAdd', () => {
     })
   })
 
-  it('丢弃非法日期并保留标题；无标题返回 null', () => {
-    const result = normalizeAiQuickAdd({ title: '写周报', dueDate: '2026-02-30' }, NOW)
+  it('只有时间时不擅自补成今天，留给规则合并补齐日期', () => {
+    const result = normalizeAiQuickAdd({ title: '交周报', dueTime: '15:00' })
     expect(result?.dueDate).toBeNull()
-    expect(normalizeAiQuickAdd({ title: '  ' }, NOW)).toBeNull()
+    expect(result?.dueTime).toBe('15:00')
+    expect(result?.allDay).toBe(false)
+  })
+
+  it('丢弃非法日期并保留标题；无标题返回 null', () => {
+    const result = normalizeAiQuickAdd({ title: '写周报', dueDate: '2026-02-30' })
+    expect(result?.dueDate).toBeNull()
+    expect(normalizeAiQuickAdd({ title: '  ' })).toBeNull()
   })
 })
 
@@ -307,7 +353,36 @@ describe('parseQuickAddWithAi', () => {
 
     expect(response.ok).toBe(true)
     expect(response.result.listName).toBe('工作')
-    expect(response.result.dueDate).toBe('2026-11-05')
+    expect(response.result.dueDate).toBe('2026-11-06')
+  })
+
+  it('AI 只返回标题时仍保留用户输入里的日期与时间', async () => {
+    const response = await parseQuickAddWithAi('明天下午3点 交周报', ['收集箱'], {
+      config: CONFIG,
+      now: NOW,
+      fetch: async () => textResponse(JSON.stringify({ title: '交周报' }))
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.source).toBe('ai')
+    expect(response.result.title).toBe('交周报')
+    expect(response.result.dueDate).toBe('2026-11-06')
+    expect(response.result.dueTime).toBe('15:00')
+    expect(response.result.allDay).toBe(false)
+  })
+
+  it('AI 给出日期但漏掉时间时由规则补时间', async () => {
+    const response = await parseQuickAddWithAi('明天下午3点 交周报', ['收集箱'], {
+      config: CONFIG,
+      now: NOW,
+      fetch: async () =>
+        textResponse(JSON.stringify({ title: '交周报', dueDate: '2026-11-06' }))
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.result.dueDate).toBe('2026-11-06')
+    expect(response.result.dueTime).toBe('15:00')
+    expect(response.result.allDay).toBe(false)
   })
 
   it('AI 漏掉显式 #标签 / !优先级 / ~清单 时由规则补齐', async () => {
