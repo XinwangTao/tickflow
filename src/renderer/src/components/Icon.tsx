@@ -20,6 +20,7 @@ export type IconName =
   | 'moon'
   | 'settings'
   | 'bell'
+  | 'sound'
   | 'help'
   | 'plus'
   | 'more'
@@ -133,6 +134,13 @@ const ICONS: Record<IconName, ReactNode> = {
     <>
       <path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7" />
       <path d="M10 20a2 2 0 0 0 4 0" />
+    </>
+  ),
+  sound: (
+    <>
+      <path d="M4 10v4h3l4 3V7l-4 3H4z" />
+      <path d="M15 9.5a4 4 0 0 1 0 5" />
+      <path d="M17.5 7a7.5 7.5 0 0 1 0 10" />
     </>
   ),
   help: (

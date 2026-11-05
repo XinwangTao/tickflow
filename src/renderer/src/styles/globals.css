@@ -3524,3 +3524,118 @@ kbd {
 .notification-empty span {
   font-size: 12px;
 }
+
+/* ---------- pomodoro white noise ---------- */
+
+.btn.btn-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pomodoro-noise {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pomodoro-noise input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+  min-width: 80px;
+}
+
+.pomodoro-noise span:last-child {
+  width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- pomodoro 7-day focus chart ---------- */
+
+.focus-week {
+  margin-top: 4px;
+}
+
+.focus-bars {
+  display: flex;
+  gap: 6px;
+  height: 110px;
+  margin-top: 10px;
+}
+
+.focus-bar-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.focus-bar-value {
+  height: 13px;
+  color: var(--text-2);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-bar-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--panel-2);
+}
+
+.focus-bar {
+  width: 100%;
+  min-height: 3px;
+  border-radius: 4px 4px 0 0;
+  background: var(--chart-1);
+  transition: height 0.2s ease;
+}
+
+.focus-bar-day {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.focus-table-wrap {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.focus-table-wrap summary {
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.focus-table {
+  width: 100%;
+  margin-top: 4px;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.focus-table th,
+.focus-table td {
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.focus-table th {
+  color: var(--muted);
+  font-weight: 500;
+}

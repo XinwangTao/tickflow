@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PomodoroSession, TaskWithMeta } from '@shared/types'
+import { toDateKey } from '@shared/dates'
 import { Icon } from './Icon'
 import { useAppStore } from '../store/useAppStore'
 
@@ -32,7 +33,11 @@ export function PomodoroView(): React.ReactNode {
   const [taskId, setTaskId] = useState('')
   const [tasks, setTasks] = useState<TaskWithMeta[]>([])
   const [sessions, setSessions] = useState<PomodoroSession[]>([])
+  const [weekSessions, setWeekSessions] = useState<PomodoroSession[]>([])
   const [taskTitles, setTaskTitles] = useState<Record<string, string>>({})
+  const [noiseOn, setNoiseOn] = useState(false)
+  const [noiseVolume, setNoiseVolume] = useState(0.18)
+  const noiseRef = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null)
 
   const focusSessions = sessions.filter((session) => session.mode === 'focus')
 
@@ -62,6 +67,10 @@ export function PomodoroView(): React.ReactNode {
     try {
       const { from, to } = todayRange()
       setSessions(await window.api.pomodoro.list(from, to))
+      const weekFrom = new Date()
+      weekFrom.setDate(weekFrom.getDate() - 6)
+      weekFrom.setHours(0, 0, 0, 0)
+      setWeekSessions(await window.api.pomodoro.list(weekFrom.toISOString(), to))
     } catch (error) {
       showToast(String(error), 'error')
     }
@@ -164,6 +173,60 @@ export function PomodoroView(): React.ReactNode {
     return () => window.clearInterval(timer)
   }, [running, endsAt, finish])
 
+  const stopNoise = useCallback((): void => {
+    const current = noiseRef.current
+    if (!current) return
+    noiseRef.current = null
+    setNoiseOn(false)
+    void current.ctx.close().catch(() => undefined)
+  }, [])
+
+  const toggleNoise = (): void => {
+    if (noiseRef.current) {
+      stopNoise()
+      return
+    }
+    try {
+      const ctx = new AudioContext()
+      const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate)
+      const data = buffer.getChannelData(0)
+      let last = 0
+      for (let index = 0; index < data.length; index += 1) {
+        const white = Math.random() * 2 - 1
+        last = (last + 0.02 * white) / 1.02
+        data[index] = last * 3.5
+      }
+      const source = ctx.createBufferSource()
+      source.buffer = buffer
+      source.loop = true
+      const filter = ctx.createBiquadFilter()
+      filter.type = 'lowpass'
+      filter.frequency.value = 1200
+      const gain = ctx.createGain()
+      gain.gain.value = noiseVolume
+      source.connect(filter)
+      filter.connect(gain)
+      gain.connect(ctx.destination)
+      source.start()
+      noiseRef.current = { ctx, gain }
+      setNoiseOn(true)
+    } catch (error) {
+      showToast(`无法启动白噪音：${String(error)}`, 'error')
+    }
+  }
+
+  useEffect(() => {
+    if (noiseRef.current) noiseRef.current.gain.gain.value = noiseVolume
+  }, [noiseVolume])
+
+  useEffect(() => {
+    return () => {
+      const current = noiseRef.current
+      noiseRef.current = null
+      if (current) void current.ctx.close().catch(() => undefined)
+    }
+  }, [])
+
   const totalSeconds = (mode === 'focus' ? focusMinutes : breakDuration) * 60
   const progress = totalSeconds > 0 ? 1 - remaining / totalSeconds : 0
   const radius = 92
@@ -172,6 +235,31 @@ export function PomodoroView(): React.ReactNode {
   const todayMinutes = focusSessions.reduce((sum, session) => sum + session.durationMinutes, 0)
   const goal = 4
   const goalDone = Math.min(goal, focusSessions.length)
+
+  const weekFocus = useMemo(() => {
+    const days: Array<{ key: string; label: string; minutes: number }> = []
+    for (let offset = 6; offset >= 0; offset -= 1) {
+      const date = new Date()
+      date.setDate(date.getDate() - offset)
+      const key = toDateKey(date)
+      const minutes = weekSessions
+        .filter(
+          (session) =>
+            session.mode === 'focus' &&
+            session.completed &&
+            toDateKey(new Date(session.startedAt)) === key
+        )
+        .reduce((sum, session) => sum + session.durationMinutes, 0)
+      days.push({
+        key,
+        label: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
+        minutes
+      })
+    }
+    return days
+  }, [weekSessions])
+  const weekMax = Math.max(25, ...weekFocus.map((day) => day.minutes))
+  const weekTotal = weekFocus.reduce((sum, day) => sum + day.minutes, 0)
 
   const start = (): void => {
     if (remaining <= 0) return
@@ -274,7 +362,31 @@ export function PomodoroView(): React.ReactNode {
                 跳过休息
               </button>
             ) : null}
+            <button
+              type="button"
+              className={`btn ${noiseOn ? 'btn-active' : ''}`}
+              onClick={toggleNoise}
+            >
+              <Icon name="sound" size={15} />
+              {noiseOn ? '关闭白噪音' : '白噪音'}
+            </button>
           </div>
+
+          {noiseOn ? (
+            <div className="pomodoro-noise">
+              <span>白噪音音量</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.02}
+                value={noiseVolume}
+                aria-label="白噪音音量"
+                onChange={(event) => setNoiseVolume(Number(event.target.value))}
+              />
+              <span>{Math.round(noiseVolume * 100)}%</span>
+            </div>
+          ) : null}
 
           <div className="pomodoro-settings">
             <label>
@@ -394,6 +506,56 @@ export function PomodoroView(): React.ReactNode {
                 })
               )}
             </div>
+          </section>
+
+          <section className="session-section focus-week">
+            <div className="chart-head">
+              <div>
+                <h2>最近 7 天专注</h2>
+                <span>{weekTotal} 分钟</span>
+              </div>
+            </div>
+            <div
+              className="focus-bars"
+              role="img"
+              aria-label={`最近 7 天专注分钟：${weekFocus
+                .map((day) => `${day.label} ${day.minutes} 分钟`)
+                .join('，')}`}
+            >
+              {weekFocus.map((day) => (
+                <div className="focus-bar-col" key={day.key} title={`${day.key} 专注 ${day.minutes} 分钟`}>
+                  <span className="focus-bar-value">{day.minutes > 0 ? day.minutes : ''}</span>
+                  <div className="focus-bar-track">
+                    <div
+                      className="focus-bar"
+                      style={{
+                        height: `${Math.max(3, (day.minutes / weekMax) * 100)}%`
+                      }}
+                    />
+                  </div>
+                  <span className="focus-bar-day">{day.label}</span>
+                </div>
+              ))}
+            </div>
+            <details className="focus-table-wrap">
+              <summary>数据表</summary>
+              <table className="focus-table">
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>专注分钟</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weekFocus.map((day) => (
+                    <tr key={day.key}>
+                      <td>{day.key.slice(5)}</td>
+                      <td>{day.minutes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
           </section>
         </aside>
       </div>
