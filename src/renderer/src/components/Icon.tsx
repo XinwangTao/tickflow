@@ -10,6 +10,7 @@ export type IconName =
   | 'play'
   | 'pause'
   | 'filter'
+  | 'paperclip'
   | 'grid'
   | 'timer'
   | 'habit'
@@ -78,6 +79,9 @@ const ICONS: Record<IconName, ReactNode> = {
     </>
   ),
   filter: <path d="M4 5h16l-6 7v6l-4 2v-8z" />,
+  paperclip: (
+    <path d="M21 12.5l-8.4 8.4a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" />
+  ),
   grid: (
     <>
       <rect x="4" y="4" width="6.5" height="6.5" rx="2" />

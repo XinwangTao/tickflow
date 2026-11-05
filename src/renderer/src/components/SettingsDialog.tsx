@@ -137,6 +137,23 @@ export function SettingsDialog(): React.ReactNode {
     }
   }
 
+  const handleBackup = async (): Promise<void> => {
+    try {
+      const path = await window.api.data.backup()
+      showToast(`已备份到 ${path}`, 'success', { duration: 6000 })
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const handleOpenDataDir = async (): Promise<void> => {
+    try {
+      await window.api.data.openDir()
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
   return (
     <Modal title="设置" onClose={() => close(false)} width={560}>
       <section className="settings-section">
@@ -323,6 +340,17 @@ export function SettingsDialog(): React.ReactNode {
         <p className="settings-note">
           每次启动自动备份，保留最近 5 份。当前版本 {info?.version ?? '—'}。
         </p>
+        <div className="settings-row">
+          <span className="settings-label">维护</span>
+          <div className="settings-actions">
+            <button type="button" className="btn" onClick={() => void handleOpenDataDir()}>
+              打开数据目录
+            </button>
+            <button type="button" className="btn" onClick={() => void handleBackup()}>
+              立即备份
+            </button>
+          </div>
+        </div>
         <div className="settings-row">
           <span className="settings-label">导出</span>
           <div className="settings-actions">

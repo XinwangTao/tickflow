@@ -2230,6 +2230,46 @@ kbd {
   grid-column: 1 / -1;
 }
 
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.attachment-row:last-child {
+  border-bottom: 0;
+}
+
+.attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.attachment-size {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.attachment-add {
+  align-self: flex-start;
+  height: 28px;
+  font-size: 11px;
+}
+
 .field-hint {
   font-size: 10px;
   color: var(--muted);

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import type { Priority, Reminder, TaskWithMeta } from '@shared/types'
+import type { Attachment, Priority, Reminder, TaskWithMeta } from '@shared/types'
 import { fromDateKey, todayKey } from '@shared/dates'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../lib/colors'
 import {
   describeRecurrence,
+  formatBytes,
   formatDateLabel,
   formatDateTime,
   isoToLocalDateTime,
@@ -286,6 +287,96 @@ function Reminders({ task }: { task: TaskWithMeta }): React.ReactNode {
           添加
         </button>
       </div>
+    </section>
+  )
+}
+
+function Attachments({ task }: { task: TaskWithMeta }): React.ReactNode {
+  const showToast = useAppStore((state) => state.showToast)
+  const [items, setItems] = useState<Attachment[]>([])
+
+  const load = async (): Promise<void> => {
+    try {
+      setItems(await window.api.attachments.list(task.id))
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [task.id])
+
+  const add = async (): Promise<void> => {
+    try {
+      const created = await window.api.attachments.add(task.id)
+      if (created) {
+        await load()
+        showToast('已添加附件', 'success')
+      }
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const open = async (id: string): Promise<void> => {
+    try {
+      await window.api.attachments.open(id)
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const remove = async (id: string): Promise<void> => {
+    try {
+      await window.api.attachments.remove(id)
+      await load()
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  return (
+    <section className="detail-section">
+      <div className="detail-section-head">
+        <span>附件</span>
+        <span>{items.length > 0 ? `${items.length} 个` : ''}</span>
+      </div>
+      <div className="attachment-list">
+        {items.map((attachment) => (
+          <div
+            className="attachment-row"
+            key={attachment.id}
+            onClick={() => void open(attachment.id)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void open(attachment.id)
+            }}
+          >
+            <Icon name="paperclip" size={14} />
+            <span className="attachment-name" title={attachment.name}>
+              {attachment.name}
+            </span>
+            <span className="attachment-size">{formatBytes(attachment.size)}</span>
+            <button
+              type="button"
+              className="icon-btn danger"
+              aria-label="删除附件"
+              onClick={(event) => {
+                event.stopPropagation()
+                void remove(attachment.id)
+              }}
+            >
+              <Icon name="trash" size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button type="button" className="btn attachment-add" onClick={() => void add()}>
+        <Icon name="plus" size={14} />
+        添加附件
+      </button>
     </section>
   )
 }
@@ -578,6 +669,7 @@ export function DetailDrawer(): React.ReactNode {
 
         <Subtasks task={task} />
         <Reminders task={task} />
+        <Attachments task={task} />
 
         <div className="detail-info-row">
           <span>创建</span>

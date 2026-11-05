@@ -96,6 +96,8 @@ interface AppState {
   createList: (name: string, color: string, emoji?: string | null) => Promise<void>
   updateList: (id: string, patch: UpdateListInput) => Promise<void>
   deleteList: (id: string) => Promise<void>
+  renameTag: (id: string, name: string) => Promise<void>
+  deleteTag: (id: string) => Promise<void>
   createFilter: (name: string, query: FilterQuery) => Promise<void>
   deleteFilter: (id: string) => Promise<void>
   createTask: (input: CreateTaskInput) => Promise<TaskWithMeta | null>
@@ -322,6 +324,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       await get().refresh()
       get().showToast('清单已移入垃圾箱', 'info')
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  renameTag: async (id, name) => {
+    try {
+      await window.api.tags.update(id, name)
+      await get().refresh()
+      get().showToast(`标签已重命名为「${name.trim()}」`, 'success')
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  deleteTag: async (id) => {
+    try {
+      await window.api.tags.remove(id)
+      await get().refresh()
+      get().showToast('标签已删除', 'info')
     } catch (error) {
       get().showToast(errorMessage(error), 'error')
     }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ListWithCount } from '@shared/types'
+import type { ListWithCount, Tag } from '@shared/types'
 import { Icon, type IconName } from './Icon'
 import { FilterModal } from './FilterModal'
 import { Modal } from './Modal'
@@ -39,6 +39,8 @@ export function Sidebar(): React.ReactNode {
   const setNewListOpen = useAppStore((state) => state.setNewListOpen)
   const updateList = useAppStore((state) => state.updateList)
   const deleteList = useAppStore((state) => state.deleteList)
+  const renameTag = useAppStore((state) => state.renameTag)
+  const deleteTag = useAppStore((state) => state.deleteTag)
   const deleteFilter = useAppStore((state) => state.deleteFilter)
   const reorderLists = useAppStore((state) => state.reorderLists)
   const setSearchOpen = useAppStore((state) => state.setSearchOpen)
@@ -54,11 +56,20 @@ export function Sidebar(): React.ReactNode {
   } | null>(null)
   const [editTarget, setEditTarget] = useState<ListWithCount | null>(null)
   const [dragListId, setDragListId] = useState<string | null>(null)
+  const [tagMenuId, setTagMenuId] = useState<string | null>(null)
+  const [tagEditingId, setTagEditingId] = useState<string | null>(null)
+  const [tagDraft, setTagDraft] = useState('')
+  const [tagDeleteTarget, setTagDeleteTarget] = useState<Tag | null>(null)
   const renameInput = useRef<HTMLInputElement>(null)
+  const tagRenameInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (editingId) renameInput.current?.focus()
   }, [editingId])
+
+  useEffect(() => {
+    if (tagEditingId) tagRenameInput.current?.focus()
+  }, [tagEditingId])
 
   useEffect(() => {
     if (!menuId) return
@@ -67,10 +78,30 @@ export function Sidebar(): React.ReactNode {
     return () => window.removeEventListener('mousedown', close)
   }, [menuId])
 
+  useEffect(() => {
+    if (!tagMenuId) return
+    const close = (): void => setTagMenuId(null)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [tagMenuId])
+
   const startRename = (id: string, name: string): void => {
     setEditingId(id)
     setDraftName(name)
     setMenuId(null)
+  }
+
+  const startTagRename = (id: string, name: string): void => {
+    setTagEditingId(id)
+    setTagDraft(name)
+    setTagMenuId(null)
+  }
+
+  const commitTagRename = (): void => {
+    if (!tagEditingId) return
+    const name = tagDraft.trim()
+    if (name) void renameTag(tagEditingId, name)
+    setTagEditingId(null)
   }
 
   const commitRename = (): void => {
@@ -238,19 +269,68 @@ export function Sidebar(): React.ReactNode {
             </div>
             <div className="side-group">
               {tags.map((tag) => (
-                <button
-                  key={tag.id}
-                  type="button"
-                  className="side-item"
-                  title={`搜索标签 ${tag.name}`}
-                  onClick={() => setSearchOpen(true, `#${tag.name}`)}
-                >
-                  <Icon name="tag" size={15} className="side-icon" />
-                  <span className="side-label">{tag.name}</span>
-                  {tag.taskCount > 0 ? (
-                    <span className="side-count">{tag.taskCount > 99 ? '99+' : tag.taskCount}</span>
+                <div className="side-row" key={tag.id}>
+                  <button
+                    type="button"
+                    className="side-item"
+                    title={`搜索标签 ${tag.name}`}
+                    onClick={() => setSearchOpen(true, `#${tag.name}`)}
+                    onDoubleClick={() => startTagRename(tag.id, tag.name)}
+                  >
+                    <Icon name="tag" size={15} className="side-icon" />
+                    {tagEditingId === tag.id ? (
+                      <input
+                        ref={tagRenameInput}
+                        className="inline-input"
+                        value={tagDraft}
+                        onChange={(event) => setTagDraft(event.target.value)}
+                        onBlur={commitTagRename}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') commitTagRename()
+                          if (event.key === 'Escape') setTagEditingId(null)
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="side-label">{tag.name}</span>
+                    )}
+                    {tag.taskCount > 0 ? (
+                      <span className="side-count">{tag.taskCount > 99 ? '99+' : tag.taskCount}</span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="side-more"
+                    aria-label={`${tag.name} 更多操作`}
+                    title="更多"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setTagMenuId(tagMenuId === tag.id ? null : tag.id)
+                    }}
+                  >
+                    <Icon name="more" size={14} />
+                  </button>
+                  {tagMenuId === tag.id ? (
+                    <div className="side-popover" onMouseDown={(event) => event.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => startTagRename(tag.id, tag.name)}
+                      >
+                        重命名
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => {
+                          setTagDeleteTarget(tag)
+                          setTagMenuId(null)
+                        }}
+                      >
+                        删除标签
+                      </button>
+                    </div>
                   ) : null}
-                </button>
+                </div>
               ))}
             </div>
           </>
@@ -369,6 +449,33 @@ export function Sidebar(): React.ReactNode {
           list={editTarget}
           onClose={() => setEditTarget(null)}
         />
+      ) : null}
+
+      {tagDeleteTarget ? (
+        <Modal
+          title="删除标签"
+          onClose={() => setTagDeleteTarget(null)}
+          width={400}
+        >
+          <p className="modal-text">
+            标签「{tagDeleteTarget.name}」会从所有任务上移除，任务本身不会被删除。
+          </p>
+          <div className="modal-actions">
+            <button type="button" className="btn" onClick={() => setTagDeleteTarget(null)}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => {
+                void deleteTag(tagDeleteTarget.id)
+                setTagDeleteTarget(null)
+              }}
+            >
+              删除
+            </button>
+          </div>
+        </Modal>
       ) : null}
 
       {filterModalOpen ? (
