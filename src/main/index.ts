@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { IPC } from '@shared/ipc'
 import { closeDatabase, initDatabase } from './db'
 import { registerIpc } from './ipc'
+import { startReminderScheduler, stopReminderScheduler } from './reminders'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -44,6 +45,10 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (mainWindow) startReminderScheduler(mainWindow)
+  })
+
   if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -77,6 +82,7 @@ if (!gotLock) {
   })
 
   app.on('before-quit', () => {
+    stopReminderScheduler()
     closeDatabase()
   })
 }

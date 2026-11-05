@@ -42,6 +42,20 @@ const api: TickFlowApi = {
   tags: {
     list: () => ipcRenderer.invoke(IPC.tagsList)
   },
+  reminders: {
+    list: (taskId) => ipcRenderer.invoke(IPC.remindersList, taskId),
+    create: (taskId, triggerAt) => ipcRenderer.invoke(IPC.remindersCreate, taskId, triggerAt),
+    remove: (id) => ipcRenderer.invoke(IPC.remindersRemove, id),
+    onMissed: (callback) => {
+      const listener = (_event: IpcRendererEvent, items: Parameters<typeof callback>[0]): void => {
+        callback(items)
+      }
+      ipcRenderer.on(IPC.remindersMissedEvent, listener)
+      return () => {
+        ipcRenderer.removeListener(IPC.remindersMissedEvent, listener)
+      }
+    }
+  },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
     set: (patch) => ipcRenderer.invoke(IPC.settingsSet, patch)

@@ -82,12 +82,17 @@ export type ViewKey =
   | 'completed'
   | 'abandoned'
   | 'trash'
+  | 'calendar'
+  | 'matrix'
   | `list:${string}`
 
+export type ListMode = 'list' | 'board' | 'timeline'
+
 export type TaskQuery =
-  | { view: 'today' | 'next7' | 'inbox' | 'completed' | 'abandoned' | 'trash' }
+  | { view: 'today' | 'next7' | 'inbox' | 'completed' | 'abandoned' | 'trash' | 'all' }
   | { view: 'list'; listId: string; includeCompleted?: boolean }
   | { view: 'search'; q: string }
+  | { view: 'subtasks'; parentId: string }
 
 export interface CreateListInput {
   name: string
@@ -104,6 +109,7 @@ export interface UpdateListInput {
 
 export interface CreateTaskInput {
   listId: string
+  parentId?: string | null
   title: string
   notes?: string
   priority?: Priority
@@ -135,4 +141,16 @@ export interface AppInfo {
   version: string
   platform: string
   dataDir: string
+}
+
+export interface Reminder {
+  id: string
+  taskId: string
+  triggerAt: string
+  sentAt: string | null
+  createdAt: string
+}
+
+export interface ReminderWithTask extends Reminder {
+  taskTitle: string
 }

@@ -11,6 +11,7 @@ import type {
 } from '@shared/types'
 import { getDataDir, getDb } from './db'
 import * as listRepo from './db/lists'
+import * as reminderRepo from './db/reminders'
 import * as settingsRepo from './db/settings'
 import * as tagRepo from './db/tags'
 import * as taskRepo from './db/tasks'
@@ -68,6 +69,16 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.tasksCounts, () => taskRepo.getCounts(getDb()))
 
   ipcMain.handle(IPC.tagsList, () => tagRepo.listTags(getDb()))
+
+  ipcMain.handle(IPC.remindersList, (_event, taskId: string) =>
+    reminderRepo.listReminders(getDb(), taskId)
+  )
+  ipcMain.handle(IPC.remindersCreate, (_event, taskId: string, triggerAt: string) =>
+    reminderRepo.createReminder(getDb(), taskId, triggerAt)
+  )
+  ipcMain.handle(IPC.remindersRemove, (_event, id: string) =>
+    reminderRepo.deleteReminder(getDb(), id)
+  )
 
   ipcMain.handle(IPC.settingsGet, () => settingsRepo.getSettings(getDb()))
   ipcMain.handle(IPC.settingsSet, (_event, patch: Partial<Settings>) =>

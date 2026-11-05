@@ -1,6 +1,6 @@
 # 刻度清单 TickFlow
 
-本地优先的任务管理桌面应用。P1 已实现可运行的核心闭环，后续按阶段补齐日历、四象限、看板、习惯、番茄、统计与打包。
+本地优先的任务管理桌面应用。P2 已交付核心任务管理 + 日历/四象限/看板/时间线 + 子任务/提醒/重复 + 批量撤销；后续补齐习惯、番茄、统计与打包。
 
 ## 技术栈
 
@@ -15,7 +15,7 @@
 npm install
 npm run dev        # 开发模式（Vite + Electron）
 npm run typecheck  # 主进程 + 渲染进程类型检查
-npm test           # Vitest（24 个用例）
+npm test           # Vitest（29 个用例）
 npm run build      # 构建 out/
 npx electron .     # 运行构建产物
 ```

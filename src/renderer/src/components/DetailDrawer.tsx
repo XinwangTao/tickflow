@@ -1,10 +1,241 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import type { Priority } from '@shared/types'
+import type { Priority, Reminder, TaskWithMeta } from '@shared/types'
+import { fromDateKey, todayKey } from '@shared/dates'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../lib/colors'
-import { describeRecurrence, formatDateTime } from '../lib/format'
+import {
+  describeRecurrence,
+  formatDateLabel,
+  formatDateTime,
+  isoToLocalDateTime,
+  localDateTimeToIso
+} from '../lib/format'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
+
+const WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+
+function recurrenceKind(rule: string | null): string {
+  if (!rule) return 'none'
+  const upper = rule.toUpperCase()
+  if (upper === 'FREQ=DAILY') return 'daily'
+  if (upper.includes('MO,TU,WE,TH,FR')) return 'weekdays'
+  if (upper.startsWith('FREQ=WEEKLY')) return 'weekly'
+  if (upper.startsWith('FREQ=MONTHLY')) return 'monthly'
+  if (upper.startsWith('FREQ=YEARLY')) return 'yearly'
+  return 'none'
+}
+
+function recurrenceRule(kind: string, task: TaskWithMeta): string | null {
+  if (kind === 'none') return null
+  const date = task.dueDate ? fromDateKey(task.dueDate) : new Date()
+  if (kind === 'daily') return 'FREQ=DAILY'
+  if (kind === 'weekdays') return 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'
+  if (kind === 'weekly') return `FREQ=WEEKLY;BYDAY=${WEEKDAY_CODES[date.getDay()]}`
+  if (kind === 'monthly') return `FREQ=MONTHLY;BYMONTHDAY=${date.getDate()}`
+  if (kind === 'yearly') {
+    return `FREQ=YEARLY;BYMONTH=${date.getMonth() + 1};BYMONTHDAY=${date.getDate()}`
+  }
+  return null
+}
+
+function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
+  const refresh = useAppStore((state) => state.refresh)
+  const showToast = useAppStore((state) => state.showToast)
+  const [subtasks, setSubtasks] = useState<TaskWithMeta[]>([])
+  const [value, setValue] = useState('')
+
+  const load = async (): Promise<void> => {
+    try {
+      const rows = await window.api.tasks.query({ view: 'subtasks', parentId: task.id })
+      setSubtasks(rows)
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [task.id])
+
+  const add = async (): Promise<void> => {
+    const title = value.trim()
+    if (!title) return
+    try {
+      await window.api.tasks.create({ listId: task.listId, parentId: task.id, title })
+      setValue('')
+      await load()
+      await refresh()
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const toggle = async (subtask: TaskWithMeta): Promise<void> => {
+    try {
+      await window.api.tasks.setStatus(
+        subtask.id,
+        subtask.status === 'completed' ? 'open' : 'completed'
+      )
+      await load()
+      await refresh()
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const remove = async (id: string): Promise<void> => {
+    try {
+      await window.api.tasks.remove(id)
+      await load()
+      await refresh()
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const done = subtasks.filter((subtask) => subtask.status === 'completed').length
+
+  return (
+    <section className="detail-section">
+      <div className="detail-section-head">
+        <span>子任务</span>
+        <span>
+          {done}/{subtasks.length}
+        </span>
+      </div>
+      <div className="subtask-list">
+        {subtasks.map((subtask) => (
+          <div className="subtask-row" key={subtask.id}>
+            <button
+              type="button"
+              className={`task-check small ${subtask.status === 'completed' ? 'checked' : ''}`}
+              aria-label={subtask.status === 'completed' ? '标记为未完成' : '标记为已完成'}
+              onClick={() => void toggle(subtask)}
+            >
+              {subtask.status === 'completed' ? <Icon name="check" size={10} /> : null}
+            </button>
+            <span
+              className={`subtask-title ${subtask.status === 'completed' ? 'done' : ''}`}
+            >
+              {subtask.title}
+            </span>
+            <button
+              type="button"
+              className="icon-btn danger"
+              aria-label="删除子任务"
+              onClick={() => void remove(subtask.id)}
+            >
+              <Icon name="trash" size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="subtask-add">
+        <Icon name="plus" size={14} />
+        <input
+          className="subtask-input"
+          value={value}
+          placeholder="添加子任务，回车保存"
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void add()
+          }}
+        />
+      </div>
+    </section>
+  )
+}
+
+function Reminders({ task }: { task: TaskWithMeta }): React.ReactNode {
+  const showToast = useAppStore((state) => state.showToast)
+  const [reminders, setReminders] = useState<Reminder[]>([])
+  const [date, setDate] = useState(task.dueDate ?? todayKey())
+  const [time, setTime] = useState(task.dueTime ?? '09:00')
+
+  const load = async (): Promise<void> => {
+    try {
+      const rows = await window.api.reminders.list(task.id)
+      setReminders(rows)
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [task.id])
+
+  const add = async (): Promise<void> => {
+    try {
+      await window.api.reminders.create(task.id, localDateTimeToIso(date, time))
+      await load()
+      showToast('已添加提醒', 'success')
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const remove = async (id: string): Promise<void> => {
+    try {
+      await window.api.reminders.remove(id)
+      await load()
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  return (
+    <section className="detail-section">
+      <div className="detail-section-head">
+        <span>提醒</span>
+        <span>{reminders.length > 0 ? `${reminders.length} 个` : ''}</span>
+      </div>
+      <div className="reminder-list">
+        {reminders.map((reminder) => {
+          const local = isoToLocalDateTime(reminder.triggerAt)
+          return (
+            <div className="reminder-row" key={reminder.id}>
+              <Icon name="bell" size={13} />
+              <span>
+                {formatDateLabel(local.date)} {local.time}
+              </span>
+              {reminder.sentAt ? <span className="reminder-sent">已发送</span> : null}
+              <button
+                type="button"
+                className="icon-btn danger"
+                aria-label="删除提醒"
+                onClick={() => void remove(reminder.id)}
+              >
+                <Icon name="trash" size={13} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      <div className="reminder-add">
+        <input
+          className="input"
+          type="date"
+          value={date}
+          onChange={(event) => setDate(event.target.value)}
+          aria-label="提醒日期"
+        />
+        <input
+          className="input time-input"
+          type="time"
+          value={time}
+          onChange={(event) => setTime(event.target.value)}
+          aria-label="提醒时间"
+        />
+        <button type="button" className="btn" onClick={() => void add()}>
+          <Icon name="plus" size={14} />
+          添加
+        </button>
+      </div>
+    </section>
+  )
+}
 
 export function DetailDrawer(): React.ReactNode {
   const task = useAppStore((state) => state.detailTask)
@@ -83,9 +314,7 @@ export function DetailDrawer(): React.ReactNode {
             type="button"
             className={`task-check ${task.status === 'completed' ? 'checked' : ''}`}
             aria-label={task.status === 'completed' ? '标记为未完成' : '标记为已完成'}
-            onClick={() =>
-              void useAppStore.getState().toggleTask(task)
-            }
+            onClick={() => void useAppStore.getState().toggleTask(task)}
           >
             {task.status === 'completed' ? <Icon name="check" size={12} /> : null}
           </button>
@@ -235,16 +464,35 @@ export function DetailDrawer(): React.ReactNode {
               }}
             />
           </label>
-        </div>
 
-        {task.recurrence ? (
-          <div className="detail-info-row">
-            <span>
+          <label className="detail-field detail-field-wide">
+            <span className="field-label">
               <Icon name="rotate" size={13} /> 重复
             </span>
-            <span>{describeRecurrence(task.recurrence)}</span>
-          </div>
-        ) : null}
+            <select
+              className="input"
+              value={recurrenceKind(task.recurrence)}
+              onChange={(event) =>
+                void updateTask(task.id, {
+                  recurrence: recurrenceRule(event.target.value, task)
+                })
+              }
+            >
+              <option value="none">不重复</option>
+              <option value="daily">每天</option>
+              <option value="weekdays">每个工作日</option>
+              <option value="weekly">每周</option>
+              <option value="monthly">每月</option>
+              <option value="yearly">每年</option>
+            </select>
+            {task.recurrence ? (
+              <span className="field-hint">{describeRecurrence(task.recurrence)}</span>
+            ) : null}
+          </label>
+        </div>
+
+        <Subtasks task={task} />
+        <Reminders task={task} />
 
         <div className="detail-info-row">
           <span>创建</span>

@@ -8,7 +8,20 @@ export function Toast(): React.ReactNode {
 
   return (
     <div className={`toast ${toast.kind}`} role="status" onClick={clearToast}>
-      {toast.message}
+      <span className="toast-message">{toast.message}</span>
+      {toast.action ? (
+        <button
+          type="button"
+          className="toast-action"
+          onClick={(event) => {
+            event.stopPropagation()
+            void toast.action?.()
+            clearToast()
+          }}
+        >
+          {toast.actionLabel ?? '撤销'}
+        </button>
+      ) : null}
     </div>
   )
 }

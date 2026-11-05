@@ -5,6 +5,7 @@ export type IconName =
   | 'tasks'
   | 'calendar'
   | 'calendar-range'
+  | 'board'
   | 'grid'
   | 'timer'
   | 'habit'
@@ -22,6 +23,7 @@ export type IconName =
   | 'star'
   | 'trash'
   | 'chevron-down'
+  | 'chevron-left'
   | 'chevron-right'
   | 'minimize'
   | 'maximize'
@@ -53,6 +55,13 @@ const ICONS: Record<IconName, ReactNode> = {
     <>
       <rect x="3.5" y="5" width="17" height="15" rx="3" />
       <path d="M8 3v4M16 3v4M3.5 10h17M7.5 14h4M12.5 14h4M7.5 17h3" />
+    </>
+  ),
+  board: (
+    <>
+      <rect x="4" y="4" width="4.5" height="16" rx="1.5" />
+      <rect x="9.75" y="4" width="4.5" height="16" rx="1.5" />
+      <rect x="15.5" y="4" width="4.5" height="16" rx="1.5" />
     </>
   ),
   grid: (
@@ -144,6 +153,7 @@ const ICONS: Record<IconName, ReactNode> = {
     </>
   ),
   'chevron-down': <path d="M6 9l6 6 6-6" />,
+  'chevron-left': <path d="M15 6l-6 6 6 6" />,
   'chevron-right': <path d="M9 6l6 6-6 6" />,
   minimize: <path d="M5 12h14" />,
   maximize: <rect x="5" y="5" width="14" height="14" rx="2" />,

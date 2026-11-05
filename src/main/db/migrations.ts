@@ -88,6 +88,24 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_change_log_entity ON change_log(entity_type, entity_id);
       `)
     }
+  },
+  {
+    version: 2,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS reminders (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          trigger_at TEXT NOT NULL,
+          sent_at TEXT,
+          created_at TEXT NOT NULL,
+          device_id TEXT NOT NULL
+        ) STRICT;
+
+        CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(trigger_at, sent_at);
+        CREATE INDEX IF NOT EXISTS idx_reminders_task ON reminders(task_id);
+      `)
+    }
   }
 ]
 

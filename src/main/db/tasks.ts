@@ -9,8 +9,9 @@ import type {
   TaskWithMeta,
   UpdateTaskInput
 } from '@shared/types'
-import { addDaysToKey, todayKey } from '@shared/dates'
+import { addDaysToKey, fromDateKey, toDateKey, todayKey } from '@shared/dates'
 import { uuidv7 } from '@shared/uuid'
+import { RRule } from 'rrule'
 import { logChange } from './change-log'
 import { getDeviceId, nowIso } from './util'
 import { getInboxId } from './lists'
@@ -113,6 +114,31 @@ function toTask(row: TaskRow): TaskWithMeta {
   }
 }
 
+function nextRecurrenceDate(
+  ruleText: string,
+  dueDate: string | null,
+  dueTime: string | null
+): Date | null {
+  try {
+    const key = dueDate ?? todayKey()
+    const [hours, minutes] = (dueTime ?? '09:00').split(':').map(Number)
+    const base = fromDateKey(key)
+    base.setHours(
+      Number.isFinite(hours) ? hours : 9,
+      Number.isFinite(minutes) ? minutes : 0,
+      0,
+      0
+    )
+    const options = RRule.parseString(ruleText)
+    const rule = new RRule({ ...options, dtstart: base })
+    const next = rule.after(base, false)
+    if (next && next.getTime() >= Date.now()) return next
+    return rule.after(new Date(), true)
+  } catch {
+    return null
+  }
+}
+
 function buildQuery(query: TaskQuery): {
   where: string
   params: Array<string | number>
@@ -127,42 +153,49 @@ function buildQuery(query: TaskQuery): {
   switch (query.view) {
     case 'today':
       return {
-        where: `t.deleted_at IS NULL AND t.status = 'open' AND t.due_date IS NOT NULL AND t.due_date <= ?`,
+        where: `t.deleted_at IS NULL AND t.status = 'open' AND t.parent_id IS NULL AND t.due_date IS NOT NULL AND t.due_date <= ?`,
         params: [today],
         order: dueOrder,
         limit: 1000
       }
     case 'next7':
       return {
-        where: `t.deleted_at IS NULL AND t.status = 'open' AND t.due_date >= ? AND t.due_date <= ?`,
+        where: `t.deleted_at IS NULL AND t.status = 'open' AND t.parent_id IS NULL AND t.due_date >= ? AND t.due_date <= ?`,
         params: [today, weekEnd],
         order: dueOrder,
         limit: 1000
       }
     case 'inbox':
       return {
-        where: `t.deleted_at IS NULL AND t.status = 'open' AND l.is_inbox = 1`,
+        where: `t.deleted_at IS NULL AND t.status = 'open' AND t.parent_id IS NULL AND l.is_inbox = 1`,
         params: [],
         order: 't.pinned DESC, t.sort_order ASC, t.created_at DESC',
         limit: 1000
       }
+    case 'all':
+      return {
+        where: `t.deleted_at IS NULL AND t.status = 'open' AND t.parent_id IS NULL`,
+        params: [],
+        order: dueOrder,
+        limit: 5000
+      }
     case 'completed':
       return {
-        where: `t.deleted_at IS NULL AND t.status = 'completed'`,
+        where: `t.deleted_at IS NULL AND t.status = 'completed' AND t.parent_id IS NULL`,
         params: [],
         order: 't.completed_at DESC',
         limit: 500
       }
     case 'abandoned':
       return {
-        where: `t.deleted_at IS NULL AND t.status = 'abandoned'`,
+        where: `t.deleted_at IS NULL AND t.status = 'abandoned' AND t.parent_id IS NULL`,
         params: [],
         order: 't.updated_at DESC',
         limit: 500
       }
     case 'trash':
       return {
-        where: `t.deleted_at IS NOT NULL`,
+        where: `t.deleted_at IS NOT NULL AND t.parent_id IS NULL`,
         params: [],
         order: 't.deleted_at DESC',
         limit: 500
@@ -172,12 +205,19 @@ function buildQuery(query: TaskQuery): {
         ? `t.status IN ('open', 'completed')`
         : `t.status = 'open'`
       return {
-        where: `t.deleted_at IS NULL AND ${statusClause} AND t.list_id = ?`,
+        where: `t.deleted_at IS NULL AND t.parent_id IS NULL AND ${statusClause} AND t.list_id = ?`,
         params: [query.listId],
         order: 't.pinned DESC, t.sort_order ASC, t.created_at DESC',
         limit: 2000
       }
     }
+    case 'subtasks':
+      return {
+        where: `t.deleted_at IS NULL AND t.parent_id = ?`,
+        params: [query.parentId],
+        order: 't.created_at ASC',
+        limit: 500
+      }
     case 'search': {
       const q = query.q.trim()
       if (!q) return { where: '0', params: [], order: 't.updated_at DESC', limit: 0 }
@@ -251,7 +291,7 @@ export function createTask(db: DatabaseSync, input: CreateTaskInput): TaskWithMe
     ).run(
       id,
       listId,
-      null,
+      input.parentId ?? null,
       title,
       input.notes ?? '',
       'open',
@@ -356,6 +396,52 @@ export function setTaskStatus(
       'UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?'
     ).run(status, completedAt, now, id)
 
+    if (status === 'completed' && existing.status !== 'completed' && existing.recurrence) {
+      const next = nextRecurrenceDate(existing.recurrence, existing.dueDate, existing.dueTime)
+      if (next) {
+        const generatedId = uuidv7()
+        const maxRow = db
+          .prepare(
+            'SELECT COALESCE(MAX(sort_order), 0) AS m FROM tasks WHERE list_id = ? AND deleted_at IS NULL'
+          )
+          .get(existing.listId) as unknown as { m: number }
+
+        db.prepare(
+          `INSERT INTO tasks(
+            id, list_id, parent_id, title, notes, status, priority,
+            due_date, due_time, all_day, start_date, recurrence, pinned, sort_order,
+            completed_at, created_at, updated_at, deleted_at, device_id
+          ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          generatedId,
+          existing.listId,
+          existing.parentId,
+          existing.title,
+          existing.notes,
+          'open',
+          existing.priority,
+          toDateKey(next),
+          existing.dueTime,
+          existing.allDay ? 1 : 0,
+          existing.startDate,
+          existing.recurrence,
+          existing.pinned ? 1 : 0,
+          Number(maxRow.m) + 1,
+          null,
+          now,
+          now,
+          null,
+          getDeviceId(db)
+        )
+
+        if (existing.tags.length) {
+          setTaskTags(db, generatedId, existing.tags.map((tag) => tag.name))
+        }
+        const generated = getTaskWithMeta(db, generatedId)
+        if (generated) logChange(db, 'task', generatedId, 'create', generated)
+      }
+    }
+
     const updated = getTaskWithMeta(db, id)
     if (!updated) throw new Error('任务状态更新失败')
     logChange(db, 'task', id, 'update', updated)
@@ -442,31 +528,38 @@ export function getCounts(db: DatabaseSync): Counts {
 
   const inbox = count(
     `SELECT COUNT(*) AS c FROM tasks t JOIN lists l ON l.id = t.list_id
-     WHERE l.is_inbox = 1 AND t.status = 'open' AND t.deleted_at IS NULL`
+     WHERE l.is_inbox = 1 AND t.status = 'open' AND t.deleted_at IS NULL AND t.parent_id IS NULL`
   )
   const todayCount = count(
     `SELECT COUNT(*) AS c FROM tasks
-     WHERE status = 'open' AND deleted_at IS NULL AND due_date IS NOT NULL AND due_date <= ?`,
+     WHERE status = 'open' AND deleted_at IS NULL AND parent_id IS NULL
+       AND due_date IS NOT NULL AND due_date <= ?`,
     today
   )
   const next7 = count(
     `SELECT COUNT(*) AS c FROM tasks
-     WHERE status = 'open' AND deleted_at IS NULL AND due_date >= ? AND due_date <= ?`,
+     WHERE status = 'open' AND deleted_at IS NULL AND parent_id IS NULL
+       AND due_date >= ? AND due_date <= ?`,
     today,
     weekEnd
   )
   const completed = count(
-    `SELECT COUNT(*) AS c FROM tasks WHERE status = 'completed' AND deleted_at IS NULL`
+    `SELECT COUNT(*) AS c FROM tasks
+     WHERE status = 'completed' AND deleted_at IS NULL AND parent_id IS NULL`
   )
   const abandoned = count(
-    `SELECT COUNT(*) AS c FROM tasks WHERE status = 'abandoned' AND deleted_at IS NULL`
+    `SELECT COUNT(*) AS c FROM tasks
+     WHERE status = 'abandoned' AND deleted_at IS NULL AND parent_id IS NULL`
   )
-  const trash = count(`SELECT COUNT(*) AS c FROM tasks WHERE deleted_at IS NOT NULL`)
+  const trash = count(
+    `SELECT COUNT(*) AS c FROM tasks WHERE deleted_at IS NOT NULL AND parent_id IS NULL`
+  )
 
   const listRows = db
     .prepare(
       `SELECT list_id, COUNT(*) AS c FROM tasks
-       WHERE status = 'open' AND deleted_at IS NULL GROUP BY list_id`
+       WHERE status = 'open' AND deleted_at IS NULL AND parent_id IS NULL
+       GROUP BY list_id`
     )
     .all() as unknown as Array<{ list_id: string; c: number }>
 

@@ -1,15 +1,19 @@
+import type { ViewKey } from '@shared/types'
 import { Icon, type IconName } from './Icon'
 import { useAppStore } from '../store/useAppStore'
 
-const PRIMARY: Array<{ view: 'today' | 'next7' | 'inbox'; icon: IconName; label: string }> = [
+const PRIMARY: Array<{ view: ViewKey; icon: IconName; label: string }> = [
   { view: 'today', icon: 'tasks', label: '今天' },
   { view: 'next7', icon: 'calendar-range', label: '最近 7 天' },
   { view: 'inbox', icon: 'inbox', label: '收集箱' }
 ]
 
-const SECONDARY: Array<{ icon: IconName; label: string; hint: string }> = [
-  { icon: 'calendar', label: '日历', hint: '日历视图将在 P2 开放' },
-  { icon: 'grid', label: '四象限', hint: '四象限视图将在 P2 开放' },
+const VIEWS: Array<{ view: ViewKey; icon: IconName; label: string }> = [
+  { view: 'calendar', icon: 'calendar', label: '日历' },
+  { view: 'matrix', icon: 'grid', label: '四象限' }
+]
+
+const FUTURE: Array<{ icon: IconName; label: string; hint: string }> = [
   { icon: 'timer', label: '番茄专注', hint: '番茄专注将在 P3 开放' },
   { icon: 'habit', label: '习惯', hint: '习惯打卡将在 P3 开放' }
 ]
@@ -59,7 +63,21 @@ export function IconRail(): React.ReactNode {
 
         <div className="rail-divider" />
 
-        {SECONDARY.map((item) => (
+        {VIEWS.map((item) => (
+          <button
+            key={item.view}
+            type="button"
+            className={`rail-item ${view === item.view ? 'active' : ''}`}
+            title={item.label}
+            aria-label={item.label}
+            aria-current={view === item.view ? 'page' : undefined}
+            onClick={() => void selectView(item.view)}
+          >
+            <Icon name={item.icon} size={20} />
+          </button>
+        ))}
+
+        {FUTURE.map((item) => (
           <button
             key={item.label}
             type="button"
@@ -109,7 +127,7 @@ export function IconRail(): React.ReactNode {
           className="rail-item"
           title="关于"
           aria-label="关于"
-          onClick={() => showToast('刻度清单 TickFlow · P1', 'info')}
+          onClick={() => showToast('刻度清单 TickFlow · P2', 'info')}
         >
           <Icon name="help" size={19} />
         </button>

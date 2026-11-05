@@ -4,6 +4,8 @@ import type {
   CreateListInput,
   CreateTaskInput,
   ListWithCount,
+  Reminder,
+  ReminderWithTask,
   Settings,
   Tag,
   TaskQuery,
@@ -37,6 +39,10 @@ export const IPC = {
   tasksReorder: 'tasks:reorder',
   tasksCounts: 'tasks:counts',
   tagsList: 'tags:list',
+  remindersList: 'reminders:list',
+  remindersCreate: 'reminders:create',
+  remindersRemove: 'reminders:remove',
+  remindersMissedEvent: 'reminders:missed',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set'
 } as const
@@ -73,6 +79,12 @@ export interface TickFlowApi {
   }
   tags: {
     list(): Promise<Array<Tag & { taskCount: number }>>
+  }
+  reminders: {
+    list(taskId: string): Promise<Reminder[]>
+    create(taskId: string, triggerAt: string): Promise<Reminder>
+    remove(id: string): Promise<void>
+    onMissed(callback: (items: ReminderWithTask[]) => void): () => void
   }
   settings: {
     get(): Promise<Settings>

@@ -9,6 +9,9 @@ interface TaskRowProps {
   task: TaskWithMeta
   showList?: boolean
   canDrag?: boolean
+  selectionMode?: boolean
+  selected?: boolean
+  onToggleSelect?: (id: string) => void
   onDragStart?: (id: string) => void
   onDropOn?: (id: string) => void
 }
@@ -17,6 +20,9 @@ export function TaskRow({
   task,
   showList = true,
   canDrag = false,
+  selectionMode = false,
+  selected = false,
+  onToggleSelect,
   onDragStart,
   onDropOn
 }: TaskRowProps): React.ReactNode {
@@ -47,8 +53,10 @@ export function TaskRow({
 
   return (
     <div
-      className={`task-row ${completed ? 'completed' : ''} ${isTrash ? 'trash' : ''}`}
-      draggable={canDrag && !completed && !isTrash}
+      className={`task-row ${completed ? 'completed' : ''} ${isTrash ? 'trash' : ''} ${
+        selected ? 'selected' : ''
+      }`}
+      draggable={canDrag && !completed && !isTrash && !selectionMode}
       onDragStart={(event) => {
         if (!canDrag) return
         event.dataTransfer.setData('text/plain', task.id)
@@ -63,14 +71,34 @@ export function TaskRow({
         event.preventDefault()
         onDropOn?.(task.id)
       }}
-      onClick={() => openDetail(task.id)}
+      onClick={() => {
+        if (selectionMode) {
+          onToggleSelect?.(task.id)
+          return
+        }
+        openDetail(task.id)
+      }}
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' && !editing) openDetail(task.id)
+        if (event.key !== 'Enter' || editing) return
+        if (selectionMode) onToggleSelect?.(task.id)
+        else openDetail(task.id)
       }}
     >
-      {canDrag && !completed && !isTrash ? (
+      {selectionMode ? (
+        <button
+          type="button"
+          className={`select-check ${selected ? 'on' : ''}`}
+          aria-label={selected ? '取消选择' : '选择任务'}
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggleSelect?.(task.id)
+          }}
+        >
+          {selected ? <Icon name="check" size={11} /> : null}
+        </button>
+      ) : canDrag && !completed && !isTrash ? (
         <span className="task-drag" aria-hidden="true">
           <Icon name="grip" size={14} />
         </span>

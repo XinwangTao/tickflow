@@ -8,6 +8,9 @@ interface TaskListProps {
   tasks: TaskWithMeta[]
   view: ViewKey
   showList: boolean
+  selectionMode?: boolean
+  selectedIds?: string[]
+  onToggleSelect?: (id: string) => void
 }
 
 function SectionHeader({
@@ -25,7 +28,14 @@ function SectionHeader({
   )
 }
 
-export function TaskList({ tasks, view, showList }: TaskListProps): React.ReactNode {
+export function TaskList({
+  tasks,
+  view,
+  showList,
+  selectionMode = false,
+  selectedIds = [],
+  onToggleSelect
+}: TaskListProps): React.ReactNode {
   const reorderTasks = useAppStore((state) => state.reorderTasks)
   const [collapsedCompleted, setCollapsedCompleted] = useState(true)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -37,7 +47,14 @@ export function TaskList({ tasks, view, showList }: TaskListProps): React.ReactN
     return (
       <div className={`task-list ${dragId ? 'dragging' : ''}`}>
         {tasks.map((task) => (
-          <TaskRow key={task.id} task={task} showList={showList} />
+          <TaskRow
+            key={task.id}
+            task={task}
+            showList={showList}
+            selectionMode={selectionMode}
+            selected={selectedIds.includes(task.id)}
+            onToggleSelect={onToggleSelect}
+          />
         ))}
       </div>
     )
@@ -63,7 +80,9 @@ export function TaskList({ tasks, view, showList }: TaskListProps): React.ReactN
 
   const rowProps = {
     showList,
-    canDrag: isList,
+    canDrag: isList && !selectionMode,
+    selectionMode,
+    onToggleSelect,
     onDragStart: (id: string) => setDragId(id),
     onDropOn: handleDropOn
   }
@@ -74,7 +93,12 @@ export function TaskList({ tasks, view, showList }: TaskListProps): React.ReactN
         <section className="task-section">
           <SectionHeader label="已置顶" count={pinned.length} />
           {pinned.map((task) => (
-            <TaskRow key={task.id} task={task} {...rowProps} />
+            <TaskRow
+              key={task.id}
+              task={task}
+              {...rowProps}
+              selected={selectedIds.includes(task.id)}
+            />
           ))}
         </section>
       ) : null}
@@ -85,7 +109,12 @@ export function TaskList({ tasks, view, showList }: TaskListProps): React.ReactN
             <SectionHeader label="任务" count={open.length} />
           ) : null}
           {open.map((task) => (
-            <TaskRow key={task.id} task={task} {...rowProps} />
+            <TaskRow
+              key={task.id}
+              task={task}
+              {...rowProps}
+              selected={selectedIds.includes(task.id)}
+            />
           ))}
         </section>
       ) : null}
@@ -104,7 +133,13 @@ export function TaskList({ tasks, view, showList }: TaskListProps): React.ReactN
           </button>
           {!collapsedCompleted
             ? completed.map((task) => (
-                <TaskRow key={task.id} task={task} {...rowProps} canDrag={false} />
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  {...rowProps}
+                  canDrag={false}
+                  selected={selectedIds.includes(task.id)}
+                />
               ))
             : null}
         </section>

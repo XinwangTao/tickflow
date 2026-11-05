@@ -42,6 +42,7 @@ export default function App(): React.ReactNode {
   const settingsOpen = useAppStore((state) => state.settingsOpen)
   const newListOpen = useAppStore((state) => state.newListOpen)
   const bootstrap = useAppStore((state) => state.bootstrap)
+  const showToast = useAppStore((state) => state.showToast)
 
   const booted = useRef(false)
   const [systemDark, setSystemDark] = useState(
@@ -60,6 +61,20 @@ export default function App(): React.ReactNode {
     media.addEventListener('change', onChange)
     return () => media.removeEventListener('change', onChange)
   }, [])
+
+  useEffect(() => {
+    return window.api.reminders.onMissed((items) => {
+      if (items.length === 0) return
+      const titles = items
+        .slice(0, 3)
+        .map((item) => item.taskTitle)
+        .join('、')
+      const suffix = items.length > 3 ? ' 等' : ''
+      showToast(`有 ${items.length} 条错过的提醒：${titles}${suffix}`, 'info', {
+        duration: 6000
+      })
+    })
+  }, [showToast])
 
   const resolvedTheme =
     settings.theme === 'system' ? (systemDark ? 'dark' : 'light') : settings.theme

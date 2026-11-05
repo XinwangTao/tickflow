@@ -49,4 +49,27 @@ export function formatDateTime(iso: string): string {
   )}:${pad(date.getMinutes())}`
 }
 
+export function localDateTimeToIso(dateKey: string, time: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  const [hours, minutes] = time.split(':').map(Number)
+  return new Date(
+    year,
+    month - 1,
+    day,
+    Number.isFinite(hours) ? hours : 0,
+    Number.isFinite(minutes) ? minutes : 0,
+    0,
+    0
+  ).toISOString()
+}
+
+export function isoToLocalDateTime(iso: string): { date: string; time: string } {
+  const date = new Date(iso)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return {
+    date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  }
+}
+
 export { formatDateLabel, formatDueLabel, isOverdue }
