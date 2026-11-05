@@ -8,106 +8,30 @@ import { R2_CORS_POLICY } from '@shared/r2-cors'
 import {
   createList,
   createTask,
+  deleteList,
   ensureSeed,
   getDeviceId,
   getSettingsMap,
   listLists,
   queryTasks,
   removeTask,
+  renameList,
   saveSettings,
   toggleTask,
   updateTask,
   type ListWithCount
 } from './db'
+import { Icon } from './Icon'
+import { MoreTab } from './MoreTab'
 import { autoSync, syncNow, testSync } from './sync'
 
 const PRIORITY_LABELS = ['无', '低', '中', '高']
 const PRIORITY_COLORS = ['var(--muted)', 'var(--low)', 'var(--medium)', 'var(--high)']
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
 
-type Tab = 'today' | 'lists' | 'calendar' | 'settings'
+type Tab = 'today' | 'lists' | 'calendar' | 'more' | 'settings'
 type ToastKind = 'info' | 'success' | 'error'
 
-function Icon({ name, size = 20 }: { name: string; size?: number }): ReactNode {
-  const paths: Record<string, ReactNode> = {
-    today: (
-      <>
-        <circle cx="12" cy="12" r="8" />
-        <path d="M8 12.5l2.5 2.5L16 9.5" />
-      </>
-    ),
-    lists: (
-      <>
-        <path d="M8 6h12M8 12h12M8 18h12" />
-        <circle cx="4.5" cy="6" r="1" fill="currentColor" stroke="none" />
-        <circle cx="4.5" cy="12" r="1" fill="currentColor" stroke="none" />
-        <circle cx="4.5" cy="18" r="1" fill="currentColor" stroke="none" />
-      </>
-    ),
-    calendar: (
-      <>
-        <rect x="3.5" y="5" width="17" height="15" rx="3" />
-        <path d="M8 3v4M16 3v4M3.5 10h17" />
-      </>
-    ),
-    settings: (
-      <>
-        <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
-        <circle cx="16" cy="7" r="2" />
-        <circle cx="10" cy="17" r="2" />
-      </>
-    ),
-    search: (
-      <>
-        <circle cx="11" cy="11" r="6.5" />
-        <path d="M16 16l4 4" />
-      </>
-    ),
-    plus: <path d="M12 5v14M5 12h14" />,
-    back: <path d="M15 6l-6 6 6 6" />,
-    chevronRight: <path d="M9 6l6 6-6 6" />,
-    trash: (
-      <>
-        <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-        <path d="M6.5 7l.8 12a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12" />
-      </>
-    ),
-    sync: (
-      <>
-        <path d="M20 12a8 8 0 1 1-2.3-5.7" />
-        <path d="M20 4v5h-5" />
-      </>
-    ),
-    flag: (
-      <>
-        <path d="M6 21V4" />
-        <path d="M6 4h11l-2 3.5L17 11H6" />
-      </>
-    ),
-    tag: (
-      <>
-        <path d="M4 4h7l9 9-7 7-9-9z" />
-        <circle cx="8.5" cy="8.5" r="1.2" />
-      </>
-    ),
-    close: <path d="M6 6l12 12M18 6L6 18" />
-  }
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {paths[name]}
-    </svg>
-  )
-}
 
 function monthDays(monthKey: string): Date[] {
   const [year, month] = monthKey.split('-').map(Number)
@@ -755,6 +679,50 @@ function SettingsTab({
   )
 }
 
+function CompletedSection({
+  tasks,
+  lists,
+  open,
+  onToggleOpen,
+  onOpenTask,
+  onToggle
+}: {
+  tasks: SyncTask[]
+  lists: ListWithCount[]
+  open: boolean
+  onToggleOpen: () => void
+  onOpenTask: (id: string) => void
+  onToggle: (task: SyncTask) => void
+}): ReactNode {
+  if (tasks.length === 0) return null
+  return (
+    <div className="completed-section">
+      <button
+        type="button"
+        className="completed-toggle"
+        aria-expanded={open}
+        onClick={onToggleOpen}
+      >
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={15} />
+        <span>已完成 {tasks.length}</span>
+      </button>
+      {open ? (
+        <div className="task-list completed-list">
+          {tasks.map((task) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              lists={lists}
+              onOpen={() => onOpenTask(task.id)}
+              onToggle={() => onToggle(task)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function App(): ReactNode {
   const [tab, setTab] = useState<Tab>('today')
   const [listId, setListId] = useState<string | null>(null)
@@ -773,6 +741,35 @@ export default function App(): ReactNode {
   const [selectedDate, setSelectedDate] = useState(todayKey())
   const [refreshKey, setRefreshKey] = useState(0)
   const [syncing, setSyncing] = useState(false)
+  const [listMenuId, setListMenuId] = useState<string | null>(null)
+  const [renamingListId, setRenamingListId] = useState<string | null>(null)
+  const [listDraft, setListDraft] = useState('')
+  const [showCompleted, setShowCompleted] = useState(false)
+
+  const commitListRename = async (): Promise<void> => {
+    if (!renamingListId) return
+    try {
+      await renameList(renamingListId, listDraft)
+      showToast('清单已重命名', 'success')
+      setRefreshKey((value) => value + 1)
+    } catch (error) {
+      showToast(String(error), 'error')
+    } finally {
+      setRenamingListId(null)
+    }
+  }
+
+  const removeList = async (id: string, name: string): Promise<void> => {
+    if (!window.confirm(`删除清单「${name}」？其中的任务会一并删除。`)) return
+    try {
+      await deleteList(id)
+      setListMenuId(null)
+      setRefreshKey((value) => value + 1)
+      showToast('清单已删除', 'info')
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
 
   const showToast = (message: string, kind: ToastKind = 'info'): void => {
     const id = Date.now()
@@ -855,7 +852,9 @@ export default function App(): ReactNode {
         ? currentList?.name ?? '清单'
         : tab === 'calendar'
           ? '日历'
-          : '设置'
+          : tab === 'more'
+            ? '更多'
+            : '设置'
   const subtitle =
     tab === 'today'
       ? new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(
@@ -863,7 +862,9 @@ export default function App(): ReactNode {
         )
       : tab === 'lists' && !listId
         ? `${lists.length} 个清单`
-        : ''
+        : tab === 'more'
+          ? '习惯 · 番茄 · 统计'
+          : ''
 
   const handleSync = async (): Promise<void> => {
     setSyncing(true)
@@ -887,6 +888,20 @@ export default function App(): ReactNode {
       if (a.status !== b.status) return a.status === 'open' ? -1 : 1
       return (a.dueTime ?? '99:99').localeCompare(b.dueTime ?? '99:99')
     })
+  const todayStr = todayKey()
+  const completedToday = allTasks.filter(
+    (task) =>
+      !task.parentId &&
+      task.status === 'completed' &&
+      task.completedAt != null &&
+      toDateKey(new Date(task.completedAt)) === todayStr
+  )
+  const completedInList = listId
+    ? allTasks.filter(
+        (task) => !task.parentId && task.status === 'completed' && task.listId === listId
+      )
+    : []
+  const completedRows = tab === 'today' ? completedToday : completedInList
   const byDate = new Map<string, SyncTask[]>()
   for (const task of allTasks) {
     if (!task.dueDate) continue
@@ -941,39 +956,107 @@ export default function App(): ReactNode {
         {loading ? (
           <div className="loading">加载中…</div>
         ) : tab === 'today' ? (
-          tasks.length === 0 ? (
-            <div className="empty">
-              <div className="empty-mark">✓</div>
-              <h2>今天没有安排</h2>
-              <p>点右下角 + 添加一个任务。</p>
-            </div>
-          ) : (
-            <div className="task-list">
-              {tasks.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  lists={lists}
-                  onOpen={() => setDetailId(task.id)}
-                  onToggle={() => void toggle(task)}
-                />
-              ))}
-            </div>
-          )
+          <>
+            {tasks.length === 0 ? (
+              completedToday.length === 0 ? (
+                <div className="empty">
+                  <div className="empty-mark">✓</div>
+                  <h2>今天没有安排</h2>
+                  <p>点右下角 + 添加一个任务。</p>
+                </div>
+              ) : (
+                <p className="hint">今天没有未完成任务。</p>
+              )
+            ) : (
+              <div className="task-list">
+                {tasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    lists={lists}
+                    onOpen={() => setDetailId(task.id)}
+                    onToggle={() => void toggle(task)}
+                  />
+                ))}
+              </div>
+            )}
+            <CompletedSection
+              tasks={completedRows}
+              lists={lists}
+              open={showCompleted}
+              onToggleOpen={() => setShowCompleted((value) => !value)}
+              onOpenTask={setDetailId}
+              onToggle={(task) => void toggle(task)}
+            />
+          </>
         ) : tab === 'lists' && !listId ? (
           <div className="lists">
             {lists.map((list) => (
-              <button
-                type="button"
-                className="list-row"
-                key={list.id}
-                onClick={() => setListId(list.id)}
-              >
-                <span className="list-dot" style={{ background: list.color }} />
-                <span className="list-name">{list.name}</span>
-                {list.openCount > 0 ? <span className="list-count">{list.openCount}</span> : null}
-                <Icon name="chevronRight" size={16} />
-              </button>
+              <div className="list-row-wrap" key={list.id}>
+                <button
+                  type="button"
+                  className="list-row"
+                  onClick={() => {
+                    if (renamingListId === list.id) return
+                    setListId(list.id)
+                  }}
+                >
+                  <span className="list-dot" style={{ background: list.color }} />
+                  {renamingListId === list.id ? (
+                    <input
+                      className="list-rename-input"
+                      value={listDraft}
+                      autoFocus
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => setListDraft(event.target.value)}
+                      onBlur={() => void commitListRename()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void commitListRename()
+                        if (event.key === 'Escape') setRenamingListId(null)
+                      }}
+                    />
+                  ) : (
+                    <span className="list-name">{list.name}</span>
+                  )}
+                  {list.openCount > 0 ? <span className="list-count">{list.openCount}</span> : null}
+                  <Icon name="chevronRight" size={16} />
+                </button>
+                {!list.isInbox ? (
+                  <>
+                    <button
+                      type="button"
+                      className="list-more"
+                      aria-label={`${list.name} 更多操作`}
+                      onClick={() =>
+                        setListMenuId(listMenuId === list.id ? null : list.id)
+                      }
+                    >
+                      <Icon name="more" size={16} />
+                    </button>
+                    {listMenuId === list.id ? (
+                      <div className="list-popover">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRenamingListId(list.id)
+                            setListDraft(list.name)
+                            setListMenuId(null)
+                          }}
+                        >
+                          重命名
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => void removeList(list.id, list.name)}
+                        >
+                          删除清单
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
             ))}
             <button
               type="button"
@@ -985,25 +1068,39 @@ export default function App(): ReactNode {
             </button>
           </div>
         ) : tab === 'lists' ? (
-          tasks.length === 0 ? (
-            <div className="empty">
-              <div className="empty-mark">+</div>
-              <h2>这个清单还是空的</h2>
-              <p>点右下角 + 添加第一个任务。</p>
-            </div>
-          ) : (
-            <div className="task-list">
-              {tasks.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  lists={lists}
-                  onOpen={() => setDetailId(task.id)}
-                  onToggle={() => void toggle(task)}
-                />
-              ))}
-            </div>
-          )
+          <>
+            {tasks.length === 0 ? (
+              completedInList.length === 0 ? (
+                <div className="empty">
+                  <div className="empty-mark">+</div>
+                  <h2>这个清单还是空的</h2>
+                  <p>点右下角 + 添加第一个任务。</p>
+                </div>
+              ) : (
+                <p className="hint">这个清单没有未完成任务。</p>
+              )
+            ) : (
+              <div className="task-list">
+                {tasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    lists={lists}
+                    onOpen={() => setDetailId(task.id)}
+                    onToggle={() => void toggle(task)}
+                  />
+                ))}
+              </div>
+            )}
+            <CompletedSection
+              tasks={completedRows}
+              lists={lists}
+              open={showCompleted}
+              onToggleOpen={() => setShowCompleted((value) => !value)}
+              onOpenTask={setDetailId}
+              onToggle={(task) => void toggle(task)}
+            />
+          </>
         ) : tab === 'calendar' ? (
           <div className="calendar">
             <div className="calendar-toolbar">
@@ -1080,6 +1177,8 @@ export default function App(): ReactNode {
               {dayTasks.length === 0 ? <p className="hint">这一天还没有任务。</p> : null}
             </div>
           </div>
+        ) : tab === 'more' ? (
+          <MoreTab onToast={showToast} />
         ) : (
           <SettingsTab
             settings={settings}
@@ -1099,6 +1198,7 @@ export default function App(): ReactNode {
           { key: 'today', label: '今天', icon: 'today' },
           { key: 'lists', label: '清单', icon: 'lists' },
           { key: 'calendar', label: '日历', icon: 'calendar' },
+          { key: 'more', label: '更多', icon: 'more' },
           { key: 'settings', label: '设置', icon: 'settings' }
         ].map((item) => (
           <button
@@ -1116,7 +1216,7 @@ export default function App(): ReactNode {
         ))}
       </nav>
 
-      {tab !== 'settings' ? (
+      {tab !== 'settings' && tab !== 'more' ? (
         <button
           type="button"
           className="fab"
