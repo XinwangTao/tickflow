@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type {
   Counts,
   CreateTaskInput,
+  CustomFilter,
+  FilterQuery,
   ListMode,
   ListWithCount,
   Settings,
@@ -28,11 +30,21 @@ interface ToastState extends ToastOptions {
 
 type SimpleView = 'today' | 'next7' | 'inbox' | 'completed' | 'abandoned' | 'trash' | 'all'
 
-function queryFor(view: ViewKey, settings: Settings): TaskQuery {
+function queryFor(
+  view: ViewKey,
+  settings: Settings,
+  filters: CustomFilter[]
+): TaskQuery {
   if (view.startsWith('list:')) {
     return { view: 'list', listId: view.slice(5), includeCompleted: settings.showCompleted }
   }
-  if (view === 'calendar' || view === 'matrix') return { view: 'all' }
+  if (view.startsWith('filter:')) {
+    const filter = filters.find((item) => item.id === view.slice(7))
+    return filter ? { view: 'filter', filter: filter.query } : { view: 'all' }
+  }
+  if (view === 'calendar' || view === 'matrix' || view === 'templates') {
+    return { view: 'all' }
+  }
   return { view: view as SimpleView }
 }
 
@@ -41,6 +53,7 @@ interface AppState {
   bootError: string | null
   lists: ListWithCount[]
   tags: Array<Tag & { taskCount: number }>
+  filters: CustomFilter[]
   counts: Counts
   settings: Settings
   view: ViewKey
@@ -71,6 +84,8 @@ interface AppState {
   createList: (name: string, color: string, emoji?: string | null) => Promise<void>
   updateList: (id: string, patch: UpdateListInput) => Promise<void>
   deleteList: (id: string) => Promise<void>
+  createFilter: (name: string, query: FilterQuery) => Promise<void>
+  deleteFilter: (id: string) => Promise<void>
   createTask: (input: CreateTaskInput) => Promise<TaskWithMeta | null>
   updateTask: (id: string, patch: UpdateTaskInput) => Promise<void>
   toggleTask: (task: TaskWithMeta) => Promise<void>
@@ -124,6 +139,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   bootError: null,
   lists: [],
   tags: [],
+  filters: [],
   counts: EMPTY_COUNTS,
   settings: DEFAULT_SETTINGS,
   view: 'today',
@@ -144,13 +160,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   bootstrap: async () => {
     try {
-      const [lists, settings, counts, tags] = await Promise.all([
+      const [lists, settings, counts, tags, filters] = await Promise.all([
         window.api.lists.list(),
         window.api.settings.get(),
         window.api.tasks.counts(),
-        window.api.tags.list()
+        window.api.tags.list(),
+        window.api.filters.list()
       ])
-      set({ lists, settings, counts, tags })
+      set({ lists, settings, counts, tags, filters })
 
       const initial: ViewKey =
         settings.defaultListId && lists.some((list) => list.id === settings.defaultListId)
@@ -164,7 +181,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectView: async (view) => {
-    if (view === 'habits' || view === 'pomodoro' || view === 'stats') {
+    if (
+      view === 'habits' ||
+      view === 'pomodoro' ||
+      view === 'stats' ||
+      view === 'templates'
+    ) {
       set({
         view,
         loading: false,
@@ -181,7 +203,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedIds: []
     })
     try {
-      const tasks = await window.api.tasks.query(queryFor(view, get().settings))
+      const tasks = await window.api.tasks.query(
+        queryFor(view, get().settings, get().filters)
+      )
       set({ tasks, loading: false })
     } catch (error) {
       set({ loading: false })
@@ -190,15 +214,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   refresh: async () => {
-    const { view, settings } = get()
+    const { view, settings, filters } = get()
     try {
-      const [tasks, lists, counts, tags] = await Promise.all([
-        window.api.tasks.query(queryFor(view, settings)),
+      const [tasks, lists, counts, tags, nextFilters] = await Promise.all([
+        window.api.tasks.query(queryFor(view, settings, filters)),
         window.api.lists.list(),
         window.api.tasks.counts(),
-        window.api.tags.list()
+        window.api.tags.list(),
+        window.api.filters.list()
       ])
-      set({ tasks, lists, counts, tags })
+      set({ tasks, lists, counts, tags, filters: nextFilters })
       if (get().detailId) {
         const task = await window.api.tasks.get(get().detailId as string)
         set({ detailTask: task ?? null })
@@ -260,6 +285,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       await get().refresh()
       get().showToast('清单已移入垃圾箱', 'info')
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  createFilter: async (name, query) => {
+    try {
+      const filter = await window.api.filters.create({ name, query })
+      await get().refresh()
+      await get().selectView(`filter:${filter.id}`)
+      get().showToast(`已创建过滤器「${filter.name}」`, 'success')
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  deleteFilter: async (id) => {
+    try {
+      await window.api.filters.remove(id)
+      if (get().view === `filter:${id}`) {
+        await get().selectView('today')
+      }
+      await get().refresh()
+      get().showToast('过滤器已删除', 'info')
     } catch (error) {
       get().showToast(errorMessage(error), 'error')
     }

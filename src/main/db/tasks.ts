@@ -218,6 +218,50 @@ function buildQuery(query: TaskQuery): {
         order: 't.created_at ASC',
         limit: 500
       }
+    case 'filter': {
+      const filter = query.filter
+      const clauses = ['t.deleted_at IS NULL', 't.parent_id IS NULL']
+      const filterParams: Array<string | number> = []
+
+      if (filter.status !== 'all') {
+        clauses.push('t.status = ?')
+        filterParams.push(filter.status)
+      }
+      if (filter.priority !== null) {
+        clauses.push('t.priority = ?')
+        filterParams.push(filter.priority)
+      }
+      if (filter.listId) {
+        clauses.push('t.list_id = ?')
+        filterParams.push(filter.listId)
+      }
+      if (filter.tag) {
+        clauses.push(`EXISTS (
+          SELECT 1 FROM task_tags tt JOIN tags tg ON tg.id = tt.tag_id
+          WHERE tt.task_id = t.id AND tg.name = ?
+        )`)
+        filterParams.push(filter.tag)
+      }
+      if (filter.due === 'today') {
+        clauses.push('t.due_date IS NOT NULL AND t.due_date <= ?')
+        filterParams.push(today)
+      } else if (filter.due === 'overdue') {
+        clauses.push('t.due_date IS NOT NULL AND t.due_date < ?')
+        filterParams.push(today)
+      } else if (filter.due === 'next7') {
+        clauses.push('t.due_date >= ? AND t.due_date <= ?')
+        filterParams.push(today, weekEnd)
+      } else if (filter.due === 'no_date') {
+        clauses.push('t.due_date IS NULL')
+      }
+
+      return {
+        where: clauses.join(' AND '),
+        params: filterParams,
+        order: dueOrder,
+        limit: 2000
+      }
+    }
     case 'search': {
       const q = query.q.trim()
       if (!q) return { where: '0', params: [], order: 't.updated_at DESC', limit: 0 }

@@ -1,9 +1,13 @@
 import type {
   AppInfo,
+  ApplyTemplateInput,
   Counts,
+  CreateFilterInput,
   CreateHabitInput,
   CreateListInput,
   CreateTaskInput,
+  CreateTemplateInput,
+  CustomFilter,
   Habit,
   HabitWithStats,
   ImportCounts,
@@ -18,6 +22,7 @@ import type {
   TaskQuery,
   TaskStatus,
   TaskWithMeta,
+  Template,
   TodoList,
   UpdateHabitInput,
   UpdateListInput,
@@ -60,6 +65,14 @@ export const IPC = {
   pomodoroCreate: 'pomodoro:create',
   pomodoroList: 'pomodoro:list',
   statsOverview: 'stats:overview',
+  templatesList: 'templates:list',
+  templatesCreate: 'templates:create',
+  templatesDelete: 'templates:delete',
+  templatesApply: 'templates:apply',
+  templatesFromTask: 'templates:from-task',
+  filtersList: 'filters:list',
+  filtersCreate: 'filters:create',
+  filtersDelete: 'filters:delete',
   dataExport: 'data:export',
   dataImport: 'data:import',
   settingsGet: 'settings:get',
@@ -119,6 +132,18 @@ export interface TickFlowApi {
   }
   stats: {
     overview(): Promise<StatsOverview>
+  }
+  templates: {
+    list(): Promise<Template[]>
+    create(input: CreateTemplateInput): Promise<Template>
+    remove(id: string): Promise<void>
+    apply(id: string, input?: ApplyTemplateInput): Promise<TaskWithMeta>
+    fromTask(taskId: string, name: string): Promise<Template>
+  }
+  filters: {
+    list(): Promise<CustomFilter[]>
+    create(input: CreateFilterInput): Promise<CustomFilter>
+    remove(id: string): Promise<void>
   }
   data: {
     export(format: 'json' | 'csv' | 'ics'): Promise<{ canceled: boolean; path?: string }>

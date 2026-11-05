@@ -12,6 +12,7 @@ import {
 } from '../lib/format'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
+import { Modal } from './Modal'
 
 const WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 
@@ -243,10 +244,13 @@ export function DetailDrawer(): React.ReactNode {
   const updateTask = useAppStore((state) => state.updateTask)
   const removeTask = useAppStore((state) => state.removeTask)
   const openDetail = useAppStore((state) => state.openDetail)
+  const showToast = useAppStore((state) => state.showToast)
 
   const [titleDraft, setTitleDraft] = useState('')
   const [notesDraft, setNotesDraft] = useState('')
   const [tagsDraft, setTagsDraft] = useState('')
+  const [templateOpen, setTemplateOpen] = useState(false)
+  const [templateName, setTemplateName] = useState('')
   const notesTimer = useRef<number | null>(null)
 
   useEffect(() => {
@@ -297,6 +301,19 @@ export function DetailDrawer(): React.ReactNode {
       .filter(Boolean)
     const current = task.tags.map((tag) => tag.name)
     if (names.join('|') !== current.join('|')) void updateTask(task.id, { tagNames: names })
+  }
+
+  const saveAsTemplate = async (): Promise<void> => {
+    const name = templateName.trim()
+    if (!name) return
+    try {
+      await window.api.templates.fromTask(task.id, name)
+      setTemplateOpen(false)
+      setTemplateName('')
+      showToast('已保存为模板', 'success')
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
   }
 
   return (
@@ -506,6 +523,17 @@ export function DetailDrawer(): React.ReactNode {
         <div className="detail-footer">
           <button
             type="button"
+            className="btn"
+            onClick={() => {
+              setTemplateName(task.title)
+              setTemplateOpen(true)
+            }}
+          >
+            <Icon name="list" size={15} />
+            保存为模板
+          </button>
+          <button
+            type="button"
             className="btn btn-danger"
             onClick={() => {
               void removeTask(task.id)
@@ -516,6 +544,48 @@ export function DetailDrawer(): React.ReactNode {
           </button>
         </div>
       </div>
+
+      {templateOpen ? (
+        <Modal
+          title="保存为模板"
+          onClose={() => setTemplateOpen(false)}
+          width={400}
+        >
+          <label className="field">
+            <span className="field-label">模板名称</span>
+            <input
+              className="input"
+              autoFocus
+              value={templateName}
+              maxLength={40}
+              onChange={(event) => setTemplateName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void saveAsTemplate()
+              }}
+            />
+          </label>
+          <p className="settings-note">
+            会保存当前任务的标题、备注、优先级、标签和清单。
+          </p>
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setTemplateOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!templateName.trim()}
+              onClick={() => void saveAsTemplate()}
+            >
+              保存
+            </button>
+          </div>
+        </Modal>
+      ) : null}
     </motion.aside>
   )
 }

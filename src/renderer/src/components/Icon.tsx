@@ -9,6 +9,7 @@ export type IconName =
   | 'stats'
   | 'play'
   | 'pause'
+  | 'filter'
   | 'grid'
   | 'timer'
   | 'habit'
@@ -75,6 +76,7 @@ const ICONS: Record<IconName, ReactNode> = {
       <rect x="13.5" y="5" width="3.5" height="14" rx="1" />
     </>
   ),
+  filter: <path d="M4 5h16l-6 7v6l-4 2v-8z" />,
   grid: (
     <>
       <rect x="4" y="4" width="6.5" height="6.5" rx="2" />

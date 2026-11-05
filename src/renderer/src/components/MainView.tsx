@@ -12,10 +12,19 @@ import { PomodoroView } from './PomodoroView'
 import { QuickAdd } from './QuickAdd'
 import { StatsView } from './StatsView'
 import { TaskList } from './TaskList'
+import { TemplatesView } from './TemplatesView'
 import { TimelineView } from './TimelineView'
 import { ViewSwitcher } from './ViewSwitcher'
 
-function titleFor(view: ViewKey, lists: Array<{ id: string; name: string }>): string {
+function titleFor(
+  view: ViewKey,
+  lists: Array<{ id: string; name: string }>,
+  filters: Array<{ id: string; name: string }>
+): string {
+  if (view.startsWith('filter:')) {
+    const id = view.slice(7)
+    return filters.find((filter) => filter.id === id)?.name ?? '过滤器'
+  }
   switch (view) {
     case 'today':
       return '今天'
@@ -39,6 +48,8 @@ function titleFor(view: ViewKey, lists: Array<{ id: string; name: string }>): st
       return '番茄专注'
     case 'stats':
       return '统计'
+    case 'templates':
+      return '模板'
     default: {
       const id = view.slice(5)
       return lists.find((list) => list.id === id)?.name ?? '清单'
@@ -62,6 +73,7 @@ export function MainView(): React.ReactNode {
   const view = useAppStore((state) => state.view)
   const tasks = useAppStore((state) => state.tasks)
   const lists = useAppStore((state) => state.lists)
+  const filters = useAppStore((state) => state.filters)
   const settings = useAppStore((state) => state.settings)
   const loading = useAppStore((state) => state.loading)
   const listMode = useAppStore((state) => state.listMode)
@@ -79,11 +91,14 @@ export function MainView(): React.ReactNode {
   const isHabits = view === 'habits'
   const isPomodoro = view === 'pomodoro'
   const isStats = view === 'stats'
-  const isSpecial = isHabits || isPomodoro || isStats
+  const isTemplates = view === 'templates'
+  const isFilter = view.startsWith('filter:')
+  const isSpecial = isHabits || isPomodoro || isStats || isTemplates
   const isTaskView = !isCalendar && !isMatrix && !isSpecial
   const isList = view.startsWith('list:')
   const isFlat = view === 'completed' || view === 'abandoned' || view === 'trash'
-  const isOpenView = isList || view === 'today' || view === 'next7' || view === 'inbox'
+  const isOpenView =
+    isList || view === 'today' || view === 'next7' || view === 'inbox'
   const effectiveMode = isFlat ? 'list' : listMode
   const showList = !isList
 
@@ -91,7 +106,7 @@ export function MainView(): React.ReactNode {
     ? view.slice(5)
     : settings.defaultListId ?? lists.find((list) => list.isInbox)?.id ?? lists[0]?.id ?? ''
 
-  const title = titleFor(view, lists)
+  const title = titleFor(view, lists, filters)
 
   return (
     <main className="main">
@@ -102,7 +117,7 @@ export function MainView(): React.ReactNode {
           {view === 'today' ? <span className="main-date">· {headerDate()}</span> : null}
         </div>
         <div className="main-actions">
-          {isTaskView && !isFlat ? <ViewSwitcher /> : null}
+          {isTaskView && !isFlat && !isFilter ? <ViewSwitcher /> : null}
           {isTaskView && !isFlat && listMode === 'list' ? (
             <button
               type="button"
@@ -154,6 +169,8 @@ export function MainView(): React.ReactNode {
           <PomodoroView />
         ) : isStats ? (
           <StatsView />
+        ) : isTemplates ? (
+          <TemplatesView />
         ) : (
           <>
             {isOpenView ? (

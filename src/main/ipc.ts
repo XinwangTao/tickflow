@@ -1,9 +1,12 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
+  ApplyTemplateInput,
+  CreateFilterInput,
   CreateHabitInput,
   CreateListInput,
   CreateTaskInput,
+  CreateTemplateInput,
   PomodoroInput,
   Settings,
   TaskQuery,
@@ -14,6 +17,7 @@ import type {
 } from '@shared/types'
 import { getDataDir, getDb } from './db'
 import { exportData, importJson } from './data'
+import * as filterRepo from './db/filters'
 import * as habitRepo from './db/habits'
 import * as listRepo from './db/lists'
 import * as pomodoroRepo from './db/pomodoro'
@@ -22,6 +26,7 @@ import * as settingsRepo from './db/settings'
 import * as statsRepo from './db/stats'
 import * as tagRepo from './db/tags'
 import * as taskRepo from './db/tasks'
+import * as templateRepo from './db/templates'
 
 export function registerIpc(): void {
   ipcMain.handle(IPC.appInfo, () => ({
@@ -107,6 +112,26 @@ export function registerIpc(): void {
   )
 
   ipcMain.handle(IPC.statsOverview, () => statsRepo.getStatsOverview(getDb()))
+
+  ipcMain.handle(IPC.templatesList, () => templateRepo.listTemplates(getDb()))
+  ipcMain.handle(IPC.templatesCreate, (_event, input: CreateTemplateInput) =>
+    templateRepo.createTemplate(getDb(), input)
+  )
+  ipcMain.handle(IPC.templatesDelete, (_event, id: string) =>
+    templateRepo.deleteTemplate(getDb(), id)
+  )
+  ipcMain.handle(IPC.templatesApply, (_event, id: string, input: ApplyTemplateInput) =>
+    templateRepo.applyTemplate(getDb(), id, input)
+  )
+  ipcMain.handle(IPC.templatesFromTask, (_event, taskId: string, name: string) =>
+    templateRepo.createTemplateFromTask(getDb(), taskId, name)
+  )
+
+  ipcMain.handle(IPC.filtersList, () => filterRepo.listFilters(getDb()))
+  ipcMain.handle(IPC.filtersCreate, (_event, input: CreateFilterInput) =>
+    filterRepo.createFilter(getDb(), input)
+  )
+  ipcMain.handle(IPC.filtersDelete, (_event, id: string) => filterRepo.deleteFilter(getDb(), id))
 
   ipcMain.handle(IPC.dataExport, (event, format: 'json' | 'csv' | 'ics') =>
     exportData(getDb(), format, BrowserWindow.fromWebContents(event.sender))

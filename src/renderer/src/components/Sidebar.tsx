@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from './Icon'
+import { FilterModal } from './FilterModal'
 import { Modal } from './Modal'
 import { useAppStore } from '../store/useAppStore'
 
@@ -29,18 +30,25 @@ function SmartItem({ icon, label, count, active, onClick }: SmartItemProps): Rea
 export function Sidebar(): React.ReactNode {
   const lists = useAppStore((state) => state.lists)
   const tags = useAppStore((state) => state.tags)
+  const filters = useAppStore((state) => state.filters)
   const counts = useAppStore((state) => state.counts)
   const view = useAppStore((state) => state.view)
   const selectView = useAppStore((state) => state.selectView)
   const setNewListOpen = useAppStore((state) => state.setNewListOpen)
   const updateList = useAppStore((state) => state.updateList)
   const deleteList = useAppStore((state) => state.deleteList)
+  const deleteFilter = useAppStore((state) => state.deleteFilter)
   const setSearchOpen = useAppStore((state) => state.setSearchOpen)
 
   const [menuId, setMenuId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
+  const [filterModalOpen, setFilterModalOpen] = useState(false)
+  const [filterDeleteTarget, setFilterDeleteTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
   const renameInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -201,6 +209,62 @@ export function Sidebar(): React.ReactNode {
             </div>
           </>
         ) : null}
+
+        <div className="side-heading">
+          <span>过滤器</span>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="新建过滤器"
+            title="新建过滤器"
+            onClick={() => setFilterModalOpen(true)}
+          >
+            <Icon name="plus" size={15} />
+          </button>
+        </div>
+        <div className="side-group">
+          {filters.map((filter) => (
+            <div className="side-row" key={filter.id}>
+              <button
+                type="button"
+                className={`side-item ${
+                  view === `filter:${filter.id}` ? 'active' : ''
+                }`}
+                title={filter.name}
+                onClick={() => void selectView(`filter:${filter.id}`)}
+              >
+                <Icon name="filter" size={15} className="side-icon" />
+                <span className="side-label">{filter.name}</span>
+              </button>
+              <button
+                type="button"
+                className="side-more"
+                aria-label={`删除过滤器 ${filter.name}`}
+                title="删除过滤器"
+                onClick={() =>
+                  setFilterDeleteTarget({ id: filter.id, name: filter.name })
+                }
+              >
+                <Icon name="trash" size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="side-heading">
+          <span>模板</span>
+        </div>
+        <div className="side-group">
+          <button
+            type="button"
+            className={`side-item ${view === 'templates' ? 'active' : ''}`}
+            title="任务模板"
+            onClick={() => void selectView('templates')}
+          >
+            <Icon name="list" size={15} className="side-icon" />
+            <span className="side-label">任务模板</span>
+          </button>
+        </div>
       </div>
 
       <div className="sidebar-footer">
@@ -246,6 +310,44 @@ export function Sidebar(): React.ReactNode {
               onClick={() => {
                 void deleteList(deleteTarget.id)
                 setDeleteTarget(null)
+              }}
+            >
+              删除
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {filterModalOpen ? (
+        <FilterModal
+          onClose={() => setFilterModalOpen(false)}
+          onSaved={() => setFilterModalOpen(false)}
+        />
+      ) : null}
+
+      {filterDeleteTarget ? (
+        <Modal
+          title="删除过滤器"
+          onClose={() => setFilterDeleteTarget(null)}
+          width={400}
+        >
+          <p className="modal-text">
+            过滤器「{filterDeleteTarget.name}」会被删除，任务本身不会被删除。
+          </p>
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setFilterDeleteTarget(null)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => {
+                void deleteFilter(filterDeleteTarget.id)
+                setFilterDeleteTarget(null)
               }}
             >
               删除

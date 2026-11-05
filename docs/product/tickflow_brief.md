@@ -4,12 +4,12 @@
 - 日期：2026-11-05
 - 参考样本：本机滴答清单 Windows 客户端（`E:\APP\滴答清单`，.NET/WPF + SQLite + WebView2，2026-11-05 黑盒盘点）
 - 目标平台：Windows 桌面（Electron + React + TypeScript + SQLite）
-- 后续平台：Android + 桌面/手机同步（**不使用 Cloudflare R2**）
+- 后续平台：Android + 桌面/手机同步（**Cloudflare R2 快照同步**）
 - 还原边界：布局、交互、信息密度、快捷键尽量对齐；**商标、图标、插画、文案库、代码全部原创，不复制对方素材**
 
 ## 1. 用户与问题
 
-用户需要一个本地优先、离线可用、界面与滴答清单高度接近的任务管理桌面应用，覆盖清单、任务、日历、四象限、看板、习惯、番茄、统计等完整单机功能；后续扩展到 Android，并在设备间同步，但同步不依赖 Cloudflare R2。
+用户需要一个本地优先、离线可用、界面与滴答清单高度接近的任务管理桌面应用，覆盖清单、任务、日历、四象限、看板、习惯、番茄、统计等完整单机功能；后续扩展到 Android，并在设备间通过 Cloudflare R2 同步。
 
 ## 2. 范围
 
@@ -68,7 +68,7 @@
 - **富文本**：P1 用原生 textarea，P2 接 Tiptap；**日期**：自研轻量工具 + rrule（P2 重复任务）；**自然语言**：自研中文解析器（相对日期/周几/时间/#标签/!优先级/~清单/常见重复）；**图表**：Recharts（P3）
 - **测试**：Vitest + React Testing Library；Playwright 做 Electron 冒烟；**打包**：electron-builder（NSIS）
 - **同步就绪设计**：所有实体使用 UUIDv7、`created_at/updated_at/deleted_at`、`device_id`；本地 `change_log` 记录变更（seq/entity/op/payload）；同步层抽象为 `pull(since)/push(ops)/resolve()`，首版不启用
-- **同步路线（P5 再定，不用 R2）**：自建轻量同步服务（Node/Go + SQLite/Postgres + WebSocket，部署在自有机器/NAS/VPS，远程走 Tailscale）或纯局域网直连；Android 端优先评估 Capacitor 复用 React，若移动体验不足再转 Kotlin/Compose
+- **同步路线（P5）**：Cloudflare R2 对象存储（用户 2026-11-05 明确要求）。桌面与 Android 各写一份全量快照到 `tickflow/snapshots/<deviceId>.json`，同步时下载所有快照并按实体 `updated_at` 做 last-write-wins 合并；R2 需配置 CORS 允许桌面与 Capacitor 来源；凭据在同步设置中配置。Android 端优先 Capacitor 复用 React 渲染层。
 
 ## 6.1 P1 交付状态（2026-11-05）
 
@@ -112,11 +112,22 @@
 - 验证：`npm run typecheck` 0 错误；`npm test` 32/32 通过；`npm run build` 成功；CDP 实测习惯打卡切换、番茄 25:00→24:58 暂停、统计 4 KPI/6 图表通过
 - 未做 E2E：原生导出/导入对话框、托盘菜单点击、全局快捷键实际按键（启动无报错，代码已接通）
 
+## 6.4 P4 交付状态（2026-11-05）
+
+已交付并实机验证：
+
+- 模板：从任务保存、新建、应用（可覆盖清单）、删除
+- 自定义过滤器：状态/优先级/清单/标签/日期组合；侧栏入口与删除
+- Windows 安装包：`release\刻度清单 Setup 0.1.0.exe`（NSIS，未签名）；`win-unpacked` 打包版实机冒烟通过
+- Playwright Electron E2E：今天/日历/四象限/番茄/习惯/统计/快速添加全视图冒烟通过
+- 验证：typecheck 0 错误；Vitest 35/35；Playwright E2E 1/1；electron-builder 构建成功
+- 限制：安装包未签名，Windows SmartScreen 可能提示；安装/卸载流程未做自动化
+
 ## 7. 借鉴调研（1 回合）
 
 - **借鉴**：Super Productivity（Electron 本地优先、时间跟踪）、Vikunja（列表/看板/日历、自建同步）、Tasks.org（Android + CalDAV）——均只借鉴架构与交互模式。
 - **自研**：滴答清单式的紧凑图标栏 + 智能清单 + 四象限 + 习惯/番茄统一数据模型；中文自然语言快速添加。
-- **不采用**：Cloudflare R2、账号强依赖、复制滴答清单任何素材/代码/文案库。
+- **不采用**：账号强依赖、复制滴答清单任何素材/代码/文案库。
 - **对架构的直接影响**：① SQLite + change_log 的 local-first 设计；② Electron + React + 类型化 IPC；③ 领域逻辑独立成 `packages/core`，为后续 Android/Capacitor 复用。
 
 > 说明：以上为公开项目常识级调研，未逐仓库核验最新实现；不影响本阶段架构决策。
@@ -129,8 +140,8 @@
 | P1 ✅ | 脚手架、SQLite schema/迁移、IPC、主布局、清单与任务 CRUD、智能清单、快速添加、搜索、持久化 | 已交付 2026-11-05：typecheck 0 错误、24/24 测试、构建与 CDP 实测通过 |
 | P2 ✅ | 任务详情全字段、提醒、重复、标签、附件、日历/四象限/看板、拖拽、批量、撤销 | 已交付 2026-11-05：日历/四象限/看板/时间线、子任务、提醒、重复生成、批量撤销全部实测通过 |
 | P3 ✅ | 习惯、番茄、统计、导入导出、托盘/全局快捷键/通知（模板/过滤器移至 P4） | 已交付 2026-11-05：typecheck 0 错误、32/32 测试、构建与 CDP 实测通过 |
-| P4 | 模板/自定义过滤器、主题/动效/无障碍打磨、打包安装包、Playwright E2E | 安装包可安装启动；冒烟全绿 |
-| P5 | Android 端 + 同步服务（非 R2） | 双端增删改同步、冲突可解释 |
+| P4 ✅ | 模板/自定义过滤器、主题/动效/无障碍打磨、打包安装包、Playwright E2E | 已交付 2026-11-05：typecheck 0 错误、35/35 测试、E2E 1/1、NSIS 安装包构建成功 |
+| P5 | Android 端 + Cloudflare R2 同步 | 双端增删改同步、冲突可解释 |
 
 ## 9. 成功标准
 
@@ -146,7 +157,7 @@
 
 1. 品牌名：**刻度清单 / TickFlow**（占位，可随时改）——已确认。
 2. 交付节奏：**P1→P4 分阶段验收**——已确认。
-3. 安卓/同步：P4 前定；首版仅保证数据模型同步就绪；**同步不使用 Cloudflare R2**。
+3. 安卓/同步：**Cloudflare R2 快照同步**（2026-11-05 用户更新）；Android 真机无线调试安排在次日进行。
 
 ## 11. 关联图
 

@@ -77,6 +77,18 @@ const api: TickFlowApi = {
   stats: {
     overview: () => ipcRenderer.invoke(IPC.statsOverview)
   },
+  templates: {
+    list: () => ipcRenderer.invoke(IPC.templatesList),
+    create: (input) => ipcRenderer.invoke(IPC.templatesCreate, input),
+    remove: (id) => ipcRenderer.invoke(IPC.templatesDelete, id),
+    apply: (id, input) => ipcRenderer.invoke(IPC.templatesApply, id, input),
+    fromTask: (taskId, name) => ipcRenderer.invoke(IPC.templatesFromTask, taskId, name)
+  },
+  filters: {
+    list: () => ipcRenderer.invoke(IPC.filtersList),
+    create: (input) => ipcRenderer.invoke(IPC.filtersCreate, input),
+    remove: (id) => ipcRenderer.invoke(IPC.filtersDelete, id)
+  },
   data: {
     export: (format) => ipcRenderer.invoke(IPC.dataExport, format),
     importJson: () => ipcRenderer.invoke(IPC.dataImport)

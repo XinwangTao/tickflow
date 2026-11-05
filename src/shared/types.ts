@@ -87,6 +87,8 @@ export type ViewKey =
   | 'habits'
   | 'pomodoro'
   | 'stats'
+  | 'templates'
+  | `filter:${string}`
   | `list:${string}`
 
 export type ListMode = 'list' | 'board' | 'timeline'
@@ -96,6 +98,7 @@ export type TaskQuery =
   | { view: 'list'; listId: string; includeCompleted?: boolean }
   | { view: 'search'; q: string }
   | { view: 'subtasks'; parentId: string }
+  | { view: 'filter'; filter: FilterQuery }
 
 export interface CreateListInput {
   name: string
@@ -253,4 +256,57 @@ export interface ImportCounts {
   habits: number
   logs: number
   sessions: number
+}
+
+export interface TemplatePayload {
+  title: string
+  notes: string
+  priority: Priority
+  tagNames: string[]
+  listId: string | null
+  dueTime: string | null
+  allDay: boolean
+}
+
+export interface Template {
+  id: string
+  name: string
+  payload: TemplatePayload
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateTemplateInput {
+  name: string
+  payload: TemplatePayload
+}
+
+export interface ApplyTemplateInput {
+  listId?: string | null
+  dueDate?: string | null
+}
+
+export type FilterStatus = 'open' | 'completed' | 'abandoned' | 'all'
+
+export type FilterDue = 'any' | 'today' | 'overdue' | 'next7' | 'no_date'
+
+export interface FilterQuery {
+  listId: string | null
+  status: FilterStatus
+  priority: Priority | null
+  tag: string | null
+  due: FilterDue
+}
+
+export interface CustomFilter {
+  id: string
+  name: string
+  query: FilterQuery
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateFilterInput {
+  name: string
+  query: FilterQuery
 }

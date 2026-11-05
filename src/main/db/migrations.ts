@@ -165,6 +165,24 @@ const MIGRATIONS: Migration[] = [
         ) STRICT;
       `)
     }
+  },
+  {
+    version: 4,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS filters (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          query_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          device_id TEXT NOT NULL
+        ) STRICT;
+
+        CREATE INDEX IF NOT EXISTS idx_filters_deleted ON filters(deleted_at);
+      `)
+    }
   }
 ]
 
