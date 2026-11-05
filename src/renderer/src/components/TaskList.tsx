@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { GroupBy, SortBy, TaskWithMeta, ViewKey } from '@shared/types'
+import { buildDateGroups } from '@shared/task-groups'
 import { PRIORITY_LABELS } from '../lib/colors'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
@@ -76,6 +77,18 @@ function groupTasks(
         label: `${PRIORITY_LABELS[priority]}优先级`,
         rows: sortTasks(
           rows.filter((task) => task.priority === priority),
+          sortBy
+        )
+      }))
+      .filter((group) => group.rows.length > 0)
+  }
+  if (groupBy === 'date') {
+    return buildDateGroups()
+      .map((group) => ({
+        key: `d-${group.key}`,
+        label: group.label,
+        rows: sortTasks(
+          rows.filter((task) => group.matches(task)),
           sortBy
         )
       }))

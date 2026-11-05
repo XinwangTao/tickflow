@@ -14,7 +14,8 @@ const SORTS: Array<{ value: SortBy; label: string }> = [
 const GROUPS: Array<{ value: GroupBy; label: string }> = [
   { value: 'none', label: '不分组' },
   { value: 'list', label: '按清单' },
-  { value: 'priority', label: '按优先级' }
+  { value: 'priority', label: '按优先级' },
+  { value: 'date', label: '按日期' }
 ]
 
 export function ViewOptionsMenu(): React.ReactNode {

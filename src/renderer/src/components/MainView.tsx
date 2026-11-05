@@ -122,7 +122,7 @@ export function MainView(): React.ReactNode {
         </div>
         <div className="main-actions">
           {isTaskView && !isFlat && !isFilter ? <ViewSwitcher /> : null}
-          {isTaskView && !isFlat && listMode === 'list' ? <ViewOptionsMenu /> : null}
+          {isTaskView && !isFlat && listMode !== 'timeline' ? <ViewOptionsMenu /> : null}
           {isTaskView && !isFlat && listMode === 'list' ? (
             <button
               type="button"
@@ -200,7 +200,7 @@ export function MainView(): React.ReactNode {
                 ))}
               </div>
             ) : effectiveMode === 'board' ? (
-              <BoardView tasks={tasks} lists={lists} />
+              <BoardView tasks={tasks} lists={lists} groupBy={groupBy} />
             ) : effectiveMode === 'timeline' ? (
               <TimelineView tasks={tasks} />
             ) : tasks.length === 0 ? (
