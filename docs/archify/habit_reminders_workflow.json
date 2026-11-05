@@ -1,0 +1,186 @@
+{
+  "name": "habit_reminders_workflow",
+  "title": "刻度清单 TickFlow — 习惯提醒流程",
+  "level": "L1",
+  "version": "0.1",
+  "updated": "2026-11-05",
+  "layout": {
+    "width": 1200,
+    "height": 620,
+    "nodeWidth": 200,
+    "nodeHeight": 76
+  },
+  "legend": [
+    {
+      "type": "main",
+      "label": "主流程节点"
+    },
+    {
+      "type": "view",
+      "label": "视图 / 分支"
+    },
+    {
+      "type": "failure",
+      "label": "失败出口"
+    },
+    {
+      "type": "manual",
+      "label": "人工兜底（虚线）"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "H1",
+      "label": "习惯页 / 编辑习惯",
+      "type": "main",
+      "x": 60,
+      "y": 90,
+      "detail": [
+        "选择提醒时间与开关"
+      ]
+    },
+    {
+      "id": "H2",
+      "label": "保存习惯提醒",
+      "type": "main",
+      "x": 320,
+      "y": 90,
+      "detail": [
+        "habit_reminders 表",
+        "habit_id / trigger_at / sent_at"
+      ]
+    },
+    {
+      "id": "H3",
+      "label": "提醒调度器",
+      "type": "main",
+      "x": 580,
+      "y": 90,
+      "detail": [
+        "启动补发 + 每 30 秒检查"
+      ]
+    },
+    {
+      "id": "H4",
+      "label": "到点触发",
+      "type": "main",
+      "x": 840,
+      "y": 90,
+      "detail": [
+        "系统通知 + 通知中心记录"
+      ]
+    },
+    {
+      "id": "H5",
+      "label": "通知中心 / 习惯页",
+      "type": "view",
+      "x": 840,
+      "y": 260,
+      "detail": [
+        "待提醒 / 已提醒",
+        "点击回到习惯"
+      ]
+    },
+    {
+      "id": "F1",
+      "label": "应用未运行",
+      "type": "failure",
+      "x": 580,
+      "y": 340,
+      "detail": [
+        "启动时补发错过的提醒"
+      ]
+    },
+    {
+      "id": "F2",
+      "label": "习惯归档 / 删除",
+      "type": "failure",
+      "x": 320,
+      "y": 340,
+      "detail": [
+        "跳过并清理未发送提醒"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "H1",
+      "to": "H2",
+      "label": "保存"
+    },
+    {
+      "from": "H2",
+      "to": "H3",
+      "label": "注册"
+    },
+    {
+      "from": "H3",
+      "to": "H4",
+      "label": "到点"
+    },
+    {
+      "from": "H4",
+      "to": "H5",
+      "label": "写入"
+    },
+    {
+      "from": "H5",
+      "to": "H1",
+      "label": "点击习惯",
+      "points": [
+        [
+          840,
+          298
+        ],
+        [
+          760,
+          298
+        ],
+        [
+          760,
+          200
+        ],
+        [
+          160,
+          200
+        ],
+        [
+          160,
+          166
+        ]
+      ]
+    },
+    {
+      "from": "F1",
+      "to": "H3",
+      "label": "启动补发",
+      "kind": "manual",
+      "points": [
+        [
+          680,
+          340
+        ],
+        [
+          680,
+          166
+        ]
+      ]
+    },
+    {
+      "from": "H2",
+      "to": "F2",
+      "label": "归档 / 删除",
+      "kind": "failure",
+      "points": [
+        [
+          420,
+          166
+        ],
+        [
+          420,
+          340
+        ]
+      ]
+    }
+  ]
+}
