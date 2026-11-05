@@ -13,9 +13,10 @@ const VIEWS: Array<{ view: ViewKey; icon: IconName; label: string }> = [
   { view: 'matrix', icon: 'grid', label: '四象限' }
 ]
 
-const FUTURE: Array<{ icon: IconName; label: string; hint: string }> = [
-  { icon: 'timer', label: '番茄专注', hint: '番茄专注将在 P3 开放' },
-  { icon: 'habit', label: '习惯', hint: '习惯打卡将在 P3 开放' }
+const FOCUS: Array<{ view: ViewKey; icon: IconName; label: string }> = [
+  { view: 'pomodoro', icon: 'timer', label: '番茄专注' },
+  { view: 'habits', icon: 'habit', label: '习惯' },
+  { view: 'stats', icon: 'stats', label: '统计' }
 ]
 
 export function IconRail(): React.ReactNode {
@@ -77,14 +78,15 @@ export function IconRail(): React.ReactNode {
           </button>
         ))}
 
-        {FUTURE.map((item) => (
+        {FOCUS.map((item) => (
           <button
-            key={item.label}
+            key={item.view}
             type="button"
-            className="rail-item"
-            title={item.hint}
+            className={`rail-item ${view === item.view ? 'active' : ''}`}
+            title={item.label}
             aria-label={item.label}
-            onClick={() => showToast(item.hint, 'info')}
+            aria-current={view === item.view ? 'page' : undefined}
+            onClick={() => void selectView(item.view)}
           >
             <Icon name={item.icon} size={20} />
           </button>

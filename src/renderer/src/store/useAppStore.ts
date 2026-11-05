@@ -164,6 +164,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectView: async (view) => {
+    if (view === 'habits' || view === 'pomodoro' || view === 'stats') {
+      set({
+        view,
+        loading: false,
+        tasks: [],
+        selectionMode: false,
+        selectedIds: []
+      })
+      return
+    }
     set({
       view,
       loading: true,

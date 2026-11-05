@@ -1,13 +1,27 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, globalShortcut, shell } from 'electron'
 import { join } from 'node:path'
 import { IPC } from '@shared/ipc'
 import { closeDatabase, initDatabase } from './db'
 import { registerIpc } from './ipc'
 import { startReminderScheduler, stopReminderScheduler } from './reminders'
+import { destroyTray, setupTray } from './tray'
 
 let mainWindow: BrowserWindow | null = null
+let isQuitting = false
+
+function quickAdd(): void {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+  mainWindow.webContents.send(IPC.appQuickAddEvent)
+}
 
 function createWindow(): void {
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(app.getAppPath(), 'resources', 'icon.png')
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -18,17 +32,25 @@ function createWindow(): void {
     roundedCorners: true,
     backgroundColor: '#1e1f22',
     title: '刻度清单',
+    icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: false
     }
   })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault()
+      mainWindow?.hide()
+    }
   })
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -64,16 +86,30 @@ if (!gotLock) {
   app.on('second-instance', () => {
     if (!mainWindow) return
     if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
     mainWindow.focus()
   })
 
   app.whenReady().then(() => {
+    app.setAppUserModelId('com.tickflow.app')
     initDatabase()
     registerIpc()
     createWindow()
 
+    if (mainWindow) {
+      setupTray(mainWindow, quickAdd)
+    }
+    const registered = globalShortcut.register('CommandOrControl+Shift+N', quickAdd)
+    if (!registered) {
+      console.warn('[tickflow] 全局快捷键 CommandOrControl+Shift+N 注册失败')
+    }
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      else {
+        mainWindow?.show()
+        mainWindow?.focus()
+      }
     })
   })
 
@@ -82,7 +118,13 @@ if (!gotLock) {
   })
 
   app.on('before-quit', () => {
+    isQuitting = true
     stopReminderScheduler()
     closeDatabase()
+  })
+
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+    destroyTray()
   })
 }

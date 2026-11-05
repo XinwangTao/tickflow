@@ -106,6 +106,65 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_reminders_task ON reminders(task_id);
       `)
     }
+  },
+  {
+    version: 3,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS habits (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          icon TEXT,
+          color TEXT NOT NULL DEFAULT '#30a46c',
+          frequency TEXT NOT NULL DEFAULT 'daily' CHECK (frequency IN ('daily', 'weekly')),
+          target_per_week INTEGER NOT NULL DEFAULT 7,
+          archived INTEGER NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          device_id TEXT NOT NULL
+        ) STRICT;
+
+        CREATE TABLE IF NOT EXISTS habit_logs (
+          id TEXT PRIMARY KEY,
+          habit_id TEXT NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+          log_date TEXT NOT NULL,
+          value INTEGER NOT NULL DEFAULT 1,
+          note TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          UNIQUE(habit_id, log_date)
+        ) STRICT;
+
+        CREATE INDEX IF NOT EXISTS idx_habit_logs_date ON habit_logs(log_date);
+        CREATE INDEX IF NOT EXISTS idx_habit_logs_habit ON habit_logs(habit_id, log_date);
+
+        CREATE TABLE IF NOT EXISTS pomodoro_sessions (
+          id TEXT PRIMARY KEY,
+          task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+          mode TEXT NOT NULL DEFAULT 'focus' CHECK (mode IN ('focus', 'break')),
+          duration_minutes INTEGER NOT NULL,
+          started_at TEXT NOT NULL,
+          ended_at TEXT NOT NULL,
+          completed INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          device_id TEXT NOT NULL
+        ) STRICT;
+
+        CREATE INDEX IF NOT EXISTS idx_pomodoro_started ON pomodoro_sessions(started_at);
+
+        CREATE TABLE IF NOT EXISTS templates (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          device_id TEXT NOT NULL
+        ) STRICT;
+      `)
+    }
   }
 ]
 

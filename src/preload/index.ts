@@ -3,7 +3,14 @@ import { IPC, type TickFlowApi } from '@shared/ipc'
 
 const api: TickFlowApi = {
   app: {
-    info: () => ipcRenderer.invoke(IPC.appInfo)
+    info: () => ipcRenderer.invoke(IPC.appInfo),
+    onQuickAdd: (callback) => {
+      const listener = (): void => callback()
+      ipcRenderer.on(IPC.appQuickAddEvent, listener)
+      return () => {
+        ipcRenderer.removeListener(IPC.appQuickAddEvent, listener)
+      }
+    }
   },
   window: {
     minimize: () => ipcRenderer.send(IPC.winMinimize),
@@ -55,6 +62,24 @@ const api: TickFlowApi = {
         ipcRenderer.removeListener(IPC.remindersMissedEvent, listener)
       }
     }
+  },
+  habits: {
+    list: () => ipcRenderer.invoke(IPC.habitsList),
+    create: (input) => ipcRenderer.invoke(IPC.habitsCreate, input),
+    update: (id, patch) => ipcRenderer.invoke(IPC.habitsUpdate, id, patch),
+    remove: (id) => ipcRenderer.invoke(IPC.habitsRemove, id),
+    toggle: (habitId, date) => ipcRenderer.invoke(IPC.habitsToggle, habitId, date)
+  },
+  pomodoro: {
+    create: (input) => ipcRenderer.invoke(IPC.pomodoroCreate, input),
+    list: (fromIso, toIso) => ipcRenderer.invoke(IPC.pomodoroList, fromIso, toIso)
+  },
+  stats: {
+    overview: () => ipcRenderer.invoke(IPC.statsOverview)
+  },
+  data: {
+    export: (format) => ipcRenderer.invoke(IPC.dataExport, format),
+    importJson: () => ipcRenderer.invoke(IPC.dataImport)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

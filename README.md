@@ -1,6 +1,6 @@
 # 刻度清单 TickFlow
 
-本地优先的任务管理桌面应用。P2 已交付核心任务管理 + 日历/四象限/看板/时间线 + 子任务/提醒/重复 + 批量撤销；后续补齐习惯、番茄、统计与打包。
+本地优先的任务管理桌面应用。P3 已交付核心任务管理、日历/四象限/看板/时间线、子任务/提醒/重复、习惯打卡、番茄专注、统计、批量撤销、托盘与数据导入导出；后续补齐模板/过滤器、打包与 Android 同步。
 
 ## 技术栈
 
@@ -15,7 +15,7 @@
 npm install
 npm run dev        # 开发模式（Vite + Electron）
 npm run typecheck  # 主进程 + 渲染进程类型检查
-npm test           # Vitest（29 个用例）
+npm test           # Vitest（32 个用例）
 npm run build      # 构建 out/
 npx electron .     # 运行构建产物
 ```
@@ -24,6 +24,8 @@ npx electron .     # 运行构建产物
 
 - 数据库：`%APPDATA%\tickflow\data\tickflow.db`
 - 自动备份：`%APPDATA%\tickflow\backups`（每次启动一份，保留最近 5 份）
+- 关闭窗口会隐藏到托盘，从托盘菜单「退出」才会真正退出
+- 全局快捷键：`Ctrl+Shift+N` 唤起主窗口并聚焦快速添加
 
 数据库使用 UUIDv7、`created_at/updated_at/deleted_at`、`device_id` 与 `change_log`，为后续 Android/桌面同步预留；同步不使用 Cloudflare R2。
 

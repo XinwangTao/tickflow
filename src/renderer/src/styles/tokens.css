@@ -43,6 +43,10 @@
   --shadow: 0 16px 44px rgba(0, 0, 0, 0.48);
   --overlay: rgba(8, 9, 11, 0.62);
   --scrollbar: #3d3f48;
+  --chart-1: #3987e5;
+  --chart-2: #199e70;
+  --chart-grid: #2c2c2a;
+  --chart-axis: #383835;
 }
 
 :root[data-theme="light"] {
@@ -62,4 +66,8 @@
   --shadow: 0 16px 44px rgba(20, 24, 32, 0.14);
   --overlay: rgba(20, 24, 32, 0.26);
   --scrollbar: #c6cbd3;
+  --chart-1: #2a78d6;
+  --chart-2: #1baf7a;
+  --chart-grid: #e1e0d9;
+  --chart-axis: #c3c2b7;
 }

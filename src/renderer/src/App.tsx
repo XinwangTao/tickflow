@@ -76,6 +76,14 @@ export default function App(): React.ReactNode {
     })
   }, [showToast])
 
+  useEffect(() => {
+    return window.api.app.onQuickAdd(() => {
+      void useAppStore.getState().selectView('today').then(() => {
+        useAppStore.getState().focusQuickAdd()
+      })
+    })
+  }, [])
+
   const resolvedTheme =
     settings.theme === 'system' ? (systemDark ? 'dark' : 'light') : settings.theme
 

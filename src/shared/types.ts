@@ -84,6 +84,9 @@ export type ViewKey =
   | 'trash'
   | 'calendar'
   | 'matrix'
+  | 'habits'
+  | 'pomodoro'
+  | 'stats'
   | `list:${string}`
 
 export type ListMode = 'list' | 'board' | 'timeline'
@@ -153,4 +156,101 @@ export interface Reminder {
 
 export interface ReminderWithTask extends Reminder {
   taskTitle: string
+}
+
+export type HabitFrequency = 'daily' | 'weekly'
+
+export interface Habit {
+  id: string
+  name: string
+  icon: string | null
+  color: string
+  frequency: HabitFrequency
+  targetPerWeek: number
+  archived: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
+export interface HabitLog {
+  id: string
+  habitId: string
+  logDate: string
+  value: number
+  note: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface HabitWithStats extends Habit {
+  logs: HabitLog[]
+  currentStreak: number
+  longestStreak: number
+  weekCount: number
+}
+
+export interface CreateHabitInput {
+  name: string
+  icon?: string | null
+  color?: string
+  frequency?: HabitFrequency
+  targetPerWeek?: number
+}
+
+export interface UpdateHabitInput {
+  name?: string
+  icon?: string | null
+  color?: string
+  frequency?: HabitFrequency
+  targetPerWeek?: number
+  archived?: boolean
+}
+
+export type PomodoroMode = 'focus' | 'break'
+
+export interface PomodoroSession {
+  id: string
+  taskId: string | null
+  mode: PomodoroMode
+  durationMinutes: number
+  startedAt: string
+  endedAt: string
+  completed: boolean
+  createdAt: string
+}
+
+export interface PomodoroInput {
+  taskId?: string | null
+  mode: PomodoroMode
+  durationMinutes: number
+  startedAt: string
+  endedAt: string
+  completed?: boolean
+}
+
+export interface StatsOverview {
+  tasksCompleted7d: number
+  tasksCompleted30d: number
+  tasksCreated7d: number
+  overdue: number
+  completedByDay: Array<{ date: string; count: number }>
+  byPriority: Array<{ priority: number; count: number }>
+  byList: Array<{ listId: string; name: string; color: string; count: number }>
+  focusMinutes7d: number
+  focusSessions7d: number
+  focusByDay: Array<{ date: string; minutes: number }>
+  habitCheckins7d: number
+  habitByDay: Array<{ date: string; count: number }>
+  topHabits: Array<{ id: string; name: string; color: string; count: number }>
+}
+
+export interface ImportCounts {
+  lists: number
+  tasks: number
+  tags: number
+  habits: number
+  logs: number
+  sessions: number
 }

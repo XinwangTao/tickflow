@@ -1,23 +1,32 @@
 import type {
   AppInfo,
   Counts,
+  CreateHabitInput,
   CreateListInput,
   CreateTaskInput,
+  Habit,
+  HabitWithStats,
+  ImportCounts,
   ListWithCount,
+  PomodoroInput,
+  PomodoroSession,
   Reminder,
   ReminderWithTask,
   Settings,
+  StatsOverview,
   Tag,
   TaskQuery,
   TaskStatus,
   TaskWithMeta,
   TodoList,
+  UpdateHabitInput,
   UpdateListInput,
   UpdateTaskInput
 } from './types'
 
 export const IPC = {
   appInfo: 'app:info',
+  appQuickAddEvent: 'app:quick-add',
   winMinimize: 'window:minimize',
   winToggleMaximize: 'window:toggle-maximize',
   winClose: 'window:close',
@@ -43,6 +52,16 @@ export const IPC = {
   remindersCreate: 'reminders:create',
   remindersRemove: 'reminders:remove',
   remindersMissedEvent: 'reminders:missed',
+  habitsList: 'habits:list',
+  habitsCreate: 'habits:create',
+  habitsUpdate: 'habits:update',
+  habitsRemove: 'habits:remove',
+  habitsToggle: 'habits:toggle',
+  pomodoroCreate: 'pomodoro:create',
+  pomodoroList: 'pomodoro:list',
+  statsOverview: 'stats:overview',
+  dataExport: 'data:export',
+  dataImport: 'data:import',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set'
 } as const
@@ -50,6 +69,7 @@ export const IPC = {
 export interface TickFlowApi {
   app: {
     info(): Promise<AppInfo>
+    onQuickAdd(callback: () => void): () => void
   }
   window: {
     minimize(): void
@@ -85,6 +105,24 @@ export interface TickFlowApi {
     create(taskId: string, triggerAt: string): Promise<Reminder>
     remove(id: string): Promise<void>
     onMissed(callback: (items: ReminderWithTask[]) => void): () => void
+  }
+  habits: {
+    list(): Promise<HabitWithStats[]>
+    create(input: CreateHabitInput): Promise<Habit>
+    update(id: string, patch: UpdateHabitInput): Promise<Habit>
+    remove(id: string): Promise<void>
+    toggle(habitId: string, date: string): Promise<void>
+  }
+  pomodoro: {
+    create(input: PomodoroInput): Promise<PomodoroSession>
+    list(fromIso: string, toIso: string): Promise<PomodoroSession[]>
+  }
+  stats: {
+    overview(): Promise<StatsOverview>
+  }
+  data: {
+    export(format: 'json' | 'csv' | 'ics'): Promise<{ canceled: boolean; path?: string }>
+    importJson(): Promise<{ canceled: boolean; counts?: ImportCounts }>
   }
   settings: {
     get(): Promise<Settings>

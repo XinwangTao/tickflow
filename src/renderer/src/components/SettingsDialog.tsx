@@ -21,11 +21,38 @@ export function SettingsDialog(): React.ReactNode {
   const lists = useAppStore((state) => state.lists)
   const setSettings = useAppStore((state) => state.setSettings)
   const close = useAppStore((state) => state.setSettingsOpen)
+  const showToast = useAppStore((state) => state.showToast)
   const [info, setInfo] = useState<AppInfo | null>(null)
 
   useEffect(() => {
     void window.api.app.info().then(setInfo)
   }, [])
+
+  const handleExport = async (format: 'json' | 'csv' | 'ics'): Promise<void> => {
+    try {
+      const result = await window.api.data.export(format)
+      if (!result.canceled) {
+        showToast(`已导出到 ${result.path ?? ''}`, 'success', { duration: 5000 })
+      }
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const handleImport = async (): Promise<void> => {
+    try {
+      const result = await window.api.data.importJson()
+      if (!result.canceled && result.counts) {
+        showToast(
+          `导入完成：${result.counts.tasks} 个任务、${result.counts.habits} 个习惯`,
+          'success',
+          { duration: 5000 }
+        )
+      }
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
 
   return (
     <Modal title="设置" onClose={() => close(false)} width={560}>
@@ -139,6 +166,27 @@ export function SettingsDialog(): React.ReactNode {
         <p className="settings-note">
           每次启动自动备份，保留最近 5 份。当前版本 {info?.version ?? '—'}。
         </p>
+        <div className="settings-row">
+          <span className="settings-label">导出</span>
+          <div className="settings-actions">
+            <button type="button" className="btn" onClick={() => void handleExport('json')}>
+              JSON
+            </button>
+            <button type="button" className="btn" onClick={() => void handleExport('csv')}>
+              CSV
+            </button>
+            <button type="button" className="btn" onClick={() => void handleExport('ics')}>
+              ICS
+            </button>
+          </div>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">导入</span>
+          <button type="button" className="btn" onClick={() => void handleImport()}>
+            导入 JSON
+          </button>
+        </div>
+        <p className="settings-note">导入按 ID 合并，已存在的记录会跳过，不会删除现有数据。</p>
       </section>
 
       <section className="settings-section">
@@ -153,6 +201,12 @@ export function SettingsDialog(): React.ReactNode {
             <span>搜索</span>
             <kbd>Ctrl</kbd>
             <kbd>K</kbd>
+          </div>
+          <div>
+            <span>全局快速添加</span>
+            <kbd>Ctrl</kbd>
+            <kbd>Shift</kbd>
+            <kbd>N</kbd>
           </div>
           <div>
             <span>关闭面板</span>

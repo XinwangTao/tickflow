@@ -5,9 +5,12 @@ import { BatchBar } from './BatchBar'
 import { BoardView } from './BoardView'
 import { CalendarView } from './CalendarView'
 import { EmptyState } from './EmptyState'
+import { HabitsView } from './HabitsView'
 import { Icon } from './Icon'
 import { MatrixView } from './MatrixView'
+import { PomodoroView } from './PomodoroView'
 import { QuickAdd } from './QuickAdd'
+import { StatsView } from './StatsView'
 import { TaskList } from './TaskList'
 import { TimelineView } from './TimelineView'
 import { ViewSwitcher } from './ViewSwitcher'
@@ -30,6 +33,12 @@ function titleFor(view: ViewKey, lists: Array<{ id: string; name: string }>): st
       return '日历'
     case 'matrix':
       return '四象限'
+    case 'habits':
+      return '习惯'
+    case 'pomodoro':
+      return '番茄专注'
+    case 'stats':
+      return '统计'
     default: {
       const id = view.slice(5)
       return lists.find((list) => list.id === id)?.name ?? '清单'
@@ -67,7 +76,11 @@ export function MainView(): React.ReactNode {
 
   const isCalendar = view === 'calendar'
   const isMatrix = view === 'matrix'
-  const isTaskView = !isCalendar && !isMatrix
+  const isHabits = view === 'habits'
+  const isPomodoro = view === 'pomodoro'
+  const isStats = view === 'stats'
+  const isSpecial = isHabits || isPomodoro || isStats
+  const isTaskView = !isCalendar && !isMatrix && !isSpecial
   const isList = view.startsWith('list:')
   const isFlat = view === 'completed' || view === 'abandoned' || view === 'trash'
   const isOpenView = isList || view === 'today' || view === 'next7' || view === 'inbox'
@@ -85,7 +98,7 @@ export function MainView(): React.ReactNode {
       <header className="main-header">
         <div className="main-title-wrap">
           <h1 className="main-title">{title}</h1>
-          <span className="main-count">{tasks.length}</span>
+          {isSpecial ? null : <span className="main-count">{tasks.length}</span>}
           {view === 'today' ? <span className="main-date">· {headerDate()}</span> : null}
         </div>
         <div className="main-actions">
@@ -135,6 +148,12 @@ export function MainView(): React.ReactNode {
           />
         ) : isMatrix ? (
           <MatrixView tasks={tasks} />
+        ) : isHabits ? (
+          <HabitsView />
+        ) : isPomodoro ? (
+          <PomodoroView />
+        ) : isStats ? (
+          <StatsView />
         ) : (
           <>
             {isOpenView ? (

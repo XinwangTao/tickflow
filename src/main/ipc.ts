@@ -1,18 +1,25 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
+  CreateHabitInput,
   CreateListInput,
   CreateTaskInput,
+  PomodoroInput,
   Settings,
   TaskQuery,
   TaskStatus,
+  UpdateHabitInput,
   UpdateListInput,
   UpdateTaskInput
 } from '@shared/types'
 import { getDataDir, getDb } from './db'
+import { exportData, importJson } from './data'
+import * as habitRepo from './db/habits'
 import * as listRepo from './db/lists'
+import * as pomodoroRepo from './db/pomodoro'
 import * as reminderRepo from './db/reminders'
 import * as settingsRepo from './db/settings'
+import * as statsRepo from './db/stats'
 import * as tagRepo from './db/tags'
 import * as taskRepo from './db/tasks'
 
@@ -78,6 +85,34 @@ export function registerIpc(): void {
   )
   ipcMain.handle(IPC.remindersRemove, (_event, id: string) =>
     reminderRepo.deleteReminder(getDb(), id)
+  )
+
+  ipcMain.handle(IPC.habitsList, () => habitRepo.listHabits(getDb()))
+  ipcMain.handle(IPC.habitsCreate, (_event, input: CreateHabitInput) =>
+    habitRepo.createHabit(getDb(), input)
+  )
+  ipcMain.handle(IPC.habitsUpdate, (_event, id: string, patch: UpdateHabitInput) =>
+    habitRepo.updateHabit(getDb(), id, patch)
+  )
+  ipcMain.handle(IPC.habitsRemove, (_event, id: string) => habitRepo.deleteHabit(getDb(), id))
+  ipcMain.handle(IPC.habitsToggle, (_event, habitId: string, date: string) =>
+    habitRepo.toggleHabitLog(getDb(), habitId, date)
+  )
+
+  ipcMain.handle(IPC.pomodoroCreate, (_event, input: PomodoroInput) =>
+    pomodoroRepo.createPomodoroSession(getDb(), input)
+  )
+  ipcMain.handle(IPC.pomodoroList, (_event, fromIso: string, toIso: string) =>
+    pomodoroRepo.listPomodoroSessions(getDb(), fromIso, toIso)
+  )
+
+  ipcMain.handle(IPC.statsOverview, () => statsRepo.getStatsOverview(getDb()))
+
+  ipcMain.handle(IPC.dataExport, (event, format: 'json' | 'csv' | 'ics') =>
+    exportData(getDb(), format, BrowserWindow.fromWebContents(event.sender))
+  )
+  ipcMain.handle(IPC.dataImport, (event) =>
+    importJson(getDb(), BrowserWindow.fromWebContents(event.sender))
   )
 
   ipcMain.handle(IPC.settingsGet, () => settingsRepo.getSettings(getDb()))

@@ -6,6 +6,9 @@ export type IconName =
   | 'calendar'
   | 'calendar-range'
   | 'board'
+  | 'stats'
+  | 'play'
+  | 'pause'
   | 'grid'
   | 'timer'
   | 'habit'
@@ -62,6 +65,14 @@ const ICONS: Record<IconName, ReactNode> = {
       <rect x="4" y="4" width="4.5" height="16" rx="1.5" />
       <rect x="9.75" y="4" width="4.5" height="16" rx="1.5" />
       <rect x="15.5" y="4" width="4.5" height="16" rx="1.5" />
+    </>
+  ),
+  stats: <path d="M4 20V12M10 20V6M16 20v-8M22 20H2" />,
+  play: <path d="M8 5l11 7-11 7z" />,
+  pause: (
+    <>
+      <rect x="7" y="5" width="3.5" height="14" rx="1" />
+      <rect x="13.5" y="5" width="3.5" height="14" rx="1" />
     </>
   ),
   grid: (
