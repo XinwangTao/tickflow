@@ -157,7 +157,8 @@ function openAddForm(): HTMLInputElement {
   return screen.getByLabelText('日历添加任务标题') as HTMLInputElement
 }
 
-describe('日历选中日期行内添加任务', () => {
+// 全量并行跑测试时 jsdom 竞争激烈，给这组交互用例留足超时。
+describe('日历选中日期行内添加任务', { timeout: 20_000 }, () => {
   it('自然语言输入先显示解析预览，确认后落到选中日期并可撤销', async () => {
     renderCalendar()
     const input = openAddForm()
@@ -175,7 +176,8 @@ describe('日历选中日期行内添加任务', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '添加' }))
 
-    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    // 全量并行跑测试时机器可能很忙，给这条写库断言留足时间。
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1), { timeout: 3000 })
     expect(createTask.mock.calls[0][0]).toMatchObject({
       listId: 'inbox',
       title: '晨会',

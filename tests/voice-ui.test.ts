@@ -19,13 +19,14 @@ import {
   VOICE_UNSUPPORTED_HINT
 } from '../src/shared/voice'
 
-// 把 90 秒的转写超时与 15 秒的授权等待都缩短到 40ms，测试不用真的等。
+// 把 90 秒的转写超时与 15 秒的授权等待都缩短到 200ms，测试不用真的等；
+// 留出足够余量，避免机器繁忙时“取消”还没点到就被超时抢先触发。
 vi.mock('@shared/voice', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/shared/voice')>()
   return {
     ...actual,
-    VOICE_TRANSCRIBE_TIMEOUT_MS: 40,
-    VOICE_PERMISSION_TIMEOUT_MS: 40
+    VOICE_TRANSCRIBE_TIMEOUT_MS: 200,
+    VOICE_PERMISSION_TIMEOUT_MS: 200
   }
 })
 

@@ -86,6 +86,52 @@ const WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 const WEEKDAY_CODES_MONDAY_FIRST = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
 const RRULE_FREQUENCIES = new Set(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'])
 
+/**
+ * “今晚”“明天下午”这类只说了时段、没说钟点的写法，用一个默认钟点落到截止时间，
+ * 避免出现“有日期但没有具体时间”的全天任务。
+ */
+const PERIOD_DEFAULT_TIMES: Record<string, string> = {
+  凌晨: '06:00',
+  早上: '08:00',
+  早晨: '08:00',
+  上午: '09:00',
+  中午: '12:00',
+  下午: '15:00',
+  傍晚: '18:00',
+  晚上: '20:00',
+  夜里: '20:00'
+}
+
+/**
+ * 时段词后面紧跟这些字时多半是“下午茶”“中午饭”“晚上好”这类普通词语，
+ * 不能当成时间并从标题里摘掉。
+ */
+const PERIOD_WORD_SUFFIXES = new Set(['茶', '饭', '餐', '觉', '睡', '安', '好', '市'])
+
+/**
+ * “今晚”“明早”“昨晚”拆成“日期词 + 时段词”，后面的日期与时间解析就能各自命中，
+ * 不用在每个解析器里各写一套组合。
+ */
+const DAY_PERIOD_ALIASES: Array<[RegExp, string]> = [
+  [/今(晚上?|夜)/g, '今天晚上'],
+  [/明(晚上?|夜)/g, '明天晚上'],
+  [/昨(晚上?|夜)/g, '昨天晚上'],
+  [/今(早上?|晨)/g, '今天早上'],
+  [/明(早上?|晨)/g, '明天早上'],
+  [/昨(早上?|晨)/g, '昨天早上'],
+  // “每晚8点”“每早7点”省掉了“天”，补齐后重复与时段解析都能各自命中。
+  [/每(晚上?|夜)/g, '每天晚上'],
+  [/每(早(?!饭|餐|睡|安|好)|晨)/g, '每天早上']
+]
+
+function normalizeDayWords(text: string): string {
+  let output = text
+  for (const [pattern, replacement] of DAY_PERIOD_ALIASES) {
+    output = output.replace(pattern, replacement)
+  }
+  return output
+}
+
 function parseRruleInt(value: string, min: number, max: number, allowZero = false): number | null {
   if (!/^-?\d+$/.test(value)) return null
   const numeric = Number(value)
@@ -257,6 +303,68 @@ function nextWeekday(base: Date, target: number, mode: 'next' | 'this' | 'nextwe
   return addDays(base, (target - current + 7) % 7)
 }
 
+interface WeekdaySelection {
+  /** 星期索引（0=周日 … 6=周六），按周一→周日排序。 */
+  days: number[]
+  matched: string
+}
+
+/**
+ * 解析紧跟在重复短语后面的星期写法：“的周二”“的周一、周三”“的周一到周五”。
+ * 只从 `tail` 开头匹配，避免把标题里的“周三见”也吞掉。
+ */
+function parseWeekdaySelection(tail: string): WeekdaySelection | null {
+  const range = tail.match(
+    /^\s*(?:的)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])\s*(?:到|至|~|-)\s*(?:周|星期|礼拜)?\s*([一二三四五六日天])/
+  )
+  if (range) {
+    const from = WEEKDAY_MAP[range[1]]
+    const to = WEEKDAY_MAP[range[2]]
+    if (Number.isInteger(from) && Number.isInteger(to)) {
+      const span = (to - from + 7) % 7
+      const days: number[] = []
+      for (let index = 0; index <= span; index += 1) days.push((from + index) % 7)
+      return { days, matched: range[0] }
+    }
+  }
+
+  const list = tail.match(
+    /^\s*(?:的)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天](?:\s*[、,，和及]?\s*(?:周|星期|礼拜)?\s*[一二三四五六日天])*)/
+  )
+  if (!list) return null
+  const days = Array.from(
+    new Set(
+      Array.from(list[1].replace(/[、,，和及]/g, ''), (char) => WEEKDAY_MAP[char]).filter(
+        (day): day is number => Number.isInteger(day)
+      )
+    )
+  ).sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7))
+  if (days.length === 0) return null
+  return { days, matched: list[0] }
+}
+
+/** 某个星期里最早的一天（含今天）。 */
+function earliestWeekday(base: Date, days: number[]): Date {
+  return new Date(
+    Math.min(...days.map((weekday) => nextWeekday(base, weekday, 'next').getTime()))
+  )
+}
+
+function lastDayOfMonth(year: number, monthIndex: number): Date {
+  return new Date(year, monthIndex + 1, 0)
+}
+
+function firstDayOfMonth(year: number, monthIndex: number): Date {
+  return new Date(year, monthIndex, 1)
+}
+
+/** “本周末”= 本周六（已过则取今天）；“下周末”= 下周六。 */
+function weekendDate(base: Date, mode: 'this' | 'next'): Date {
+  const saturday = addDays(startOfWeekMonday(base), 5)
+  if (mode === 'next') return addDays(saturday, 7)
+  return saturday.getTime() < base.getTime() ? base : saturday
+}
+
 /** 构造本地日期；2 月 30 日这类溢出日期返回 null，而不是悄悄滚到 3 月。 */
 function makeDate(year: number, monthIndex: number, day: number): Date | null {
   const date = new Date(year, monthIndex, day)
@@ -388,6 +496,36 @@ export function parseReminderOffset(text: string): ReminderParse | null {
   return null
 }
 
+const RELATIVE_OFFSET_UNITS: Record<string, number> = {
+  分钟: 1,
+  分: 1,
+  小时: 60,
+  钟头: 60
+}
+
+interface RelativeOffsetParse {
+  minutes: number
+  matched: string
+}
+
+/**
+ * 解析“30分钟后”“一小时后”“半小时后”这类相对当前时刻的写法。
+ * 与“3天后”不同，这种说法精确到分钟，会同时给出日期与时间。
+ */
+export function parseRelativeOffset(text: string): RelativeOffsetParse | null {
+  const match = text.match(
+    /([0-9]+|[一二两三四五六七八九十半]+)\s*个?\s*(分钟|分|小时|钟头)\s*(?:以|之)?后/
+  )
+  if (!match) return null
+  const raw = match[1]
+  const value = raw === '半' ? 0.5 : parseCnCount(raw.replace(/^两/, '二'))
+  if (!value || value <= 0) return null
+  const minutes = Math.round(value * RELATIVE_OFFSET_UNITS[match[2]])
+  // 超过 30 天的相对偏移更像乱输入，保持原样交给其他规则/标题。
+  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 30 * 24 * 60) return null
+  return { minutes, matched: match[0] }
+}
+
 function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
   let match: RegExpMatchArray | null
 
@@ -410,6 +548,16 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
       rrule: 'FREQ=MONTHLY;BYMONTHDAY=-1',
       matched: match[0],
       first: new Date(base.getFullYear(), base.getMonth() + 1, 0)
+    }
+  }
+
+  // “每月底”与“每月最后一天”等价，只是口语写法。
+  match = text.match(/每月\s*(?:的)?\s*(?:月)?\s*(?:底|末)/)
+  if (match) {
+    return {
+      rrule: 'FREQ=MONTHLY;BYMONTHDAY=-1',
+      matched: match[0],
+      first: lastDayOfMonth(base.getFullYear(), base.getMonth())
     }
   }
 
@@ -460,28 +608,6 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
     }
   }
 
-  // “周一到周五”“周一到周三”：起止都含；跨周时按周一起算一圈。
-  match = text.match(
-    /每?(?:周|星期|礼拜)\s*([一二三四五六日天])\s*(?:到|至|~|-)\s*(?:周|星期|礼拜)?\s*([一二三四五六日天])/
-  )
-  if (match) {
-    const from = WEEKDAY_MAP[match[1]]
-    const to = WEEKDAY_MAP[match[2]]
-    if (Number.isInteger(from) && Number.isInteger(to)) {
-      const span = (to - from + 7) % 7
-      const days: number[] = []
-      for (let i = 0; i <= span; i += 1) days.push((from + i) % 7)
-      const first = Math.min(
-        ...days.map((weekday) => nextWeekday(base, weekday, 'next').getTime())
-      )
-      return {
-        rrule: `FREQ=WEEKLY;BYDAY=${days.map((weekday) => WEEKDAY_CODES[weekday]).join(',')}`,
-        matched: match[0],
-        first: new Date(first)
-      }
-    }
-  }
-
   // “每季度”“每半年”：RRULE 没有 QUARTERLY，统一用 MONTHLY+INTERVAL 表达。
   match = text.match(/每\s*(?:个)?\s*季度/)
   if (match) {
@@ -520,11 +646,58 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
             : 'WEEKLY'
       const first =
         freq === 'MONTHLY' ? nextMonthlyDate(base, base.getDate()) : base
+      // “每两周的周二”“每2周的周一、周三”：周期与星期同时给出，合成 INTERVAL + BYDAY，
+      // 首次日期取最近的一个星期，避免把“的周二”留在标题里。
+      if (freq === 'WEEKLY') {
+        const selection = parseWeekdaySelection(
+          text.slice((match.index ?? 0) + match[0].length)
+        )
+        if (selection) {
+          const prefix = interval > 1 ? `FREQ=WEEKLY;INTERVAL=${interval}` : 'FREQ=WEEKLY'
+          return {
+            rrule: `${prefix};BYDAY=${selection.days
+              .map((weekday) => WEEKDAY_CODES[weekday])
+              .join(',')}`,
+            matched: match[0] + selection.matched,
+            first: earliestWeekday(base, selection.days)
+          }
+        }
+      }
       return {
         rrule: interval > 1 ? `FREQ=${freq};INTERVAL=${interval}` : `FREQ=${freq}`,
         matched: match[0],
         first
       }
+    }
+  }
+
+  // “周一到周五”“周一到周三”：起止都含；跨周时按周一起算一圈。
+  // 放在带数量的周期之后，避免“每两周的周一到周五”被这里的“周一到周五”抢先命中。
+  match = text.match(
+    /每?(?:周|星期|礼拜)\s*([一二三四五六日天])\s*(?:到|至|~|-)\s*(?:周|星期|礼拜)?\s*([一二三四五六日天])/
+  )
+  if (match) {
+    const from = WEEKDAY_MAP[match[1]]
+    const to = WEEKDAY_MAP[match[2]]
+    if (Number.isInteger(from) && Number.isInteger(to)) {
+      const span = (to - from + 7) % 7
+      const days: number[] = []
+      for (let i = 0; i <= span; i += 1) days.push((from + i) % 7)
+      return {
+        rrule: `FREQ=WEEKLY;BYDAY=${days.map((weekday) => WEEKDAY_CODES[weekday]).join(',')}`,
+        matched: match[0],
+        first: earliestWeekday(base, days)
+      }
+    }
+  }
+
+  // “每周末”是周六+周日，界面上按 BYDAY=SA,SU 展示。
+  match = text.match(/每\s*(?:个)?\s*(?:周|星期|礼拜)\s*末/)
+  if (match) {
+    return {
+      rrule: 'FREQ=WEEKLY;BYDAY=SA,SU',
+      matched: match[0],
+      first: earliestWeekday(base, [6, 0])
     }
   }
 
@@ -665,21 +838,82 @@ function parseDate(text: string, base: Date): DateParse {
     if (text.includes(word)) return { date: addDays(base, offset), matched: word }
   }
 
-  match = text.match(/(\d{1,2})\s*天\s*(?:以)?后/)
-  if (match) return { date: addDays(base, Number(match[1])), matched: match[0] }
-
-  match = text.match(/(\d{1,2})\s*个?\s*(?:周|星期|礼拜)\s*(?:以)?后/)
-  if (match) return { date: addDays(base, Number(match[1]) * 7), matched: match[0] }
-
-  match = text.match(/(\d{1,2})\s*个?\s*月\s*(?:以)?后/)
+  // “3天后 / 三天后”“2周后 / 两周后”“3个月后 / 两个月后”：数量支持中文数字。
+  match = text.match(/([0-9]+|[一二两三四五六七八九十]+)\s*天\s*(?:以|之)?后/)
   if (match) {
-    const date = addMonths(
-      base.getFullYear(),
-      base.getMonth(),
-      Number(match[1]),
-      base.getDate()
-    )
+    const days = parseCnCount(match[1].replace(/^两/, '二'))
+    if (days && days > 0) return { date: addDays(base, days), matched: match[0] }
+  }
+
+  match = text.match(/([0-9]+|[一二两三四五六七八九十]+)\s*个?\s*(?:周|星期|礼拜)\s*(?:以|之)?后/)
+  if (match) {
+    const weeks = parseCnCount(match[1].replace(/^两/, '二'))
+    if (weeks && weeks > 0) return { date: addDays(base, weeks * 7), matched: match[0] }
+  }
+
+  match = text.match(/([0-9]+|[一二两三四五六七八九十]+)\s*个?\s*月\s*(?:以|之)?后/)
+  if (match) {
+    const months = parseCnCount(match[1].replace(/^两/, '二'))
+    if (months && months > 0) {
+      const date = addMonths(base.getFullYear(), base.getMonth(), months, base.getDate())
+      if (date) return { date, matched: match[0] }
+    }
+  }
+
+  match = text.match(/([0-9]+|[一二两三四五六七八九十]+)\s*个?\s*年\s*(?:以|之)?后/)
+  if (match) {
+    const years = parseCnCount(match[1].replace(/^两/, '二'))
+    if (years && years > 0) {
+      const date = addMonths(base.getFullYear(), base.getMonth(), years * 12, base.getDate())
+      if (date) return { date, matched: match[0] }
+    }
+  }
+
+  // “半年后”= 六个月后。
+  match = text.match(/半\s*年\s*(?:以|之)?后/)
+  if (match) {
+    const date = addMonths(base.getFullYear(), base.getMonth(), 6, base.getDate())
     if (date) return { date, matched: match[0] }
+  }
+
+  // “月底”“本月底”“下个月底”“12月底”：月末最后一天；“月初”类取当月 1 号。
+  match = text.match(/(\d{1,2})\s*月\s*(底|末|初)\s*(?:之?前)?/)
+  if (match) {
+    const monthIndex = Number(match[1]) - 1
+    const boundaryKind = match[2]
+    const matchedText = match[0]
+    if (monthIndex >= 0 && monthIndex <= 11) {
+      const boundary = (year: number): Date =>
+        boundaryKind === '初'
+          ? firstDayOfMonth(year, monthIndex)
+          : lastDayOfMonth(year, monthIndex)
+      let date = boundary(base.getFullYear())
+      if (date.getTime() < base.getTime()) date = boundary(base.getFullYear() + 1)
+      return { date, matched: matchedText }
+    }
+  }
+
+  match = text.match(/(本|这个|这|下)?\s*个?\s*月\s*(底|末|初)\s*(?:之?前)?/)
+  if (match) {
+    const isNextMonth = match[1] === '下'
+    const year = base.getFullYear()
+    const monthIndex = base.getMonth() + (isNextMonth ? 1 : 0)
+    const anchor = firstDayOfMonth(year, monthIndex)
+    let date = match[2] === '初'
+      ? anchor
+      : lastDayOfMonth(anchor.getFullYear(), anchor.getMonth())
+    // “本月初”已经过去时落到下一个 1 号，避免建出立即逾期的任务。
+    if (date.getTime() < base.getTime()) {
+      date = firstDayOfMonth(anchor.getFullYear(), anchor.getMonth() + 1)
+    }
+    return { date, matched: match[0] }
+  }
+
+  // “本周末”“下周末”“周末”：周六（周日问“本周末”时就是今天）。
+  match = text.match(/(本|这个|这|下)?\s*个?\s*(?:周|星期|礼拜)\s*末/)
+  if (match) {
+    const mode = match[1] === '下' ? 'next' : 'this'
+    return { date: weekendDate(base, mode), matched: match[0] }
   }
 
   // “下个星期天”里的“个”也要一起消费；本周/下周按周一开始计算。
@@ -776,7 +1010,20 @@ function parseTime(text: string): TimeParse {
     match = text.match(
       /(上午|早上|早晨|凌晨|中午|下午|傍晚|晚上|夜里)?\s*(\d{1,2})\s*点\s*(半|(\d{1,2})\s*分?)?/
     )
-    if (!match) return { time: null, matched: null }
+    if (!match) {
+      // 只说时段、没说钟点：“明天下午 开会”“晚上 跑步”落到该时段的默认钟点。
+      // 逐个尝试，跳过“下午茶”“晚上好”这类普通词语。
+      const periodOnly = /(上午|早上|早晨|凌晨|中午|下午|傍晚|晚上|夜里)([\s\S]?)/g
+      let candidate = periodOnly.exec(text)
+      while (candidate) {
+        const fallback = PERIOD_DEFAULT_TIMES[candidate[1]]
+        if (fallback && !PERIOD_WORD_SUFFIXES.has(candidate[2] ?? '')) {
+          return { time: fallback, matched: candidate[1] }
+        }
+        candidate = periodOnly.exec(text)
+      }
+      return { time: null, matched: null }
+    }
     period = match[1] || ''
     hour = Number(match[2])
     if (match[3] === '半') minute = 30
@@ -826,6 +1073,9 @@ export function parseQuickAddDetailed(input: string, now: Date = new Date()): Qu
 
   const base = startOfDay(now)
 
+  // “今晚”“明早”“昨晚”拆成“日期词 + 时段词”，交给日期与时间解析分别处理。
+  rest = normalizeDayWords(rest)
+
   // “提前30分钟提醒”整段消费掉，不留在标题里；没有截止日期时仍保留提前量，
   // 由创建逻辑提示“未设置截止日期，提醒未创建”。
   const reminder = parseReminderOffset(rest)
@@ -834,15 +1084,33 @@ export function parseQuickAddDetailed(input: string, now: Date = new Date()): Qu
   const recurrence = parseRecurrence(rest, base)
   if (recurrence) rest = rest.replace(recurrence.matched, ' ')
 
-  const dateParse = parseDate(rest, base)
-  if (dateParse.matched) rest = rest.replace(dateParse.matched, ' ')
+  // “30分钟后”“一小时后”是相对当前时刻的精确时间，直接给出日期与时间，
+  // 不再让“30”之类的数字残留在标题里。
+  const relative = parseRelativeOffset(rest)
+  if (relative) rest = rest.replace(relative.matched, ' ')
 
-  const timeParse = parseTime(normalizeClockNumerals(rest))
-  if (timeParse.matched) rest = rest.replace(timeParse.matched, ' ')
+  let date: Date | null = null
+  let dueTime: string | null = null
+  let explicitDate = Boolean(relative)
+  if (relative) {
+    const target = new Date(now.getTime() + relative.minutes * 60_000)
+    date = target
+    dueTime = `${pad2(target.getHours())}:${pad2(target.getMinutes())}`
+  } else {
+    const dateParse = parseDate(rest, base)
+    if (dateParse.matched) rest = rest.replace(dateParse.matched, ' ')
 
-  let date = dateParse.date
-  if (!date && timeParse.time) date = base
-  if (!date && recurrence) date = recurrence.first
+    const timeParse = parseTime(normalizeClockNumerals(rest))
+    if (timeParse.matched) rest = rest.replace(timeParse.matched, ' ')
+
+    date = dateParse.date
+    dueTime = timeParse.time
+    explicitDate = Boolean(dateParse.date)
+    // 只写了重复与时间（“每周五下午”）时，首次日期跟着重复规则的第一次走，
+    // 而不是被“下午”默认成今天；只写了时间（“下午 开会”）才落在今天。
+    if (!date && recurrence) date = recurrence.first
+    if (!date && dueTime) date = base
+  }
 
   const title =
     rest
@@ -857,12 +1125,12 @@ export function parseQuickAddDetailed(input: string, now: Date = new Date()): Qu
       tags: Array.from(new Set(tags)),
       listName,
       dueDate: date ? toDateKey(date) : null,
-      dueTime: timeParse.time,
-      allDay: timeParse.time ? false : true,
+      dueTime,
+      allDay: dueTime ? false : true,
       recurrence: recurrence ? recurrence.rrule : null,
       reminderOffsetMin: reminder ? reminder.minutes : null
     },
-    explicitDate: Boolean(dateParse.date)
+    explicitDate
   }
 }
 

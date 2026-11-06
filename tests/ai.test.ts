@@ -133,6 +133,18 @@ describe('buildQuickAddPrompt', () => {
     expect(prompt).toContain('“提前30分钟”→30')
     expect(prompt).toContain('“提前一天”→1440')
   })
+
+  it('给出周期+星期与口语时间的换算约定', () => {
+    const prompt = buildQuickAddPrompt('每两周的周二 复盘', {
+      now: NOW,
+      lists: ['收集箱']
+    })
+    expect(prompt).toContain('“每两周的周二”→FREQ=WEEKLY;INTERVAL=2;BYDAY=TU')
+    expect(prompt).toContain('“今晚8点”→当天 20:00')
+    expect(prompt).toContain('“明早”→次日 08:00')
+    expect(prompt).toContain('“月底”→当月最后一天')
+    expect(prompt).toContain('下午 15:00')
+  })
 })
 
 describe('mergeQuickAddWithRule', () => {

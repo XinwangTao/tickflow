@@ -82,10 +82,37 @@ const RULE_CASES: RuleCase[] = [
   { input: '明天 10点到11点 面试', expected: { title: '面试', dueDate: '2026-11-06', dueTime: '10:00', allDay: false } },
   { input: '明天 15:30-16:30 面试', expected: { title: '面试', dueDate: '2026-11-06', dueTime: '15:30', allDay: false } },
   { input: '下午2点到4点 评审', expected: { title: '评审', dueDate: '2026-11-05', dueTime: '14:00', allDay: false } },
-  { input: '下午 开会', expected: { title: '下午 开会' } },
+  // 只说时段没说钟点：按该时段的默认钟点（下午=15:00），而不是整天无时间
+  { input: '下午 开会', expected: { title: '开会', dueDate: '2026-11-05', dueTime: '15:00', allDay: false } },
+  { input: '明天下午 开会', expected: { title: '开会', dueDate: '2026-11-06', dueTime: '15:00', allDay: false } },
+  // “今晚/明早/昨晚”= 日期词 + 时段词
+  { input: '今晚8点 看电影', expected: { title: '看电影', dueDate: '2026-11-05', dueTime: '20:00', allDay: false } },
+  { input: '今晚 看电影', expected: { title: '看电影', dueDate: '2026-11-05', dueTime: '20:00', allDay: false } },
+  { input: '明早 跑步', expected: { title: '跑步', dueDate: '2026-11-06', dueTime: '08:00', allDay: false } },
+  { input: '明晚 加班', expected: { title: '加班', dueDate: '2026-11-06', dueTime: '20:00', allDay: false } },
+  { input: '昨晚 复盘', expected: { title: '复盘', dueDate: '2026-11-04', dueTime: '20:00', allDay: false } },
+  // “下午茶/晚上好”是普通词语，不能当时间吞掉
+  { input: '下午茶 约客户', expected: { title: '下午茶 约客户' } },
+  { input: '晚上好 发消息', expected: { title: '晚上好 发消息' } },
+  // 相对当前时刻：分钟/小时，精确到分钟
+  { input: '30分钟后 喝水', expected: { title: '喝水', dueDate: '2026-11-05', dueTime: '09:30', allDay: false } },
+  { input: '半小时后 出发', expected: { title: '出发', dueDate: '2026-11-05', dueTime: '09:30', allDay: false } },
+  { input: '一小时后 休息', expected: { title: '休息', dueDate: '2026-11-05', dueTime: '10:00', allDay: false } },
+  // 中文数量的相对日期
+  { input: '两周后 复盘', expected: { title: '复盘', dueDate: '2026-11-19' } },
+  { input: '三个月后 复查', expected: { title: '复查', dueDate: '2027-02-05' } },
+  { input: '一年后 复盘', expected: { title: '复盘', dueDate: '2027-11-05' } },
+  // 月末/月初/周末
+  { input: '月底 交房租', expected: { title: '交房租', dueDate: '2026-11-30' } },
+  { input: '下个月初 交房租', expected: { title: '交房租', dueDate: '2026-12-01' } },
+  { input: '12月底 盘点', expected: { title: '盘点', dueDate: '2026-12-31' } },
+  { input: '本周末 爬山', expected: { title: '爬山', dueDate: '2026-11-07' } },
+  { input: '下周末 露营', expected: { title: '露营', dueDate: '2026-11-14' } },
 
   // 重复：每天/每周多日/每月/每年/工作日
   { input: '每天晚上9点 阅读', expected: { title: '阅读', dueDate: '2026-11-05', dueTime: '21:00', allDay: false, recurrence: 'FREQ=DAILY' } },
+  { input: '每晚9点 阅读', expected: { title: '阅读', dueDate: '2026-11-05', dueTime: '21:00', allDay: false, recurrence: 'FREQ=DAILY' } },
+  { input: '每早8点 跑步', expected: { title: '跑步', dueDate: '2026-11-05', dueTime: '08:00', allDay: false, recurrence: 'FREQ=DAILY' } },
   { input: '每周一 晨会', expected: { title: '晨会', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO' } },
   { input: '每周一三五 健身', expected: { title: '健身', dueDate: '2026-11-06', recurrence: 'FREQ=WEEKLY;BYDAY=MO,WE,FR' } },
   { input: '每周二、周四 晨跑', expected: { title: '晨跑', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY;BYDAY=TU,TH' } },
@@ -94,6 +121,14 @@ const RULE_CASES: RuleCase[] = [
   { input: '每年3月5日 体检', expected: { title: '体检', dueDate: '2027-03-05', recurrence: 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=5' } },
   { input: '每个工作日 打卡', expected: { title: '打卡', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' } },
   { input: '每周 写周报', expected: { title: '写周报', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY' } },
+  // 周期 + 星期：INTERVAL 与 BYDAY 同时保留，首次日期取最近的星期
+  { input: '每两周的周二 复盘', expected: { title: '复盘', dueDate: '2026-11-10', recurrence: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU' } },
+  { input: '每2周的周一、周三 例会', expected: { title: '例会', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE' } },
+  { input: '每两周的周一到周五 早会', expected: { title: '早会', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR' } },
+  { input: '每周末 打扫', expected: { title: '打扫', dueDate: '2026-11-07', recurrence: 'FREQ=WEEKLY;BYDAY=SA,SU' } },
+  { input: '每月底 结转', expected: { title: '结转', dueDate: '2026-11-30', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=-1' } },
+  // 重复 + 时段：首次日期跟重复走（周五），不被“下午”默认成今天
+  { input: '每周五下午 总结', expected: { title: '总结', dueDate: '2026-11-06', dueTime: '15:00', allDay: false, recurrence: 'FREQ=WEEKLY;BYDAY=FR' } },
 
   // 提前提醒：分钟/小时/天/中文数字，以及没有日期时的保留
   { input: '明天下午3点 提前30分钟提醒 交周报', expected: { title: '交周报', dueDate: '2026-11-06', dueTime: '15:00', allDay: false, reminderOffsetMin: 30 } },
@@ -422,6 +457,53 @@ const AI_CASES: AiCase[] = [
       dueTime: '16:00',
       allDay: false
     }
+  },
+  {
+    name: '模型只返回标题时补齐“每两周的周二”的 INTERVAL 与 BYDAY',
+    input: '每两周的周二 复盘',
+    model: { title: '复盘' },
+    expected: {
+      title: '复盘',
+      dueDate: '2026-11-10',
+      recurrence: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU'
+    }
+  },
+  {
+    name: '模型用中文写“每两周的周二”时翻译成 INTERVAL + BYDAY',
+    input: '复盘',
+    model: { title: '复盘', recurrence: '每两周的周二' },
+    expected: {
+      title: '复盘',
+      recurrence: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU'
+    }
+  },
+  {
+    name: '模型漏掉“今晚/明早”时由规则补齐日期与时段',
+    input: '今晚8点 看电影',
+    model: { title: '看电影' },
+    expected: {
+      title: '看电影',
+      dueDate: '2026-11-05',
+      dueTime: '20:00',
+      allDay: false
+    }
+  },
+  {
+    name: '模型漏掉“30分钟后”这类相对时刻时由规则补齐',
+    input: '30分钟后 喝水',
+    model: { title: '喝水' },
+    expected: {
+      title: '喝水',
+      dueDate: '2026-11-05',
+      dueTime: '09:30',
+      allDay: false
+    }
+  },
+  {
+    name: '模型漏掉“月底”时由规则补齐月末日期',
+    input: '月底 交房租',
+    model: { title: '交房租' },
+    expected: { title: '交房租', dueDate: '2026-11-30' }
   }
 ]
 

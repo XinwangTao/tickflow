@@ -3,6 +3,7 @@ import {
   describeReminderOffset,
   normalizeReminderOffset,
   parseQuickAdd,
+  parseRelativeOffset,
   REMINDER_MAX_OFFSET_MIN,
   reminderTriggerAt
 } from '../src/shared/quick-add'
@@ -142,6 +143,156 @@ describe('parseQuickAdd', () => {
     expect(result.dueDate).toBe('2026-11-06')
     expect(result.dueTime).toBe('15:00')
     expect(result.title).toContain('浇')
+  })
+})
+
+describe('语义解析增强', () => {
+  it('“今晚/明早/昨晚”拆成日期词与时段词', () => {
+    expect(parseQuickAdd('今晚8点 看电影', NOW)).toMatchObject({
+      title: '看电影',
+      dueDate: '2026-11-05',
+      dueTime: '20:00',
+      allDay: false
+    })
+    expect(parseQuickAdd('明早 跑步', NOW)).toMatchObject({
+      title: '跑步',
+      dueDate: '2026-11-06',
+      dueTime: '08:00'
+    })
+    expect(parseQuickAdd('昨晚 复盘', NOW)).toMatchObject({
+      dueDate: '2026-11-04',
+      dueTime: '20:00'
+    })
+  })
+
+  it('只说时段时用该时段的默认钟点', () => {
+    const expected: Array<[string, string]> = [
+      ['凌晨 值机', '06:00'],
+      ['早上 跑步', '08:00'],
+      ['上午 体检', '09:00'],
+      ['中午 午饭', '12:00'],
+      ['下午 评审', '15:00'],
+      ['傍晚 取快递', '18:00'],
+      ['晚上 看书', '20:00']
+    ]
+    for (const [input, time] of expected) {
+      const result = parseQuickAdd(input, NOW)
+      expect(result.dueTime, input).toBe(time)
+      expect(result.allDay, input).toBe(false)
+      expect(result.title, input).not.toMatch(/凌晨|早上|上午|中午|下午|傍晚|晚上/)
+    }
+  })
+
+  it('“下午茶/晚上好”这类普通词语不被当成时间', () => {
+    expect(parseQuickAdd('下午茶 约客户', NOW).dueTime).toBeNull()
+    expect(parseQuickAdd('和客户喝下午茶', NOW)).toMatchObject({
+      title: '和客户喝下午茶',
+      dueTime: null
+    })
+    expect(parseQuickAdd('晚上好 发消息', NOW).dueTime).toBeNull()
+  })
+
+  it('相对时刻支持分钟、小时与中文数字', () => {
+    expect(parseRelativeOffset('30分钟后 喝水')).toMatchObject({ minutes: 30 })
+    expect(parseRelativeOffset('半小时后 出发')).toMatchObject({ minutes: 30 })
+    expect(parseRelativeOffset('两小时以后 出发')).toMatchObject({ minutes: 120 })
+    expect(parseRelativeOffset('15分钟之后 出门')).toMatchObject({ minutes: 15 })
+    expect(parseRelativeOffset('30天后 体检')).toBeNull()
+    expect(parseRelativeOffset('提前30分钟提醒')).toBeNull()
+
+    expect(parseQuickAdd('30分钟后 喝水', NOW)).toMatchObject({
+      title: '喝水',
+      dueDate: '2026-11-05',
+      dueTime: '09:30',
+      allDay: false
+    })
+    expect(parseQuickAdd('3小时后 充电', NOW)).toMatchObject({
+      dueDate: '2026-11-05',
+      dueTime: '12:00'
+    })
+    // 跨天时日期一起顺延
+    expect(parseQuickAdd('90分钟后 关火', new Date(2026, 10, 5, 23, 0, 0))).toMatchObject({
+      dueDate: '2026-11-06',
+      dueTime: '00:30'
+    })
+  })
+
+  it('相对日期支持中文数量与年/半年', () => {
+    expect(parseQuickAdd('三天后 交材料', NOW).dueDate).toBe('2026-11-08')
+    expect(parseQuickAdd('两周后 复盘', NOW).dueDate).toBe('2026-11-19')
+    expect(parseQuickAdd('三个月后 复查', NOW).dueDate).toBe('2027-02-05')
+    expect(parseQuickAdd('一年后 续保', NOW).dueDate).toBe('2027-11-05')
+    expect(parseQuickAdd('半年后 保养', NOW).dueDate).toBe('2027-05-05')
+  })
+
+  it('月末/月初/周末落到具体日期', () => {
+    expect(parseQuickAdd('月底 交房租', NOW).dueDate).toBe('2026-11-30')
+    expect(parseQuickAdd('下个月底 交房租', NOW).dueDate).toBe('2026-12-31')
+    expect(parseQuickAdd('12月底 盘点', NOW).dueDate).toBe('2026-12-31')
+    expect(parseQuickAdd('下个月初 交房租', NOW).dueDate).toBe('2026-12-01')
+    // 本月初已过：落到下一个 1 号，不建出立即逾期的任务
+    expect(parseQuickAdd('本月初 复盘', NOW).dueDate).toBe('2026-12-01')
+    expect(parseQuickAdd('本周末 爬山', NOW).dueDate).toBe('2026-11-07')
+    expect(parseQuickAdd('下周末 露营', NOW).dueDate).toBe('2026-11-14')
+    // 周日问“本周末”就是今天
+    expect(parseQuickAdd('本周末 休息', new Date(2026, 10, 8, 9, 0, 0)).dueDate).toBe(
+      '2026-11-08'
+    )
+  })
+
+  it('周期与星期同时给出时合成 INTERVAL + BYDAY', () => {
+    expect(parseQuickAdd('每两周的周二 复盘', NOW)).toMatchObject({
+      title: '复盘',
+      recurrence: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU',
+      dueDate: '2026-11-10'
+    })
+    expect(parseQuickAdd('每2周的周一、周三 例会', NOW)).toMatchObject({
+      title: '例会',
+      recurrence: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE',
+      dueDate: '2026-11-09'
+    })
+    expect(parseQuickAdd('每两周的周一到周五 早会', NOW).recurrence).toBe(
+      'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR'
+    )
+    // 不带星期的周期行为不变
+    expect(parseQuickAdd('每两周 大扫除', NOW).recurrence).toBe(
+      'FREQ=WEEKLY;INTERVAL=2'
+    )
+    expect(parseQuickAdd('每周末 打扫', NOW).recurrence).toBe(
+      'FREQ=WEEKLY;BYDAY=SA,SU'
+    )
+    expect(parseQuickAdd('每月底 结转', NOW).recurrence).toBe(
+      'FREQ=MONTHLY;BYMONTHDAY=-1'
+    )
+  })
+
+  it('“每晚/每早”补成每天的重复', () => {
+    expect(parseQuickAdd('每晚9点 阅读', NOW)).toMatchObject({
+      title: '阅读',
+      dueTime: '21:00',
+      recurrence: 'FREQ=DAILY'
+    })
+    expect(parseQuickAdd('每早8点 跑步', NOW)).toMatchObject({
+      title: '跑步',
+      dueTime: '08:00',
+      recurrence: 'FREQ=DAILY'
+    })
+    // “每早饭后”是普通说法，不当成重复与时间
+    expect(parseQuickAdd('每早饭后 散步', NOW)).toMatchObject({
+      title: '每早饭后 散步',
+      recurrence: null,
+      dueTime: null
+    })
+  })
+
+  it('重复与时段同时出现时首次日期跟重复规则走', () => {
+    expect(parseQuickAdd('每周五下午 总结', NOW)).toMatchObject({
+      title: '总结',
+      dueDate: '2026-11-06',
+      dueTime: '15:00',
+      recurrence: 'FREQ=WEEKLY;BYDAY=FR'
+    })
+    expect(parseQuickAdd('每天 晚上8点 阅读', NOW).dueDate).toBe('2026-11-05')
   })
 })
 

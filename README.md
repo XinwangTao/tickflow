@@ -7,7 +7,7 @@
 - Electron 45 + React 19 + TypeScript 5.9
 - Vite 8 / electron-vite 6
 - `node:sqlite`（Electron 自带 Node 24，无需 native 编译）
-- Zustand、framer-motion、dnd（原生 HTML5 拖拽）、自研中文快速添加解析器
+- Zustand、framer-motion、dnd（原生 HTML5 拖拽）、自研中文快速添加解析器（口语时段、相对时刻、月界/周末、周期+星期）
 
 ## 开发与验证
 
