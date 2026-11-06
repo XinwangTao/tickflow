@@ -17,7 +17,16 @@ import {
   micErrorRetryable,
   pickRecorderMime,
   recordingTooShort,
+  removeTranscript,
+  VOICE_AI_BUSY_HINT,
+  VOICE_APPENDED_HINT,
+  VOICE_APPEND_UNDONE_HINT,
+  VOICE_APPEND_UNDO_STALE_HINT,
+  VOICE_BUSY_RECORDING_HINT,
+  VOICE_BUSY_STARTING_HINT,
+  VOICE_BUSY_TRANSCRIBING_HINT,
   VOICE_CANCELED_HINT,
+  VOICE_DRAFT_OPEN_HINT,
   VOICE_EMPTY_HINT,
   VOICE_MAX_AUDIO_BYTES,
   VOICE_MAX_RECORD_MS,
@@ -311,6 +320,20 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   }
 
   const submit = async (useAi: boolean): Promise<void> => {
+    // 语音链路占着输入框时，Enter 会把「还没说完/还没识别完」的半截文字直接建任务，
+    // 这里统一拦下并说明原因，用户处理完语音后可以再按一次。
+    if (starting) {
+      showToast(VOICE_BUSY_STARTING_HINT, 'info')
+      return
+    }
+    if (recording) {
+      showToast(VOICE_BUSY_RECORDING_HINT, 'info')
+      return
+    }
+    if (transcribing) {
+      showToast(VOICE_BUSY_TRANSCRIBING_HINT, 'info')
+      return
+    }
     const text = value.trim()
     if (!text) return
     if (aiBusy) {
@@ -494,6 +517,8 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   }
 
   const transcribeChunks = async (chunks: Blob[]): Promise<void> => {
+    // 组件卸载后 toast 上的「重试」仍可能被点到：此时不再申请 state/请求。
+    if (unmounted.current) return
     // 同一时刻只允许一次转写：失败 toast 上的「重试」被连点时不会并行启动两次识别。
     if (activeTranscribe.current) return
     const requestId = `voice-${(voiceRequestSeq.current += 1)}`
@@ -524,8 +549,34 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       if (activeTranscribe.current?.id !== requestId) return
       const text = (result?.text || '').trim()
       if (text) {
-        setValue((prev) => appendTranscript(prev, text))
+        const before = valueRef.current
+        const appended = appendTranscript(before, text)
+        // 同步刷新 ref：toast 上的「撤销」可能在 effect 刷新前就被点到。
+        valueRef.current = appended
+        setValue(appended)
         inputRef.current?.focus()
+        // 识别难免有错字，给一次「撤销」把这次追加的文字摘掉，避免用户手动删。
+        showToast(
+          `${VOICE_APPENDED_HINT}「${text.length > 14 ? `${text.slice(0, 14)}…` : text}」`,
+          'success',
+          {
+            duration: 6000,
+            actionLabel: '撤销',
+            action: () => {
+              // 组件已卸载（切走视图）时 toast 仍可能被点到：不再写 state。
+              if (unmounted.current) return
+              const restored = removeTranscript(valueRef.current, before, text)
+              if (restored === valueRef.current) {
+                showToast(VOICE_APPEND_UNDO_STALE_HINT, 'info')
+                return
+              }
+              valueRef.current = restored
+              setValue(restored)
+              inputRef.current?.focus()
+              showToast(VOICE_APPEND_UNDONE_HINT, 'info')
+            }
+          }
+        )
         return
       }
       // 没听清/识别失败时保留录音，toast 上的「重试」复用这段音频，不用重新录。
@@ -617,6 +668,8 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   }
 
   const toggleRecording = async (): Promise<void> => {
+    // 卸载后 toast 上的「重试」还可能被点到，不再启动录音。
+    if (unmounted.current) return
     if (starting) {
       cancelMicStart()
       return
@@ -631,6 +684,15 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       const tooShort = recordingTooShort(duration)
       if (tooShort) showToast(VOICE_TOO_SHORT_HINT, 'info')
       stopRecorder(tooShort)
+      return
+    }
+    // 语音和 AI 解析结果抢同一个输入框：先处理掉一侧，避免识别文字被草稿「吃掉」。
+    if (aiDraft) {
+      showToast(VOICE_DRAFT_OPEN_HINT, 'info')
+      return
+    }
+    if (aiBusy) {
+      showToast(VOICE_AI_BUSY_HINT, 'info')
       return
     }
     const mediaDevices = typeof navigator === 'undefined' ? undefined : navigator.mediaDevices
@@ -777,7 +839,11 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
                 ? `取消语音识别（已等待 ${transcribeSeconds}s）`
                 : recording
                   ? `停止录音并识别 · 最长 ${VOICE_MAX_RECORD_MS / 1000} 秒`
-                  : '语音输入：点一下开始，说完再点一下结束'
+                  : aiDraft
+                    ? VOICE_DRAFT_OPEN_HINT
+                    : aiBusy
+                      ? VOICE_AI_BUSY_HINT
+                      : '语音输入：点一下开始，说完再点一下结束'
           }
           aria-label={
             starting
@@ -821,9 +887,13 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
             <button
               type="button"
               className={`quick-add-ai ${aiBusy ? 'busy' : ''}`}
-              title={`AI 解析并添加（Ctrl+Enter）· 超过 ${aiTimeoutSeconds} 秒自动回落到规则解析`}
+              title={
+                starting || recording || transcribing
+                  ? '语音输入进行中，结束录音或识别后再用 AI 解析'
+                  : `AI 解析并添加（Ctrl+Enter）· 超过 ${aiTimeoutSeconds} 秒自动回落到规则解析`
+              }
               aria-label="AI 解析并添加"
-              disabled={aiBusy || !value.trim()}
+              disabled={aiBusy || starting || recording || transcribing || !value.trim()}
               onClick={() => void submit(true)}
             >
               <Icon name="sparkles" size={14} />

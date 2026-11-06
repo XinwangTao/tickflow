@@ -5,6 +5,7 @@ import {
   micErrorRetryable,
   pickRecorderMime,
   recordingTooShort,
+  removeTranscript,
   VOICE_MAX_RECORD_MS,
   VOICE_MAX_AUDIO_BYTES,
   VOICE_MIN_RECORD_MS,
@@ -64,6 +65,21 @@ describe('语音输入辅助函数', () => {
     )
     expect(appendTranscript('  买牛奶  ', ' 浇花 ')).toBe('买牛奶 浇花')
     expect(appendTranscript('买牛奶', '   ')).toBe('买牛奶')
+  })
+
+  it('撤销语音追加时只在识别文字还在末尾时动输入', () => {
+    expect(removeTranscript('明天浇花', '', '明天浇花')).toBe('')
+    expect(removeTranscript('买牛奶 明天浇花', '买牛奶', '明天浇花')).toBe('买牛奶')
+    // 追加后用户又输入了新内容：只摘掉仍留在末尾的识别文字。
+    expect(removeTranscript('买牛奶 明天浇花，', '买牛奶', '明天浇花')).toBe('买牛奶')
+    // 用户已经改得认不出这段文字：不动输入，交给调用方提示「未撤销」。
+    const edited = '买牛奶 后天浇花'
+    expect(removeTranscript(edited, '买牛奶', '明天浇花')).toBe(edited)
+    // 识别文字在中间（后面又追加了别的语音）时不误删。
+    expect(removeTranscript('买牛奶 明天浇花 后天买菜', '买牛奶', '明天浇花')).toBe(
+      '买牛奶 明天浇花 后天买菜'
+    )
+    expect(removeTranscript('买牛奶', '买牛奶', '   ')).toBe('买牛奶')
   })
 
   it('录音太短与等待秒数的边界', () => {

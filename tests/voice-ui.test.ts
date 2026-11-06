@@ -6,6 +6,11 @@ import { useAppStore } from '../src/renderer/src/store/useAppStore'
 import { AI_DEFAULT_BASE_URL, AI_DEFAULT_MODEL, AI_DEFAULT_TIMEOUT_MS } from '../src/shared/ai'
 import type { ListWithCount, Settings } from '../src/shared/types'
 import {
+  VOICE_AI_BUSY_HINT,
+  VOICE_APPENDED_HINT,
+  VOICE_BUSY_RECORDING_HINT,
+  VOICE_BUSY_TRANSCRIBING_HINT,
+  VOICE_DRAFT_OPEN_HINT,
   VOICE_PERMISSION_TIMEOUT_HINT,
   VOICE_START_CANCELED_HINT,
   VOICE_TOO_SHORT_HINT,
@@ -460,5 +465,129 @@ describe('快速添加栏语音输入', () => {
 
     expect(tracks[0]!.stop).toHaveBeenCalled()
     expect(transcribe).not.toHaveBeenCalled()
+  })
+
+  it('识别成功后提示可撤销，撤销会恢复追加前的输入', async () => {
+    setupMedia()
+    const input = mount()
+    fireEvent.change(input, { target: { value: '买牛奶' } })
+
+    await startRecording()
+    now += 1200
+    fireEvent.click(screen.getByLabelText('停止录音'))
+
+    await waitFor(() => expect(input.value).toBe('买牛奶 明天下午三点提醒我浇花'))
+    expect(toastMessage()).toContain(VOICE_APPENDED_HINT)
+    const toast = useAppStore.getState().toast
+    expect(toast?.actionLabel).toBe('撤销')
+
+    await act(async () => {
+      await toast?.action?.()
+    })
+    expect(input.value).toBe('买牛奶')
+    expect(toastMessage()).toContain('已撤销语音文字')
+  })
+
+  it('撤销前输入已被改动时不动输入，并说明未撤销', async () => {
+    setupMedia()
+    const input = mount()
+    fireEvent.change(input, { target: { value: '买牛奶' } })
+
+    await startRecording()
+    now += 1200
+    fireEvent.click(screen.getByLabelText('停止录音'))
+    await waitFor(() => expect(input.value).toBe('买牛奶 明天下午三点提醒我浇花'))
+
+    const toast = useAppStore.getState().toast
+    fireEvent.change(input, { target: { value: '买牛奶 明天下午三点提醒我浇花 晚上买菜' } })
+    await act(async () => {
+      await toast?.action?.()
+    })
+    expect(input.value).toBe('买牛奶 明天下午三点提醒我浇花 晚上买菜')
+    expect(toastMessage()).toContain('输入已变化')
+  })
+
+  it('录音中按 Enter 不会把半截输入当成任务创建', async () => {
+    setupMedia()
+    const input = mount()
+    fireEvent.change(input, { target: { value: '买牛奶' } })
+
+    await startRecording()
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(toastMessage()).toContain(VOICE_BUSY_RECORDING_HINT)
+    expect(window.api.tasks.create).not.toHaveBeenCalled()
+    expect(input.value).toBe('买牛奶')
+    expect(screen.getByLabelText('停止录音')).toBeInTheDocument()
+  })
+
+  it('识别中按 Enter 会提示等待，而不是拿旧输入建任务', async () => {
+    setupMedia()
+    const pending = deferred<{ text?: string; error?: string }>()
+    transcribe.mockReturnValue(pending.promise)
+    const input = mount()
+    fireEvent.change(input, { target: { value: '买牛奶' } })
+
+    await startRecording()
+    now += 1200
+    fireEvent.click(screen.getByLabelText('停止录音'))
+    await screen.findByLabelText('取消语音识别')
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(toastMessage()).toContain(VOICE_BUSY_TRANSCRIBING_HINT)
+    expect(window.api.tasks.create).not.toHaveBeenCalled()
+    expect(input.value).toBe('买牛奶')
+
+    pending.resolve({ text: '' })
+    await waitFor(() => expect(screen.getByLabelText('语音输入')).toBeInTheDocument())
+  })
+
+  it('AI 草稿未处理时点麦克风会提示先处理草稿', async () => {
+    const { getUserMedia } = setupMedia()
+    ;(window.api.ai.parseQuickAdd as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      source: 'ai',
+      warning: null,
+      attempts: 1,
+      result: {
+        title: '交周报',
+        priority: 2,
+        tags: [],
+        listName: null,
+        dueDate: '2026-11-06',
+        dueTime: '15:00',
+        allDay: false,
+        recurrence: null,
+        reminderOffsetMin: null
+      }
+    })
+    const input = mount()
+    fireEvent.change(input, { target: { value: '明天下午3点交周报' } })
+    fireEvent.click(screen.getByLabelText('AI 解析并添加'))
+    await screen.findByLabelText('AI 任务标题')
+
+    fireEvent.click(screen.getByLabelText('语音输入'))
+
+    expect(toastMessage()).toContain(VOICE_DRAFT_OPEN_HINT)
+    expect(getUserMedia).not.toHaveBeenCalled()
+    expect(FakeMediaRecorder.instances).toHaveLength(0)
+  })
+
+  it('AI 解析进行中不允许同时开启录音', async () => {
+    const { getUserMedia } = setupMedia()
+    ;(window.api.ai.parseQuickAdd as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise(() => {
+        // 永远不返回：只验证解析期间麦克风入口被拦住。
+      })
+    )
+    const input = mount()
+    fireEvent.change(input, { target: { value: '明天下午3点交周报' } })
+    fireEvent.click(screen.getByLabelText('AI 解析并添加'))
+
+    fireEvent.click(screen.getByLabelText('语音输入'))
+
+    expect(toastMessage()).toContain(VOICE_AI_BUSY_HINT)
+    expect(getUserMedia).not.toHaveBeenCalled()
   })
 })

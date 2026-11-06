@@ -9,8 +9,8 @@
 | 项 | 结果 |
 |---|---|
 | TypeScript 类型检查 | 通过（main / preload / renderer） |
-| Vitest | 31 个文件 / 323 项全部通过 |
-| Playwright Electron E2E | 21 条全部通过（含关闭到托盘、自启最小化、关于弹窗、R2 mock 同步） |
+| Vitest | 34 个文件 / 359 项全部通过 |
+| Playwright Electron E2E | 22 条全部通过（含关闭到托盘、自启最小化、关于弹窗、R2 mock 同步） |
 | 构建体积预算 | 通过：main 175.4 KB / 220 KB，preload 9.1 KB / 16 KB，renderer JS 1286.4 KB / 1400 KB，CSS 69.4 KB / 90 KB |
 | 桌面安装包 | NSIS 重建成功，117 MB，未签名 |
 | Android debug APK | 5.0 MB，`com.tickflow.mobile`，minSdk 24 / targetSdk 36 |
@@ -23,7 +23,7 @@
 
 | 产物 | 大小 | SHA-256 |
 |---|---|---|
-| `release/刻度清单 Setup 0.1.0.exe` | 121,674,406 B | `4adead1949d716039a17aaacae550647d3c7afcf959f155ea9af10a1bc2c7b89` |
+| `release/刻度清单 Setup 0.1.0.exe` | 121,678,515 B | `00d8c8e6432f1b1462e94918c0927078d17f64723c15aaf8be6b30e99096e469` |
 | `mobile/android/app/build/outputs/apk/debug/app-debug.apk` | 5,273,455 B | `aa21b481f9f57f8130536350b13df1568ce7c87a80c749f6f97a867e9648b658` |
 | `mobile/android/app/build/outputs/apk/release/app-release.apk` | 3,797,709 B | `0cce780270a46c039ba6a5bdfaf15d056c2998e80838862220d192ad77dee042` |
 

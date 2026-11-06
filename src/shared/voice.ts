@@ -28,6 +28,16 @@ export const VOICE_TIMEOUT_HINT = '语音识别超时（75 秒），请缩短录
 export const VOICE_PERMISSION_TIMEOUT_HINT =
   '等待麦克风权限超时，请检查系统权限弹窗后重试'
 export const VOICE_START_CANCELED_HINT = '已取消录音启动'
+/** 语音链路占着输入框时，Enter 不该把半截文字当成任务创建。 */
+export const VOICE_BUSY_STARTING_HINT = '正在等待麦克风权限，请稍候再添加'
+export const VOICE_BUSY_RECORDING_HINT = '正在录音，先结束录音再添加'
+export const VOICE_BUSY_TRANSCRIBING_HINT = '正在识别语音，请稍候再添加'
+/** AI 草稿/解析与语音抢同一个输入框时，先让用户处理掉其中一个。 */
+export const VOICE_DRAFT_OPEN_HINT = '请先添加或取消上方的 AI 解析结果，再使用语音输入'
+export const VOICE_AI_BUSY_HINT = 'AI 正在解析，请稍候再使用语音输入'
+export const VOICE_APPENDED_HINT = '已追加语音文字'
+export const VOICE_APPEND_UNDONE_HINT = '已撤销语音文字'
+export const VOICE_APPEND_UNDO_STALE_HINT = '输入已变化，未撤销语音文字'
 
 export interface VoiceTranscribeResult {
   text?: string
@@ -123,6 +133,28 @@ export function appendTranscript(current: string, transcript: string): string {
   const base = current.trim()
   if (!base) return next
   return `${base} ${next}`
+}
+
+/**
+ * 撤销一次语音追加：输入没被改动时原样恢复到追加前；
+ * 用户又输入了新内容但识别文字仍在末尾时，只摘掉末尾这一段；
+ * 其余情况不动输入，避免误删用户手打的内容。
+ */
+export function removeTranscript(
+  current: string,
+  before: string,
+  transcript: string
+): string {
+  const next = transcript.trim()
+  if (!next) return current
+  if (current === appendTranscript(before, next)) return before
+  // 允许末尾跟着用户补的标点：识别文字仍算“在末尾”。
+  const trimmedCurrent = current.replace(/[\s,，。.!！?？、;；:：]+$/u, '')
+  if (!trimmedCurrent.endsWith(next)) return current
+  const head = trimmedCurrent
+    .slice(0, trimmedCurrent.length - next.length)
+    .replace(/[\s,，。.!！?？、;；:：]+$/u, '')
+  return head.trim() === before.trim() ? before : head
 }
 
 export function recordingTooShort(durationMs: number): boolean {
