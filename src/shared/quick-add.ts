@@ -787,13 +787,18 @@ function parseTime(text: string): TimeParse {
   return time ? { time, matched: match[0] } : { time: null, matched: null }
 }
 
+export interface QuickAddDetails {
+  result: QuickAddResult
+  /** 输入里是否明确写了日期（“明天”“3月5日”），而不是由时间/重复规则推导出来的。 */
+  explicitDate: boolean
+}
+
 /**
- * 解析快速添加输入：
- *   明天下午3点 交周报 #工作 !高 ~收集箱
- *   每周一 晨会
- *   3月5日 10:30 体检
+ * 解析快速添加输入，并额外告诉调用方日期是不是用户明确写出来的。
+ * 日历行内添加需要这个区别：没写日期时以选中日期为准，
+ * 只写了“9点”或“每3天”时不希望被解析成“今天”。
  */
-export function parseQuickAdd(input: string, now: Date = new Date()): QuickAddResult {
+export function parseQuickAddDetailed(input: string, now: Date = new Date()): QuickAddDetails {
   let rest = input
 
   const tags: string[] = []
@@ -846,14 +851,27 @@ export function parseQuickAdd(input: string, now: Date = new Date()): QuickAddRe
       .trim() || '新任务'
 
   return {
-    title,
-    priority,
-    tags: Array.from(new Set(tags)),
-    listName,
-    dueDate: date ? toDateKey(date) : null,
-    dueTime: timeParse.time,
-    allDay: timeParse.time ? false : true,
-    recurrence: recurrence ? recurrence.rrule : null,
-    reminderOffsetMin: reminder ? reminder.minutes : null
+    result: {
+      title,
+      priority,
+      tags: Array.from(new Set(tags)),
+      listName,
+      dueDate: date ? toDateKey(date) : null,
+      dueTime: timeParse.time,
+      allDay: timeParse.time ? false : true,
+      recurrence: recurrence ? recurrence.rrule : null,
+      reminderOffsetMin: reminder ? reminder.minutes : null
+    },
+    explicitDate: Boolean(dateParse.date)
   }
+}
+
+/**
+ * 解析快速添加输入：
+ *   明天下午3点 交周报 #工作 !高 ~收集箱
+ *   每周一 晨会
+ *   3月5日 10:30 体检
+ */
+export function parseQuickAdd(input: string, now: Date = new Date()): QuickAddResult {
+  return parseQuickAddDetailed(input, now).result
 }

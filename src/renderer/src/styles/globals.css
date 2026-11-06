@@ -4061,3 +4061,55 @@ kbd {
   background: var(--panel-hover);
   color: var(--text);
 }
+
+.calendar-add-btn {
+  height: 28px;
+  padding: 0 10px;
+  gap: 4px;
+}
+
+.calendar-day-view-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.calendar-add {
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.calendar-add-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.calendar-add-form .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.calendar-add-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.calendar-add-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-hover);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.calendar-add-hint {
+  display: block;
+  padding-top: 6px;
+  color: #e5484d;
+  font-size: 11px;
+}
+
