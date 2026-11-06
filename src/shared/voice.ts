@@ -9,8 +9,16 @@
 export const VOICE_MAX_RECORD_MS = 60_000
 /** 低于这个时长通常只是误触，直接提示重录，不浪费一次转写。 */
 export const VOICE_MIN_RECORD_MS = 600
-/** renderer 等待转写的上限；超时后中止 main 里的子进程，按钮立即恢复。 */
-export const VOICE_TRANSCRIBE_TIMEOUT_MS = 75_000
+/** main 里 ffmpeg 转码单步上限。 */
+export const VOICE_FFMPEG_TIMEOUT_MS = 20_000
+/** main 里 vosk 转写单步上限。 */
+export const VOICE_ASR_TIMEOUT_MS = 60_000
+/**
+ * renderer 等待转写的总上限；超时后中止 main 里的子进程，按钮立即恢复。
+ * 必须大于 main 两步子进程的上限之和（20s + 60s = 80s），否则 renderer 会先
+ * 超时取消，用户只能看到「识别超时」，拿不到 main 准备好的具体失败原因。
+ */
+export const VOICE_TRANSCRIBE_TIMEOUT_MS = 90_000
 /**
  * 等待系统麦克风授权/设备启动的上限。部分系统会把权限弹窗挂在后台不返回，
  * 没有上限时按钮会一直停在“没反应”的状态，只能重启应用。
@@ -24,11 +32,14 @@ export const VOICE_TOO_SHORT_HINT = '录音太短，点一下开始、说完再�
 export const VOICE_EMPTY_HINT = '没有录到声音，请检查麦克风'
 export const VOICE_MAX_REACHED_HINT = '已达到 60 秒录音上限，正在识别'
 export const VOICE_CANCELED_HINT = '已取消语音识别'
-export const VOICE_TIMEOUT_HINT = '语音识别超时（75 秒），请缩短录音后重试'
+export const VOICE_TIMEOUT_HINT = `语音识别超时（${
+  VOICE_TRANSCRIBE_TIMEOUT_MS / 1000
+} 秒），请缩短录音后重试`
 export const VOICE_PERMISSION_TIMEOUT_HINT =
   '等待麦克风权限超时，请检查系统权限弹窗后重试'
 export const VOICE_START_CANCELED_HINT = '已取消录音启动'
 /** 语音链路占着输入框时，Enter 不该把半截文字当成任务创建。 */
+export const VOICE_BUSY_CHECKING_HINT = '正在检查语音识别环境，请稍候再添加'
 export const VOICE_BUSY_STARTING_HINT = '正在等待麦克风权限，请稍候再添加'
 export const VOICE_BUSY_RECORDING_HINT = '正在录音，先结束录音再添加'
 export const VOICE_BUSY_TRANSCRIBING_HINT = '正在识别语音，请稍候再添加'
@@ -38,6 +49,8 @@ export const VOICE_AI_BUSY_HINT = 'AI 正在解析，请稍候再使用语音输
 export const VOICE_APPENDED_HINT = '已追加语音文字'
 export const VOICE_APPEND_UNDONE_HINT = '已撤销语音文字'
 export const VOICE_APPEND_UNDO_STALE_HINT = '输入已变化，未撤销语音文字'
+/** 录音前自检：环境缺项时直接说明，不再先录一段必然失败的音频。 */
+export const VOICE_ASR_NOT_READY_HINT = '离线语音识别不可用'
 
 export interface VoiceTranscribeResult {
   text?: string
@@ -51,6 +64,38 @@ export interface AsrEnvironment {
   model: string | null
   script: string
   message: string
+}
+
+/**
+ * 录音前判断环境是否可用：只有明确返回 `ready: false` 才拦截。
+ * IPC 失败、旧 preload 没有 asrStatus 或返回 undefined 时返回 null（放行），
+ * 避免“自检接口坏了”连带把本来能用的语音输入也一起禁用。
+ */
+export function asrEnvironmentProblem(
+  status: Pick<AsrEnvironment, 'ready' | 'message'> | null | undefined
+): string | null {
+  if (!status || status.ready) return null
+  return status.message?.trim() || '缺少 Python、vosk 模型或转写脚本'
+}
+
+/**
+ * 转写 IPC 本身失败（main 崩溃、通道异常）时的提示。
+ * 这类错误不是麦克风打不开，不能复用 `micErrorMessage`，否则会误导用户去调系统权限。
+ */
+export function transcribeErrorMessage(error: unknown): string {
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : ''
+  const detail = raw
+    .replace(/^Error invoking remote method '[^']*':\s*/i, '')
+    .replace(/^Error:\s*/i, '')
+    .trim()
+  if (!detail) return '语音识别失败，请重试；若反复失败，请在设置里检查语音识别环境'
+  const clipped = detail.length > 180 ? `${detail.slice(0, 177)}…` : detail
+  return `语音识别失败：${clipped}；可在设置 → 语音输入（离线）里检查环境`
 }
 
 /**

@@ -13,15 +13,19 @@ import {
 } from '@shared/quick-add-draft'
 import {
   appendTranscript,
+  asrEnvironmentProblem,
   micErrorMessage,
   micErrorRetryable,
   pickRecorderMime,
   recordingTooShort,
   removeTranscript,
+  transcribeErrorMessage,
   VOICE_AI_BUSY_HINT,
   VOICE_APPENDED_HINT,
   VOICE_APPEND_UNDONE_HINT,
   VOICE_APPEND_UNDO_STALE_HINT,
+  VOICE_ASR_NOT_READY_HINT,
+  VOICE_BUSY_CHECKING_HINT,
   VOICE_BUSY_RECORDING_HINT,
   VOICE_BUSY_STARTING_HINT,
   VOICE_BUSY_TRANSCRIBING_HINT,
@@ -80,6 +84,9 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   const [aiDraft, setAiDraft] = useState<QuickAddDraft | null>(null)
   const [recording, setRecording] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
+  // 点麦克风后先做一次本地环境自检（只 stat 文件，很快）；缺 Python/模型时
+  // 不申请麦克风、不录音，避免用户说完一句才收到“环境不可用”。
+  const [checkingEnv, setCheckingEnv] = useState(false)
   // 已点击麦克风、正在等 getUserMedia（系统授权弹窗 / 设备启动）时也要有状态：
   // 否则按钮看起来毫无反应，用户会连点，进而申请出多条并行录音流。
   const [starting, setStarting] = useState(false)
@@ -194,11 +201,8 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       const recorder = recorderRef.current
       if (!recorder || recorder.state === 'inactive') return
       showToast(VOICE_MAX_REACHED_HINT, 'info')
-      try {
-        recorder.stop()
-      } catch {
-        // 已经停止。
-      }
+      // 少数实现会在 stop 时抛错：交给 stopRecorder 复位按钮与麦克风。
+      stopRecorder(false)
     }, Math.max(0, VOICE_MAX_RECORD_MS - elapsed))
     return () => clearTimeout(timer)
   }, [recording, showToast])
@@ -322,6 +326,10 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   const submit = async (useAi: boolean): Promise<void> => {
     // 语音链路占着输入框时，Enter 会把「还没说完/还没识别完」的半截文字直接建任务，
     // 这里统一拦下并说明原因，用户处理完语音后可以再按一次。
+    if (checkingEnv) {
+      showToast(VOICE_BUSY_CHECKING_HINT, 'info')
+      return
+    }
     if (starting) {
       showToast(VOICE_BUSY_STARTING_HINT, 'info')
       return
@@ -587,7 +595,8 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       })
     } catch (error) {
       if (activeTranscribe.current?.id !== requestId) return
-      showToast(micErrorMessage(error), 'error', {
+      // IPC/主进程异常不是麦克风问题，不能提示“打不开麦克风”让用户去改权限。
+      showToast(transcribeErrorMessage(error), 'error', {
         duration: 7000,
         actionLabel: '重试',
         action: retry
@@ -659,18 +668,31 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     micStartTimer.current = null
   }
 
-  // 取消“等授权”：getUserMedia 本身无法中止，递增 token 让迟到的 stream 自己停掉。
+  // 取消“检查环境 / 等授权”：getUserMedia 本身无法中止，递增 token 让迟到的结果自己停掉。
   const cancelMicStart = (): void => {
     micStartSeq.current += 1
     clearMicStartTimer()
+    setCheckingEnv(false)
     setStarting(false)
     showToast(VOICE_START_CANCELED_HINT, 'info')
+  }
+
+  // 录音前自检：只读设置与 stat 文件，不申请麦克风。检查接口本身失败时放行，
+  // 让用户仍能录音，真正的环境问题由转写返回的具体错误兜底。
+  const checkAsrEnvironment = async (): Promise<string | null> => {
+    const statusApi = typeof window === 'undefined' ? undefined : window.api?.ai?.asrStatus
+    if (typeof statusApi !== 'function') return null
+    try {
+      return asrEnvironmentProblem(await statusApi())
+    } catch {
+      return null
+    }
   }
 
   const toggleRecording = async (): Promise<void> => {
     // 卸载后 toast 上的「重试」还可能被点到，不再启动录音。
     if (unmounted.current) return
-    if (starting) {
+    if (checkingEnv || starting) {
       cancelMicStart()
       return
     }
@@ -701,6 +723,19 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       return
     }
     const token = (micStartSeq.current += 1)
+    setCheckingEnv(true)
+    const environmentProblem = await checkAsrEnvironment()
+    // 检查期间用户取消、超时或切走视图：结果作废，也不再申请麦克风。
+    if (micStartSeq.current !== token) return
+    setCheckingEnv(false)
+    if (environmentProblem) {
+      showToast(`${VOICE_ASR_NOT_READY_HINT}：${environmentProblem}`, 'error', {
+        duration: 8000,
+        actionLabel: '重试',
+        action: () => void toggleRecording()
+      })
+      return
+    }
     setStarting(true)
     micStartTimer.current = setTimeout(() => {
       if (micStartSeq.current !== token) return
@@ -750,11 +785,8 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
           if (!recorder || recorder.state === 'inactive') return
           discardRecording.current = true
           showToast('麦克风连接中断，本次录音已丢弃', 'error')
-          try {
-            recorderRef.current?.stop()
-          } catch {
-            // 已经停止。
-          }
+          // stop 本身抛错时也要把按钮恢复，不能让界面一直停在“录音中”。
+          stopRecorder(true)
         })
       }
 
@@ -780,12 +812,13 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
         if (discardRecording.current) return
         discardRecording.current = true
         const detail = (event as ErrorEvent).error?.message
-        showToast(detail ? `录音中断：${detail}` : '录音中断，请重试', 'error')
-        try {
-          recorder.stop()
-        } catch {
-          // 已经停止。
-        }
+        showToast(detail ? `录音中断：${detail}` : '录音中断，请重试', 'error', {
+          duration: 7000,
+          actionLabel: '重试',
+          action: () => void toggleRecording()
+        })
+        // 录制器报错后 stop 也可能异常：统一走 stopRecorder 复位按钮与麦克风。
+        stopRecorder(true)
       }
       recorder.onstop = () => {
         void finishRecording()
@@ -799,7 +832,17 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       stopStream()
       setRecording(false)
       setRecordingSeconds(0)
-      showToast(micErrorMessage(error), 'error')
+      showToast(
+        micErrorMessage(error),
+        'error',
+        micErrorRetryable(error)
+          ? {
+              duration: 7000,
+              actionLabel: '重试',
+              action: () => void toggleRecording()
+            }
+          : undefined
+      )
     }
   }
 
@@ -831,45 +874,59 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
           type="button"
           className={`quick-add-mic ${recording ? 'recording' : ''} ${
             transcribing ? 'transcribing' : ''
-          } ${starting ? 'starting' : ''}`}
+          } ${starting ? 'starting' : ''} ${checkingEnv ? 'checking' : ''}`}
           title={
-            starting
-              ? '正在等待麦克风权限，点击取消'
-              : transcribing
-                ? `取消语音识别（已等待 ${transcribeSeconds}s）`
-                : recording
-                  ? `停止录音并识别 · 最长 ${VOICE_MAX_RECORD_MS / 1000} 秒`
-                  : aiDraft
-                    ? VOICE_DRAFT_OPEN_HINT
-                    : aiBusy
-                      ? VOICE_AI_BUSY_HINT
-                      : '语音输入：点一下开始，说完再点一下结束'
+            checkingEnv
+              ? '正在检查离线语音识别环境，点击取消'
+              : starting
+                ? '正在等待麦克风权限，点击取消'
+                : transcribing
+                  ? `取消语音识别（已等待 ${transcribeSeconds}s）`
+                  : recording
+                    ? `停止录音并识别 · 最长 ${VOICE_MAX_RECORD_MS / 1000} 秒`
+                    : aiDraft
+                      ? VOICE_DRAFT_OPEN_HINT
+                      : aiBusy
+                        ? VOICE_AI_BUSY_HINT
+                        : '语音输入：点一下开始，说完再点一下结束'
           }
           aria-label={
-            starting
-              ? '取消获取麦克风权限'
-              : transcribing
-                ? '取消语音识别'
-                : recording
-                  ? '停止录音'
-                  : '语音输入'
+            checkingEnv
+              ? '取消语音环境检查'
+              : starting
+                ? '取消获取麦克风权限'
+                : transcribing
+                  ? '取消语音识别'
+                  : recording
+                    ? '停止录音'
+                    : '语音输入'
           }
           aria-pressed={recording}
           onClick={() => void toggleRecording()}
         >
           <Icon
-            name={starting ? 'timer' : transcribing ? 'close' : recording ? 'stop' : 'mic'}
+            name={
+              checkingEnv || starting
+                ? 'timer'
+                : transcribing
+                  ? 'close'
+                  : recording
+                    ? 'stop'
+                    : 'mic'
+            }
             size={14}
           />
-          {starting
-            ? '授权中'
-            : transcribing
-              ? transcribeSeconds > 0
-                ? `识别中 ${transcribeSeconds}s`
-                : '识别中'
-              : recording
-                ? `录音中 ${recordingSeconds}s`
-                : ''}
+          {checkingEnv
+            ? '检查中'
+            : starting
+              ? '授权中'
+              : transcribing
+                ? transcribeSeconds > 0
+                  ? `识别中 ${transcribeSeconds}s`
+                  : '识别中'
+                : recording
+                  ? `录音中 ${recordingSeconds}s`
+                  : ''}
         </button>
         {settings.aiEnabled ? (
           <>
@@ -888,12 +945,14 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
               type="button"
               className={`quick-add-ai ${aiBusy ? 'busy' : ''}`}
               title={
-                starting || recording || transcribing
+                checkingEnv || starting || recording || transcribing
                   ? '语音输入进行中，结束录音或识别后再用 AI 解析'
                   : `AI 解析并添加（Ctrl+Enter）· 超过 ${aiTimeoutSeconds} 秒自动回落到规则解析`
               }
               aria-label="AI 解析并添加"
-              disabled={aiBusy || starting || recording || transcribing || !value.trim()}
+              disabled={
+                aiBusy || checkingEnv || starting || recording || transcribing || !value.trim()
+              }
               onClick={() => void submit(true)}
             >
               <Icon name="sparkles" size={14} />

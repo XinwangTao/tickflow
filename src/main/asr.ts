@@ -4,7 +4,9 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { app } from 'electron'
 import {
+  VOICE_ASR_TIMEOUT_MS,
   VOICE_CANCELED_HINT,
+  VOICE_FFMPEG_TIMEOUT_MS,
   VOICE_MAX_AUDIO_BYTES,
   type AsrEnvironment,
   type VoiceTranscribeResult
@@ -22,8 +24,7 @@ interface AsrSetting {
 }
 
 // 转写分两步：ffmpeg 转码很快，vosk 加载模型 + 60 秒音频通常也在几十秒内。
-const FFMPEG_TIMEOUT_MS = 20_000
-const TRANSCRIBE_TIMEOUT_MS = 60_000
+// 两个上限放在 shared/voice.ts，与 renderer 的总等待上限保持同一套预算。
 
 /**
  * 语音识别是可选能力：模型和 vosk 运行时都在应用之外（60MB 量级），
@@ -234,13 +235,13 @@ export async function transcribeAudio(
     const convert = await runProcess(
       'ffmpeg',
       ['-y', '-loglevel', 'error', '-i', source, '-ar', '16000', '-ac', '1', '-f', 'wav', wav],
-      FFMPEG_TIMEOUT_MS,
+      VOICE_FFMPEG_TIMEOUT_MS,
       options.signal
     )
     if (convert.aborted) return { error: VOICE_CANCELED_HINT }
     if (convert.missing) return { error: '缺少 ffmpeg，无法转换录音格式' }
     if (convert.timedOut) {
-      return { error: `录音转码超时（${FFMPEG_TIMEOUT_MS / 1000} 秒），请缩短录音后重试` }
+      return { error: `录音转码超时（${VOICE_FFMPEG_TIMEOUT_MS / 1000} 秒），请缩短录音后重试` }
     }
     if (convert.code !== 0) {
       const detail = tail(convert.err || '', 160)
@@ -250,14 +251,14 @@ export async function transcribeAudio(
     const result = await runProcess(
       config.python,
       [config.script, '--model', config.model, wav],
-      TRANSCRIBE_TIMEOUT_MS,
+      VOICE_ASR_TIMEOUT_MS,
       options.signal
     )
     if (result.aborted) return { error: VOICE_CANCELED_HINT }
     if (result.missing) return { error: '找不到语音识别运行时（Python），请在设置里填写路径' }
     if (result.timedOut) {
       return {
-        error: `语音识别超时（${TRANSCRIBE_TIMEOUT_MS / 1000} 秒），请缩短录音后重试`
+        error: `语音识别超时（${VOICE_ASR_TIMEOUT_MS / 1000} 秒），请缩短录音后重试`
       }
     }
 

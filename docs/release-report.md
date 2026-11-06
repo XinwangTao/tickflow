@@ -9,7 +9,7 @@
 | 项 | 结果 |
 |---|---|
 | TypeScript 类型检查 | 通过（main / preload / renderer） |
-| Vitest | 34 个文件 / 359 项全部通过 |
+| Vitest | 34 个文件 / 368 项全部通过 |
 | Playwright Electron E2E | 23 条全部通过（含关闭到托盘、自启最小化、关于弹窗、R2 mock 同步） |
 | 构建体积预算 | 通过：main 175.4 KB / 220 KB，preload 9.1 KB / 16 KB，renderer JS 1286.4 KB / 1400 KB，CSS 69.4 KB / 90 KB |
 | 桌面安装包 | NSIS 重建成功，117 MB，未签名 |

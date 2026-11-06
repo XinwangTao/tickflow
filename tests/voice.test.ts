@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   appendTranscript,
+  asrEnvironmentProblem,
   micErrorMessage,
   micErrorRetryable,
   pickRecorderMime,
   recordingTooShort,
   removeTranscript,
+  transcribeErrorMessage,
+  VOICE_ASR_TIMEOUT_MS,
+  VOICE_FFMPEG_TIMEOUT_MS,
   VOICE_MAX_RECORD_MS,
   VOICE_MAX_AUDIO_BYTES,
   VOICE_MIN_RECORD_MS,
@@ -42,6 +46,44 @@ describe('语音输入辅助函数', () => {
     expect(micErrorRetryable(named('AbortError'))).toBe(true)
     expect(micErrorRetryable(new Error('device busy'))).toBe(true)
     expect(micErrorRetryable(null)).toBe(true)
+  })
+
+  it('识别环境自检只在明确不可用时拦截，接口异常时放行录音', () => {
+    expect(asrEnvironmentProblem(null)).toBeNull()
+    expect(asrEnvironmentProblem(undefined)).toBeNull()
+    expect(
+      asrEnvironmentProblem({ ready: true, message: '离线语音识别可用' })
+    ).toBeNull()
+    expect(
+      asrEnvironmentProblem({
+        ready: false,
+        message: '没有找到 Python 运行时，请在设置里填写 Python 路径'
+      })
+    ).toContain('Python')
+    // 老版本/测试桩只返回 ready:false，没有 message 时也要给人话。
+    expect(asrEnvironmentProblem({ ready: false, message: '' })).toContain(
+      '缺少 Python、vosk 模型或转写脚本'
+    )
+  })
+
+  it('转写 IPC 异常翻译成识别失败，而不是误导成麦克风权限问题', () => {
+    const wrapped = new Error(
+      "Error invoking remote method 'ai:transcribe': Error: ffmpeg crashed"
+    )
+    const message = transcribeErrorMessage(wrapped)
+    expect(message).toContain('语音识别失败')
+    expect(message).toContain('ffmpeg crashed')
+    expect(message).not.toContain('打不开麦克风')
+    expect(message).not.toContain('Error invoking remote method')
+    // 空错误也有下一步指引，不显示空白 toast。
+    expect(transcribeErrorMessage(null)).toContain('请在设置里检查')
+    expect(transcribeErrorMessage('')).toContain('请在设置里检查')
+  })
+
+  it('renderer 总等待上限覆盖 main 两步子进程，避免先被前端取消', () => {
+    expect(VOICE_TRANSCRIBE_TIMEOUT_MS).toBeGreaterThan(
+      VOICE_FFMPEG_TIMEOUT_MS + VOICE_ASR_TIMEOUT_MS
+    )
   })
 
   it('按兼容性顺序挑选录音格式，全部不支持时交给浏览器默认值', () => {

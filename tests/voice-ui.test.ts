@@ -8,6 +8,8 @@ import type { ListWithCount, Settings } from '../src/shared/types'
 import {
   VOICE_AI_BUSY_HINT,
   VOICE_APPENDED_HINT,
+  VOICE_ASR_NOT_READY_HINT,
+  VOICE_BUSY_CHECKING_HINT,
   VOICE_BUSY_RECORDING_HINT,
   VOICE_BUSY_TRANSCRIBING_HINT,
   VOICE_DRAFT_OPEN_HINT,
@@ -17,7 +19,7 @@ import {
   VOICE_UNSUPPORTED_HINT
 } from '../src/shared/voice'
 
-// 把 75 秒的转写超时与 15 秒的授权等待都缩短到 40ms，测试不用真的等。
+// 把 90 秒的转写超时与 15 秒的授权等待都缩短到 40ms，测试不用真的等。
 vi.mock('@shared/voice', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/shared/voice')>()
   return {
@@ -131,7 +133,13 @@ function installApi(): void {
       dailySummary: vi.fn(),
       models: vi.fn(),
       test: vi.fn(),
-      asrStatus: vi.fn()
+      asrStatus: vi.fn(async () => ({
+        ready: true,
+        python: 'python',
+        model: 'model',
+        script: 'script',
+        message: '离线语音识别可用'
+      }))
     },
     tasks: {
       create: vi.fn(),
@@ -286,7 +294,7 @@ describe('快速添加栏语音输入', () => {
 
     fireEvent.click(screen.getByLabelText('语音输入'))
 
-    expect(screen.getByLabelText('取消获取麦克风权限')).toBeInTheDocument()
+    expect(await screen.findByLabelText('取消获取麦克风权限')).toBeInTheDocument()
     expect(screen.getByText('授权中')).toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('取消获取麦克风权限'))
@@ -322,6 +330,7 @@ describe('快速添加栏语音输入', () => {
     mount()
 
     fireEvent.click(screen.getByLabelText('语音输入'))
+    await screen.findByLabelText('取消获取麦克风权限')
     cleanup()
 
     pending.resolve(stream)
@@ -589,5 +598,151 @@ describe('快速添加栏语音输入', () => {
 
     expect(toastMessage()).toContain(VOICE_AI_BUSY_HINT)
     expect(getUserMedia).not.toHaveBeenCalled()
+  })
+
+  it('录音前发现离线环境缺失时直接提示，不申请麦克风', async () => {
+    const { getUserMedia } = setupMedia()
+    ;(window.api.ai.asrStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ready: false,
+      python: null,
+      model: null,
+      script: 'asr_transcribe.py',
+      message: '没有找到 Python 运行时，请在设置里填写 Python 路径'
+    })
+    mount()
+
+    fireEvent.click(screen.getByLabelText('语音输入'))
+
+    await waitFor(() => expect(toastMessage()).toContain(VOICE_ASR_NOT_READY_HINT))
+    expect(toastMessage()).toContain('Python')
+    expect(useAppStore.getState().toast?.actionLabel).toBe('重试')
+    expect(getUserMedia).not.toHaveBeenCalled()
+    expect(FakeMediaRecorder.instances).toHaveLength(0)
+    expect(screen.getByLabelText('语音输入')).toBeInTheDocument()
+  })
+
+  it('环境缺失提示里的重试会重新自检，环境恢复后正常录音', async () => {
+    const { getUserMedia } = setupMedia()
+    const asrStatus = window.api.ai.asrStatus as ReturnType<typeof vi.fn>
+    asrStatus
+      .mockResolvedValueOnce({
+        ready: false,
+        python: null,
+        model: null,
+        script: 'asr_transcribe.py',
+        message: '没有找到 vosk 模型目录，请在设置里填写模型路径'
+      })
+      .mockResolvedValueOnce({
+        ready: true,
+        python: 'python',
+        model: 'model',
+        script: 'asr_transcribe.py',
+        message: '离线语音识别可用'
+      })
+    mount()
+
+    fireEvent.click(screen.getByLabelText('语音输入'))
+    await waitFor(() => expect(toastMessage()).toContain(VOICE_ASR_NOT_READY_HINT))
+    expect(getUserMedia).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await useAppStore.getState().toast?.action?.()
+    })
+
+    await waitFor(() => expect(screen.getByLabelText('停止录音')).toBeInTheDocument())
+    expect(getUserMedia).toHaveBeenCalledTimes(1)
+    expect(asrStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('环境自检接口异常时放行录音，不把语音入口整体禁用', async () => {
+    const { getUserMedia } = setupMedia()
+    ;(window.api.ai.asrStatus as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('ipc unavailable')
+    )
+    mount()
+
+    await startRecording()
+
+    expect(getUserMedia).toHaveBeenCalledTimes(1)
+    expect(toastMessage()).not.toContain(VOICE_ASR_NOT_READY_HINT)
+  })
+
+  it('检查环境期间显示检查中，可取消且 Enter 不会建任务', async () => {
+    setupMedia()
+    const pending = deferred<{
+      ready: boolean
+      python: string | null
+      model: string | null
+      script: string
+      message: string
+    }>()
+    ;(window.api.ai.asrStatus as ReturnType<typeof vi.fn>).mockReturnValue(pending.promise)
+    const input = mount()
+    fireEvent.change(input, { target: { value: '买牛奶' } })
+
+    fireEvent.click(screen.getByLabelText('语音输入'))
+
+    expect(await screen.findByLabelText('取消语音环境检查')).toBeInTheDocument()
+    expect(screen.getByText('检查中')).toBeInTheDocument()
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(toastMessage()).toContain(VOICE_BUSY_CHECKING_HINT)
+    expect(window.api.tasks.create).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByLabelText('取消语音环境检查'))
+    expect(toastMessage()).toContain(VOICE_START_CANCELED_HINT)
+    expect(screen.getByLabelText('语音输入')).toBeInTheDocument()
+
+    pending.resolve({
+      ready: true,
+      python: 'python',
+      model: 'model',
+      script: 'asr_transcribe.py',
+      message: '离线语音识别可用'
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(FakeMediaRecorder.instances).toHaveLength(0)
+  })
+
+  it('转写 IPC 失败时提示识别失败并可重试，不说成麦克风问题', async () => {
+    setupMedia()
+    transcribe.mockRejectedValue(
+      new Error("Error invoking remote method 'ai:transcribe': Error: ffmpeg crashed")
+    )
+    const input = mount()
+
+    await startRecording()
+    now += 1200
+    fireEvent.click(screen.getByLabelText('停止录音'))
+
+    await waitFor(() => expect(toastMessage()).toContain('语音识别失败'))
+    expect(toastMessage()).toContain('ffmpeg crashed')
+    expect(toastMessage()).not.toContain('打不开麦克风')
+    expect(useAppStore.getState().toast?.actionLabel).toBe('重试')
+    expect(input.value).toBe('')
+    expect(screen.getByLabelText('语音输入')).toBeInTheDocument()
+  })
+
+  it('录音器报错后恢复按钮并给重试入口', async () => {
+    const { getUserMedia } = setupMedia()
+    mount()
+
+    await startRecording()
+    act(() => {
+      FakeMediaRecorder.instances[0]!.emitError('设备错误')
+    })
+
+    await waitFor(() => expect(toastMessage()).toContain('录音中断'))
+    expect(toastMessage()).toContain('设备错误')
+    expect(useAppStore.getState().toast?.actionLabel).toBe('重试')
+    await waitFor(() => expect(screen.getByLabelText('语音输入')).toBeInTheDocument())
+
+    await act(async () => {
+      await useAppStore.getState().toast?.action?.()
+    })
+
+    await waitFor(() => expect(screen.getByLabelText('停止录音')).toBeInTheDocument())
+    expect(getUserMedia).toHaveBeenCalledTimes(2)
+    expect(FakeMediaRecorder.instances).toHaveLength(2)
   })
 })
