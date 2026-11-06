@@ -1,11 +1,21 @@
 import { app, BrowserWindow, globalShortcut, shell } from 'electron'
-import { join } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { IPC } from '@shared/ipc'
 import { closeDatabase, getDb, initDatabase } from './db'
 import { registerIpc } from './ipc'
 import { startReminderScheduler, stopReminderScheduler } from './reminders'
 import { autoSync } from './sync'
 import { destroyTray, setupTray } from './tray'
+
+// 测试/便携运行时可指定独立数据目录，避免 E2E 写入真实用户数据库与备份。
+// 必须在 requestSingleInstanceLock 与 initDatabase 之前生效。
+const userDataOverride = process.env['TICKFLOW_USER_DATA']?.trim()
+if (userDataOverride) {
+  const dir = resolve(userDataOverride)
+  mkdirSync(dir, { recursive: true })
+  app.setPath('userData', dir)
+}
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false

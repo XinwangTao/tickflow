@@ -216,6 +216,7 @@ renderer 只是多等这一小会儿，不会因此重复创建任务：
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片 |
 | `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试 |
 | `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：50+ 条规则用例 + AI 解析/归一化/合并用例 + 失败与请求契约 |
+| `e2e/ai-quick-add.spec.ts` | 桌面端 AI 结果 E2E：可编辑草稿→添加→撤销、5xx 重试→规则降级→撤销、今日总结、子任务拆解批量撤销 |
 
 验证命令：
 
@@ -233,6 +234,7 @@ npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败�
                          # 清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、空标题保护；
                          # tests/quick-add-ui.test.ts 覆盖「先展示草稿不写库 → 编辑后确认 → 撤销」与取消流程
 npm run test:ai          # 只跑 AI 相关测试：ai、快速添加回归集、规则解析、草稿与草稿 UI
+npm run test:e2e         # 构建后跑 Playwright：AI 结果 E2E + 桌面端视图冒烟（见 6.2）
 ```
 
 手工验证 AI 连通性：设置页点击「测试连接」，或执行：
@@ -266,10 +268,39 @@ curl -s http://127.0.0.1:15721/v1/messages \
 新增解析能力时先在 `RULE_CASES` / `AI_CASES` 补一条用例，再改实现；日常可用
 `npm run test:ai` 只跑 AI 相关测试。
 
+### 6.2 AI 结果桌面端 E2E
+
+`e2e/ai-quick-add.spec.ts` 用 Playwright 启动真实 Electron 应用，验证 AI 结果从
+「模型返回」到「界面可操作」的完整链路，全部用例只连**本机回环地址上的假网关**
+（`127.0.0.1` 随机端口），不发往任何外部服务：
+
+- **草稿可编辑→添加→撤销**：假网关返回带 Markdown 代码块的 JSON，断言草稿中的
+  标题、日期、时间、优先级正确；草稿展示期间任务数为 0；修改标题与优先级后点「添加」，
+  列表出现编辑后的标题；点 toast「撤销」后任务被移除。
+- **5xx 自动重试→规则降级→撤销**：假网关始终返回 500，断言实际收到 2 次请求、
+  toast 同时含「AI 未能解析，已按规则添加…」「AI 服务繁忙」「已自动重试 1 次」，
+  且没有弹出草稿；规则任务仍可通过 toast 撤销。
+- **今日总结**：断言 AI 的 `summary`、`highlights`、`suggestions` 渲染，且不显示
+  「已回落到本地统计」说明。
+- **子任务拆解**：从详情面板触发，断言子任务写入、toast 显示新增数量、批量撤销后清空。
+- **请求契约**：每次请求都是 `POST /v1/messages`，`model` 与 `AI_DEFAULT_MODEL`
+  逐字一致，`max_tokens` 分别等于快速添加 1200、今日总结 1600、子任务 1600 的预算，
+  Token 为空时不带 `authorization`。
+
+每个用例通过 `TICKFLOW_USER_DATA` 指向 `os.tmpdir()` 下的一次性目录，启动独立数据库，
+结束后删除，**不会读写真实用户数据**。主进程在 `requestSingleInstanceLock` 与
+`initDatabase` 之前应用该环境变量（见 `src/main/index.ts`），因此 E2E 也不会与
+正在运行的正式实例抢单实例锁。
+
+新增 AI 结果交互时，优先在 `e2e/ai-quick-add.spec.ts` 扩展假网关返回与断言；
+若只想验证纯函数或组件行为，仍放在 `tests/` 下的 Vitest 用例，运行更快。
+
 ## 7. 隐私与边界
 
 - 只有用户主动触发 AI 按钮/总结时才发送任务内容；普通快速添加与启动流程不联网。
 - 发送内容限于当前输入句、主任务标题/备注、该任务已有子任务标题、今日任务摘要，
   不包含数据库全量数据。
 - Token 仅存本机数据库，请求只发往配置的 `aiBaseUrl`；不会自动切换第三方地址。
+- E2E 使用 `TICKFLOW_USER_DATA` 指向临时目录，并通过 `127.0.0.1` 随机端口假网关响应，
+  不接触真实用户数据库、不访问外部网络（见 6.2）。
 - AI 生成的时间、清单和子任务都会经过本地校验后再写库，AI 不能直接修改数据库。
