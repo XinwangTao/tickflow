@@ -7,6 +7,7 @@ import type {
   GroupBy,
   ListMode,
   ListWithCount,
+  Priority,
   Settings,
   SortBy,
   Tag,
@@ -111,6 +112,8 @@ interface AppState {
   batchComplete: () => Promise<void>
   batchDelete: () => Promise<void>
   batchMove: (listId: string) => Promise<void>
+  batchPriority: (priority: Priority) => Promise<void>
+  batchDueDate: (dueDate: string | null) => Promise<void>
   openDetail: (id: string | null) => void
   setSearchOpen: (open: boolean, seed?: string) => void
   setSettingsOpen: (open: boolean) => void
@@ -541,6 +544,65 @@ export const useAppStore = create<AppState>((set, get) => ({
         action: async () => {
           for (const original of originals) {
             await window.api.tasks.update(original.id, { listId: original.listId })
+          }
+          await get().refresh()
+        }
+      })
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  batchPriority: async (priority) => {
+    const selected = new Set(get().selectedIds)
+    const targets = get().tasks.filter((task) => selected.has(task.id))
+    if (targets.length === 0) return
+    const originals = targets.map((task) => ({ id: task.id, priority: task.priority }))
+    try {
+      for (const task of targets) {
+        await window.api.tasks.update(task.id, { priority })
+      }
+      set({ selectionMode: false, selectedIds: [] })
+      await get().refresh()
+      get().showToast(`已设置 ${targets.length} 个任务的优先级`, 'success', {
+        actionLabel: '撤销',
+        duration: 6000,
+        action: async () => {
+          for (const original of originals) {
+            await window.api.tasks.update(original.id, { priority: original.priority })
+          }
+          await get().refresh()
+        }
+      })
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  batchDueDate: async (dueDate) => {
+    const selected = new Set(get().selectedIds)
+    const targets = get().tasks.filter((task) => selected.has(task.id))
+    if (targets.length === 0) return
+    const originals = targets.map((task) => ({
+      id: task.id,
+      dueDate: task.dueDate,
+      allDay: task.allDay
+    }))
+    try {
+      for (const task of targets) {
+        await window.api.tasks.update(task.id, { dueDate, allDay: true })
+      }
+      set({ selectionMode: false, selectedIds: [] })
+      await get().refresh()
+      get().showToast(`已设置 ${targets.length} 个任务的日期`, 'success', {
+        actionLabel: '撤销',
+        duration: 6000,
+        action: async () => {
+          for (const original of originals) {
+            await window.api.tasks.update(original.id, {
+              dueDate: original.dueDate,
+              allDay: original.allDay
+            })
           }
           await get().refresh()
         }

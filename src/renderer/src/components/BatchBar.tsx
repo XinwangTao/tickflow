@@ -1,3 +1,4 @@
+import { addDaysToKey, todayKey } from '@shared/dates'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
 
@@ -9,6 +10,8 @@ export function BatchBar(): React.ReactNode {
   const batchComplete = useAppStore((state) => state.batchComplete)
   const batchDelete = useAppStore((state) => state.batchDelete)
   const batchMove = useAppStore((state) => state.batchMove)
+  const batchPriority = useAppStore((state) => state.batchPriority)
+  const batchDueDate = useAppStore((state) => state.batchDueDate)
   const selectAll = useAppStore((state) => state.selectAll)
   const clearSelection = useAppStore((state) => state.clearSelection)
 
@@ -38,6 +41,41 @@ export function BatchBar(): React.ReactNode {
         <Icon name="check" size={14} />
         完成
       </button>
+      <select
+        className="input batch-select"
+        defaultValue=""
+        disabled={disabled}
+        onChange={(event) => {
+          const value = event.target.value
+          event.target.value = ''
+          if (value) void batchPriority(Number(value) as 0 | 1 | 2 | 3)
+        }}
+        aria-label="批量设置优先级"
+      >
+        <option value="">优先级…</option>
+        <option value="3">高</option>
+        <option value="2">中</option>
+        <option value="1">低</option>
+        <option value="0">无</option>
+      </select>
+      <select
+        className="input batch-select"
+        defaultValue=""
+        disabled={disabled}
+        onChange={(event) => {
+          const value = event.target.value
+          event.target.value = ''
+          if (value === 'today') void batchDueDate(todayKey())
+          else if (value === 'tomorrow') void batchDueDate(addDaysToKey(todayKey(), 1))
+          else if (value === 'none') void batchDueDate(null)
+        }}
+        aria-label="批量设置截止日期"
+      >
+        <option value="">日期…</option>
+        <option value="today">今天</option>
+        <option value="tomorrow">明天</option>
+        <option value="none">清除日期</option>
+      </select>
       <select
         className="input batch-select"
         defaultValue=""
