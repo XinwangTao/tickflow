@@ -98,6 +98,15 @@ authorization: Bearer <aiToken，可选>
 - `Ctrl/Cmd + Enter` 或点击输入框右侧 **AI** 按钮：把整句话交给 AI 解析。
 - AI 输出字段：`title`、`dueDate`（YYYY-MM-DD）、`dueTime`（HH:mm）、`allDay`、
   `priority`（0–3）、`tags`、`listName`、`recurrence`（RFC5545 RRULE）。
+- AI 成功时**不会立即写库**，而是在快速添加框下方展开「AI 解析结果 · 可修改后添加」
+  草稿卡：标题、截止日期、时间、优先级、清单、标签、重复、全天都可以改，
+  点「添加」或标题框回车才创建任务；点「取消」/`Esc` 放弃本次结果，输入内容仍保留。
+  草稿会经过 `draftToQuickAddResult` 再校验一次，非法日期/时间只丢弃该字段。
+- 用户主动清空日期时，创建任务不会被当前视图的默认截止日期补回来
+  （例如「今天」视图的 AI 草稿删掉日期，任务就是无日期）。
+- 添加成功后 toast 显示「AI 已添加「标题」」并提供 **撤销**，点击后把刚创建的任务
+  移入垃圾箱并刷新列表；AI 失败回落到规则创建时同样可以撤销，提示里会同时保留失败原因。
+- 草稿未处理时按普通 `Enter` 会提示先添加或取消，不会绕过草稿重复建任务。
 - 请求期间按钮显示「解析中」，输入框仍可编辑，不会锁住界面。
 - 结果会再次经过 `normalizeAiQuickAdd` 校验：非法日期/时间被丢弃，优先级夹到 0–3，
   标签去重。`listName` 只有在用户输入中明确出现该清单名（忽略大小写与空白）时才采纳，
@@ -121,6 +130,8 @@ authorization: Bearer <aiToken，可选>
 - AI 输出：`{"subtasks":[{"title":"...","priority":0}]}`，最多 10 条。
 - 客户端会过滤掉与主任务或已有子任务同名（忽略大小写与空白）的条目，去重、去空、限制长度，
   再逐条创建为当前任务的子任务；重复点击 AI 拆解不会重复写入相同子任务。
+- 创建成功后 toast 显示本次新增数量并提供 **撤销**，一次移除本批次创建的子任务。
+  若 AI 不可用而使用规则拆解，提示里保留失败原因，撤销同样可用。
 - 若模型返回的条目全部已存在，提示「AI 返回的子任务均已存在，未重复添加」，不会创建空任务。
 - 规则降级：按标题/备注中的换行、分号、逗号/顿号拆分，去掉 `-`、`*`、`1.` 等列表符号；
   同样跳过主任务与已有子任务同名条目；没有可拆内容时提示手动添加。
@@ -191,11 +202,12 @@ renderer 只是多等这一小会儿，不会因此重复创建任务：
 | 文件 | 职责 |
 | --- | --- |
 | `src/shared/ai.ts` | 类型、默认值、提示词、JSON 提取、归一化、规则降级、失败分类与提示文案 |
+| `src/shared/quick-add-draft.ts` | AI 快速添加草稿：清单匹配、标签拆分、日期/时间校验、优先级收敛、落库前转换 |
 | `src/main/ai-client.ts` | `/v1/messages` 与 `/v1/models` 请求、鉴权头、单次超时、瞬时故障自动重试、响应文本提取 |
 | `src/main/ai.ts` | 三个功能的编排与降级、失败提示与尝试次数、模型列表、连接测试 |
 | `src/main/ipc.ts` | `ai:quick-add` / `ai:subtasks` / `ai:summary` / `ai:models` / `ai:test` |
-| `src/renderer/src/components/QuickAdd.tsx` | AI 快速添加入口 |
-| `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口 |
+| `src/renderer/src/components/QuickAdd.tsx` | AI 快速添加入口、可编辑结果草稿、添加后撤销 |
+| `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口、批量添加后撤销 |
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片 |
 | `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试 |
 
@@ -209,7 +221,10 @@ npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败�
                          # 今日总结的本地日期归日与“今日完成”统计、子任务拆解去重与已有
                          # 子任务过滤；失败分类与提示文案（超时秒数、服务地址、401/404/429/5xx）、
                          # 瞬时故障重试一次后成功、5xx 重试后仍失败、超时/404 不重试、
-                         # maxAttempts=1 关闭重试、attempts 计数回报等路径
+                         # maxAttempts=1 关闭重试、attempts 计数回报等路径；
+                         # tests/quick-add-draft.test.ts 覆盖 AI 结果草稿：清单名匹配、默认日期、
+                         # 清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、空标题保护；
+                         # tests/quick-add-ui.test.ts 覆盖「先展示草稿不写库 → 编辑后确认 → 撤销」与取消流程
 ```
 
 手工验证 AI 连通性：设置页点击「测试连接」，或执行：

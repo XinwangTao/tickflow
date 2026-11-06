@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { parseQuickAdd, type QuickAddResult } from '@shared/quick-add'
+import {
+  createQuickAddDraft,
+  draftToQuickAddResult,
+  type QuickAddDraft
+} from '@shared/quick-add-draft'
+import type { Priority, TaskWithMeta } from '@shared/types'
 import { describeRecurrence, formatDueLabel } from '../lib/format'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../lib/colors'
 import { useAppStore } from '../store/useAppStore'
@@ -10,10 +16,24 @@ interface QuickAddProps {
   defaultDueDate?: string | null
 }
 
+const RECURRENCE_CHOICES = [
+  { value: '', label: '不重复' },
+  { value: 'FREQ=DAILY', label: '每天' },
+  { value: 'FREQ=WEEKLY', label: '每周' },
+  { value: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', label: '工作日' },
+  { value: 'FREQ=MONTHLY', label: '每月' },
+  { value: 'FREQ=YEARLY', label: '每年' }
+]
+
+function normalizedListName(name: string): string {
+  return name.replace(/\s+/g, '').toLowerCase()
+}
+
 export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps): React.ReactNode {
   const lists = useAppStore((state) => state.lists)
   const settings = useAppStore((state) => state.settings)
   const createTask = useAppStore((state) => state.createTask)
+  const refresh = useAppStore((state) => state.refresh)
   const showToast = useAppStore((state) => state.showToast)
   const focusToken = useAppStore((state) => state.quickAddFocus)
 
@@ -21,6 +41,8 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   const [focused, setFocused] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
   const [aiElapsed, setAiElapsed] = useState(0)
+  const [draftBusy, setDraftBusy] = useState(false)
+  const [aiDraft, setAiDraft] = useState<QuickAddDraft | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -49,12 +71,41 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
 
   const resolveList = (name: string | null): (typeof lists)[number] | undefined => {
     if (!name) return undefined
-    const lowered = name.toLowerCase()
-    return lists.find((list) => list.name.toLowerCase() === lowered)
+    const lowered = normalizedListName(name)
+    return lists.find((list) => normalizedListName(list.name) === lowered)
   }
 
-  const createFromResult = async (result: QuickAddResult): Promise<boolean> => {
-    const matched = resolveList(result.listName)
+  /**
+   * AI 创建成功后可撤销：直接移除刚创建的任务（进入垃圾箱，可再从垃圾箱恢复），
+   * 不弹出额外 toast，避免把「已删除」覆盖在「已添加」上。
+   */
+  const notifyAdded = (
+    created: TaskWithMeta,
+    message: string,
+    kind: 'success' | 'info' = 'success',
+    duration = 6000
+  ): void => {
+    showToast(message, kind, {
+      actionLabel: '撤销',
+      duration,
+      action: async () => {
+        try {
+          await window.api.tasks.remove(created.id)
+          await refresh()
+        } catch (error) {
+          showToast(String(error), 'error')
+        }
+      }
+    })
+  }
+
+  const createFromResult = async (
+    result: QuickAddResult,
+    options: { listId?: string | null; applyDefaultDueDate?: boolean } = {}
+  ): Promise<TaskWithMeta | null> => {
+    const matched = options.listId
+      ? lists.find((list) => list.id === options.listId)
+      : resolveList(result.listName)
     const fallback =
       lists.find((list) => list.id === defaultListId) ??
       lists.find((list) => list.isInbox) ??
@@ -63,45 +114,73 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     const target = matched ?? fallback
     if (!target) {
       showToast('没有可用清单，请先创建一个清单', 'error')
-      return false
+      return null
     }
     if (result.listName && !matched) {
       showToast(`未找到清单「${result.listName}」，已放入「${target.name}」`, 'info')
     }
 
-    const created = await createTask({
+    const dueDate =
+      options.applyDefaultDueDate === false
+        ? result.dueDate
+        : (result.dueDate ?? defaultDueDate ?? null)
+
+    return createTask({
       listId: target.id,
       title: result.title,
       priority: result.priority,
-      dueDate: result.dueDate ?? defaultDueDate ?? null,
+      dueDate,
       dueTime: result.dueTime,
       allDay: result.allDay,
       recurrence: result.recurrence,
       tagNames: result.tags
     })
-    return Boolean(created)
   }
 
   const submit = async (useAi: boolean): Promise<void> => {
     const text = value.trim()
     if (!text || aiBusy) return
+    if (aiDraft) {
+      if (!useAi) {
+        showToast('请先添加或取消上方的 AI 解析结果', 'info')
+        return
+      }
+      // 再点一次 AI 视为重新解析当前输入。
+      setAiDraft(null)
+    }
 
     let result: QuickAddResult
+    let aiWarning: string | null = null
+    let aiUsed = false
     if (useAi && settings.aiEnabled) {
+      aiUsed = true
       setAiBusy(true)
       try {
         const response = await window.api.ai.parseQuickAdd(text)
-        result = response.result
-        if (!response.ok) {
-          showToast(
-            `AI 未能解析，已使用规则解析${response.warning ? `：${response.warning}` : ''}`,
-            'info',
-            { duration: 5000 }
+        if (response.ok && response.source === 'ai') {
+          // AI 成功时先进入草稿，不立即写库：用户可以改标题、时间、清单后再添加。
+          const draft = createQuickAddDraft(
+            response.result,
+            lists,
+            defaultListId,
+            defaultDueDate
           )
+          setAiDraft(draft)
+          const wanted = response.result.listName
+          if (wanted && !resolveList(wanted)) {
+            const fallback = lists.find((list) => list.id === draft.listId)
+            showToast(
+              `未找到清单「${wanted}」，已选择「${fallback?.name ?? '当前清单'}」`,
+              'info'
+            )
+          }
+          return
         }
+        result = response.result
+        aiWarning = response.warning
       } catch (error) {
         result = parseQuickAdd(text)
-        showToast(`AI 不可用，已使用规则解析：${String(error)}`, 'info', { duration: 5000 })
+        aiWarning = String(error)
       } finally {
         setAiBusy(false)
       }
@@ -110,10 +189,63 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     }
 
     const created = await createFromResult(result)
-    if (created) {
+    if (!created) return
+    setValue('')
+    inputRef.current?.focus()
+    if (aiUsed) {
+      notifyAdded(
+        created,
+        aiWarning
+          ? `AI 未能解析，已按规则添加「${created.title}」：${aiWarning}`
+          : `AI 已添加「${created.title}」`,
+        aiWarning ? 'info' : 'success',
+        aiWarning ? 7000 : 6000
+      )
+    }
+  }
+
+  const updateDraft = (patch: Partial<QuickAddDraft>): void => {
+    setAiDraft((draft) => (draft ? { ...draft, ...patch } : draft))
+  }
+
+  const cancelDraft = (): void => {
+    setAiDraft(null)
+    inputRef.current?.focus()
+  }
+
+  const confirmDraft = async (): Promise<void> => {
+    if (!aiDraft || aiBusy || draftBusy) return
+    const result = draftToQuickAddResult(aiDraft, lists)
+    if (!result) {
+      showToast('任务标题不能为空', 'error')
+      return
+    }
+    setDraftBusy(true)
+    try {
+      const created = await createFromResult(result, {
+        listId: aiDraft.listId,
+        // 用户可能主动清空了日期，不能在确认时又被默认截止日期补回来。
+        applyDefaultDueDate: false
+      })
+      if (!created) return
+      setAiDraft(null)
       setValue('')
       inputRef.current?.focus()
+      notifyAdded(created, `AI 已添加「${created.title}」`, 'success')
+    } finally {
+      setDraftBusy(false)
     }
+  }
+
+  const recurrenceChoices = RECURRENCE_CHOICES.slice()
+  if (
+    aiDraft?.recurrence &&
+    !recurrenceChoices.some((choice) => choice.value === aiDraft.recurrence)
+  ) {
+    recurrenceChoices.push({
+      value: aiDraft.recurrence,
+      label: describeRecurrence(aiDraft.recurrence)
+    })
   }
 
   return (
@@ -152,7 +284,161 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
         {value.trim() ? <kbd className="quick-add-enter">↵</kbd> : null}
       </div>
 
-      {focused && hasMeta ? (
+      {aiDraft ? (
+        <div className="quick-add-draft" role="dialog" aria-label="AI 解析结果">
+          <div className="quick-add-draft-head">
+            <span className="quick-add-draft-title">
+              <Icon name="sparkles" size={13} /> AI 解析结果 · 可修改后添加
+            </span>
+            <button
+              type="button"
+              className="icon-btn"
+              title="取消 AI 解析结果"
+              aria-label="取消 AI 解析结果"
+              onClick={cancelDraft}
+            >
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+
+          <input
+            className="quick-add-draft-name"
+            value={aiDraft.title}
+            placeholder="任务标题"
+            aria-label="AI 任务标题"
+            autoFocus
+            onChange={(event) => updateDraft({ title: event.target.value })}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                void confirmDraft()
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                cancelDraft()
+              }
+            }}
+          />
+
+          <div className="quick-add-draft-fields">
+            <label className="quick-add-field">
+              <span>截止日期</span>
+              <input
+                type="date"
+                value={aiDraft.dueDate}
+                aria-label="AI 截止日期"
+                onChange={(event) =>
+                  updateDraft({
+                    dueDate: event.target.value,
+                    dueTime: event.target.value ? aiDraft.dueTime : ''
+                  })
+                }
+              />
+            </label>
+            <label className="quick-add-field">
+              <span>时间</span>
+              <input
+                type="time"
+                value={aiDraft.dueTime}
+                aria-label="AI 截止时间"
+                disabled={!aiDraft.dueDate || aiDraft.allDay}
+                onChange={(event) =>
+                  updateDraft({ dueTime: event.target.value, allDay: false })
+                }
+              />
+            </label>
+            <label className="quick-add-field">
+              <span>优先级</span>
+              <select
+                value={aiDraft.priority}
+                aria-label="AI 优先级"
+                onChange={(event) =>
+                  updateDraft({ priority: Number(event.target.value) as Priority })
+                }
+              >
+                {PRIORITY_LABELS.map((label, index) => (
+                  <option value={index} key={label}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="quick-add-field">
+              <span>清单</span>
+              <select
+                value={aiDraft.listId ?? ''}
+                aria-label="AI 清单"
+                onChange={(event) => updateDraft({ listId: event.target.value || null })}
+              >
+                {aiDraft.listId === null ? <option value="">当前清单</option> : null}
+                {lists.map((list) => (
+                  <option value={list.id} key={list.id}>
+                    {list.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="quick-add-draft-fields">
+            <label className="quick-add-field grow">
+              <span>标签</span>
+              <input
+                value={aiDraft.tagsText}
+                placeholder="空格或逗号分隔，例如：工作 重点"
+                aria-label="AI 标签"
+                onChange={(event) => updateDraft({ tagsText: event.target.value })}
+              />
+            </label>
+            <label className="quick-add-field">
+              <span>重复</span>
+              <select
+                value={aiDraft.recurrence ?? ''}
+                aria-label="AI 重复"
+                onChange={(event) => updateDraft({ recurrence: event.target.value || null })}
+              >
+                {recurrenceChoices.map((choice) => (
+                  <option value={choice.value} key={choice.value || 'none'}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="quick-add-all-day">
+              <input
+                type="checkbox"
+                checked={aiDraft.allDay}
+                aria-label="AI 全天任务"
+                onChange={(event) =>
+                  updateDraft({
+                    allDay: event.target.checked,
+                    dueTime: event.target.checked ? '' : aiDraft.dueTime
+                  })
+                }
+              />
+              全天
+            </label>
+          </div>
+
+          <div className="quick-add-draft-footer">
+            <span className="quick-add-draft-note">
+              修改后点「添加」写库；取消后可继续用普通 Enter 按规则添加。
+            </span>
+            <button type="button" className="btn" onClick={cancelDraft}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!aiDraft.title.trim() || draftBusy}
+              onClick={() => void confirmDraft()}
+            >
+              {draftBusy ? '添加中…' : '添加'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {focused && !aiDraft && hasMeta ? (
         <div className="quick-add-preview">
           {parsed.dueDate ? (
             <span className="preview-chip">
@@ -186,7 +472,7 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
         </div>
       ) : null}
 
-      {focused ? (
+      {focused && !aiDraft ? (
         <div className="quick-add-hint">
           支持：明天下午 3 点 · 每周一 · #标签 · !高 · ~清单
           {settings.aiEnabled ? ' · Ctrl+Enter 用 AI 理解整句话' : ''}

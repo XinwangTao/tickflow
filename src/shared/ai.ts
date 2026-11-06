@@ -1,7 +1,7 @@
 import type { Priority, Settings, TaskStatus, TaskWithMeta } from './types'
 import type { QuickAddResult } from './quick-add'
 import { parseQuickAdd } from './quick-add'
-import { toDateKey } from './dates'
+import { normalizeDateKey, normalizeTime, toDateKey } from './dates'
 
 /** CC Switch 默认监听本机 Anthropic 兼容网关。 */
 export const AI_DEFAULT_BASE_URL = 'http://127.0.0.1:15721'
@@ -322,30 +322,6 @@ function normalizePriority(value: unknown): Priority {
     return PRIORITY_BY_TEXT[trimmed] ?? 0
   }
   return 0
-}
-
-function normalizeDateKey(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(value.trim())
-  if (!match) return null
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const date = new Date(year, month - 1, day)
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    return null
-  }
-  return `${year}-${pad2(month)}-${pad2(day)}`
-}
-
-function normalizeTime(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const match = /^(\d{1,2}):(\d{1,2})$/.exec(value.trim())
-  if (!match) return null
-  const hour = Number(match[1])
-  const minute = Number(match[2])
-  if (hour > 23 || minute > 59) return null
-  return `${pad2(hour)}:${pad2(minute)}`
 }
 
 function normalizeStringList(value: unknown, limit: number): string[] {

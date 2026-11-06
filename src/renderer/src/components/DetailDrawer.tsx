@@ -104,15 +104,6 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
     setAiBusy(true)
     try {
       const response = await window.api.ai.breakdownSubtasks(task.id)
-      if (!response.ok) {
-        showToast(
-          `AI 拆解不可用，已使用规则拆解${response.warning ? `：${response.warning}` : ''}`,
-          'info',
-          { duration: 7000, actionLabel: '重试', action: () => breakdown() }
-        )
-      } else if (response.warning) {
-        showToast(response.warning, 'info', { duration: 5000 })
-      }
       // 主进程已按数据库现有子任务过滤；这里再按当前面板状态兜底，
       // 避免连续点击或列表刚好刷新时写入重复子任务。
       const drafts = filterNewSubtasks(
@@ -120,16 +111,24 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
         [task.title, ...subtasks.map((item) => item.title)]
       )
       if (drafts.length === 0) {
-        showToast(
-          response.ok
-            ? '没有新的子任务可添加，可能已存在或内容不足'
-            : '没有可拆解的内容，请补充任务备注或手动添加子任务',
-          'info'
-        )
+        if (!response.ok) {
+          showToast(
+            `AI 拆解不可用，已使用规则拆解${response.warning ? `：${response.warning}` : ''}`,
+            'info',
+            { duration: 7000, actionLabel: '重试', action: () => breakdown() }
+          )
+        } else {
+          showToast(
+            response.warning ?? '没有新的子任务可添加，可能已存在或内容不足',
+            'info',
+            { duration: 5000 }
+          )
+        }
         return
       }
+      const createdIds: string[] = []
       for (const draft of drafts) {
-        await window.api.tasks.create({
+        const created = await window.api.tasks.create({
           listId: task.listId,
           parentId: task.id,
           title: draft.title,
@@ -138,9 +137,36 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
           dueTime: draft.dueTime,
           allDay: draft.allDay
         })
+        createdIds.push(created.id)
       }
       await load()
       await refresh()
+      if (createdIds.length > 0) {
+        // AI 拆解可能一次写入多条，撤销时一并移除刚创建的子任务。
+        showToast(
+          response.ok
+            ? `AI 已添加 ${createdIds.length} 个子任务`
+            : `AI 拆解不可用，已按规则添加 ${createdIds.length} 个子任务${
+                response.warning ? `：${response.warning}` : ''
+              }`,
+          response.ok ? 'success' : 'info',
+          {
+            actionLabel: '撤销',
+            duration: response.ok ? 6000 : 7000,
+            action: async () => {
+              try {
+                for (const id of createdIds) {
+                  await window.api.tasks.remove(id)
+                }
+                await load()
+                await refresh()
+              } catch (error) {
+                showToast(String(error), 'error')
+              }
+            }
+          }
+        )
+      }
     } catch (error) {
       showToast(`AI 拆解失败：${String(error)}`, 'error', { duration: 5000 })
     } finally {

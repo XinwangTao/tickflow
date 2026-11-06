@@ -655,6 +655,124 @@ input[type="checkbox"] {
   color: var(--accent);
 }
 
+/* ---------- AI 解析结果草稿 ---------- */
+
+.quick-add-draft {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quick-add-draft-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quick-add-draft-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.quick-add-draft-name {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+  outline: none;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 500;
+}
+
+.quick-add-draft-name:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.quick-add-draft-fields {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-add-field {
+  display: flex;
+  flex: 1 1 110px;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quick-add-field.grow {
+  flex: 2 1 180px;
+}
+
+.quick-add-field > span {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.quick-add-field input,
+.quick-add-field select {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+  outline: none;
+  font-size: 11px;
+}
+
+.quick-add-field input:focus,
+.quick-add-field select:focus {
+  border-color: var(--line-strong);
+}
+
+.quick-add-field input:disabled {
+  opacity: 0.45;
+}
+
+.quick-add-all-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.quick-add-draft-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.quick-add-draft-note {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 /* ---------- AI 今日总结 ---------- */
 
 .ai-summary-card {
