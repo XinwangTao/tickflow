@@ -14,6 +14,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
+    "test:ai": "vitest run tests/ai.test.ts tests/quick-add-regression.test.ts tests/quick-add.test.ts tests/quick-add-draft.test.ts tests/quick-add-ui.test.ts",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
     "dist": "npm run build && electron-builder --win"

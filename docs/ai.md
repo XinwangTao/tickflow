@@ -117,6 +117,11 @@ authorization: Bearer <aiToken，可选>
   会被清掉；日期、时间、重复等自然语言字段优先采用 AI 结果，但 AI 返回 null 漏掉时
   会用规则解析补齐。例如模型只返回标题「交周报」，用户输入中的「明天下午3点」仍会
   保留为截止日期与时间，不会被丢掉。
+- 本地规则解析同时补强了这些高频写法（AI 不可用时同样生效）：
+  `下个月15号` / `本月20号`、`2027年1月1日`、`下个星期天`、`10点到11点`
+  （取开始时间）、`每周一三五` / `每周二、周四`（多日 RRULE）、`每月最后一天`、
+  `3天后` / `2周后` / `3个月后`。`#工作，` 这类尾随标点、全角 `！高`，以及
+  `#工作!高~工作` 连写都能正确拆分；非法日期（如 `2026-02-30`）保持为标题而不是写库。
 
 提示词会带上当前时间、星期与全部可用清单名，并明确要求「只有输入中明确提到清单时才填写
 `listName`，不要根据任务内容猜测」，同时要求原样保留 `#标签` / `!优先级` / `~清单`
@@ -210,6 +215,7 @@ renderer 只是多等这一小会儿，不会因此重复创建任务：
 | `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口、批量添加后撤销 |
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片 |
 | `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试 |
+| `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：50+ 条规则用例 + AI 解析/归一化/合并用例 + 失败与请求契约 |
 
 验证命令：
 
@@ -222,9 +228,11 @@ npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败�
                          # 子任务过滤；失败分类与提示文案（超时秒数、服务地址、401/404/429/5xx）、
                          # 瞬时故障重试一次后成功、5xx 重试后仍失败、超时/404 不重试、
                          # maxAttempts=1 关闭重试、attempts 计数回报等路径；
+                         # tests/quick-add-regression.test.ts 覆盖快速添加准确率回归集（见 6.1）；
                          # tests/quick-add-draft.test.ts 覆盖 AI 结果草稿：清单名匹配、默认日期、
                          # 清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、空标题保护；
                          # tests/quick-add-ui.test.ts 覆盖「先展示草稿不写库 → 编辑后确认 → 撤销」与取消流程
+npm run test:ai          # 只跑 AI 相关测试：ai、快速添加回归集、规则解析、草稿与草稿 UI
 ```
 
 手工验证 AI 连通性：设置页点击「测试连接」，或执行：
@@ -235,6 +243,28 @@ curl -s http://127.0.0.1:15721/v1/messages \
   -H "anthropic-version: 2023-06-01" \
   -d '{"model":"ccs-claude-openai--ccs-claude-openai-2--glm-5.3-flash","max_tokens":768,"messages":[{"role":"user","content":"Reply with exactly: OK"}]}'
 ```
+
+### 6.1 快速添加准确率回归集
+
+`tests/quick-add-regression.test.ts` 把“用户输入 → 最终落库字段”固化成可重复执行的回归集，
+所有用例固定在同一时刻 `2026-11-05 周四 09:00`，避免相对日期随时钟漂移。
+
+- **规则用例（50+ 条）**：覆盖相对日期、星期、跨年、月日、时间区间、重复、显式标签/
+  优先级/清单、纯标题与非法日期。每条都精确断言 `title`、`priority`、`tags`、`listName`、
+  `dueDate`、`dueTime`、`allDay`、`recurrence` 全部字段，未写出的字段按默认值比较，
+  不会出现“只校验标题”的宽松通过。
+- **AI 合并用例（16 条）**：用假 fetch 返回贴近真实模型的输出，覆盖 Markdown 代码块与
+  前后解释、模型只返回标题、漏日期/时间/重复、没提清单却猜清单、显式提到清单、
+  非法日期/时间/优先级、标题残留显式标记、字符串优先级、OpenAI `choices` 响应、
+  AI 日期优先于规则等场景，断言合并后的最终结果。
+- **失败与重试**：非法 JSON、JSON 缺 title、只有 thinking 被 `max_tokens` 截断、401 不重试、
+  500 重试一次后成功、连接失败重试后仍失败、超时提示秒数且不重试、空输入与关闭 AI
+  不发请求，同时校验 `attempts` 计数。
+- **请求契约**：只请求 `http://127.0.0.1:15721/v1/messages`，请求体 `model` 必须与默认
+  模型 ID 逐字一致，`max_tokens` 使用快速添加预算，Token 为空时不发送 `authorization`。
+
+新增解析能力时先在 `RULE_CASES` / `AI_CASES` 补一条用例，再改实现；日常可用
+`npm run test:ai` 只跑 AI 相关测试。
 
 ## 7. 隐私与边界
 
