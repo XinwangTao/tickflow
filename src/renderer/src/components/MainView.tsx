@@ -1,24 +1,42 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import type { ViewKey } from '@shared/types'
 import { todayKey } from '@shared/dates'
 import { useAppStore } from '../store/useAppStore'
 import { AiDailySummary } from './AiDailySummary'
 import { BatchBar } from './BatchBar'
-import { BoardView } from './BoardView'
-import { CalendarView } from './CalendarView'
 import { ConfirmDialog } from './ConfirmDialog'
 import { EmptyState } from './EmptyState'
-import { HabitsView } from './HabitsView'
 import { Icon } from './Icon'
-import { MatrixView } from './MatrixView'
-import { PomodoroView } from './PomodoroView'
 import { QuickAdd } from './QuickAdd'
-import { StatsView } from './StatsView'
 import { TaskList } from './TaskList'
-import { TemplatesView } from './TemplatesView'
-import { TimelineView } from './TimelineView'
 import { ViewOptionsMenu } from './ViewOptionsMenu'
 import { ViewSwitcher } from './ViewSwitcher'
+
+// 非首屏视图按需加载，避免日历/看板/统计等重组件拖慢启动。
+const BoardView = lazy(() =>
+  import('./BoardView').then((module) => ({ default: module.BoardView }))
+)
+const CalendarView = lazy(() =>
+  import('./CalendarView').then((module) => ({ default: module.CalendarView }))
+)
+const HabitsView = lazy(() =>
+  import('./HabitsView').then((module) => ({ default: module.HabitsView }))
+)
+const MatrixView = lazy(() =>
+  import('./MatrixView').then((module) => ({ default: module.MatrixView }))
+)
+const PomodoroView = lazy(() =>
+  import('./PomodoroView').then((module) => ({ default: module.PomodoroView }))
+)
+const StatsView = lazy(() =>
+  import('./StatsView').then((module) => ({ default: module.StatsView }))
+)
+const TemplatesView = lazy(() =>
+  import('./TemplatesView').then((module) => ({ default: module.TemplatesView }))
+)
+const TimelineView = lazy(() =>
+  import('./TimelineView').then((module) => ({ default: module.TimelineView }))
+)
 
 function titleFor(
   view: ViewKey,
@@ -71,6 +89,22 @@ function headerDate(): string {
   } catch {
     return ''
   }
+}
+
+function ViewFallback(): React.ReactNode {
+  return (
+    <div className="skeleton-list" aria-label="正在加载视图">
+      {[0, 1, 2].map((index) => (
+        <div className="skeleton-row" key={index}>
+          <span className="skeleton-check" />
+          <span className="skeleton-lines">
+            <span className="skeleton-line w1" />
+            <span className="skeleton-line w2" />
+          </span>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export function MainView(): React.ReactNode {
@@ -186,6 +220,7 @@ export function MainView(): React.ReactNode {
       </header>
 
       <div className="main-scroll">
+        <Suspense fallback={<ViewFallback />}>
         {isCalendar ? (
           <CalendarView
             tasks={tasks}
@@ -247,6 +282,7 @@ export function MainView(): React.ReactNode {
             )}
           </>
         )}
+        </Suspense>
       </div>
 
       <BatchBar />

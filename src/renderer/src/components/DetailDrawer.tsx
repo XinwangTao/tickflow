@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
 import type { Attachment, Priority, Reminder, TaskWithMeta } from '@shared/types'
 import { AI_CANCELED_SUBTASKS_HINT, filterNewSubtasks, type AiSubtaskDraft } from '@shared/ai'
 import {
@@ -653,7 +652,11 @@ function Attachments({ task }: { task: TaskWithMeta }): React.ReactNode {
   )
 }
 
-export function DetailDrawer(): React.ReactNode {
+export function DetailDrawer({
+  closing = false
+}: {
+  closing?: boolean
+}): React.ReactNode {
   const task = useAppStore((state) => state.detailTask)
   const lists = useAppStore((state) => state.lists)
   const updateTask = useAppStore((state) => state.updateTask)
@@ -683,15 +686,9 @@ export function DetailDrawer(): React.ReactNode {
 
   if (!task) {
     return (
-      <motion.aside
-        className="detail-drawer"
-        initial={{ x: 24, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        exit={{ x: 24, opacity: 0 }}
-        transition={{ duration: 0.16, ease: 'easeOut' }}
-      >
+      <aside className={`detail-drawer${closing ? ' closing' : ''}`}>
         <div className="detail-loading">加载任务…</div>
-      </motion.aside>
+      </aside>
     )
   }
 
@@ -732,12 +729,8 @@ export function DetailDrawer(): React.ReactNode {
   }
 
   return (
-    <motion.aside
-      className="detail-drawer"
-      initial={{ x: 28, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: 28, opacity: 0 }}
-      transition={{ duration: 0.18, ease: 'easeOut' }}
+    <aside
+      className={`detail-drawer${closing ? ' closing' : ''}`}
       aria-label="任务详情"
     >
       <div className="detail-header">
@@ -1018,6 +1011,6 @@ export function DetailDrawer(): React.ReactNode {
           </div>
         </Modal>
       ) : null}
-    </motion.aside>
+    </aside>
   )
 }

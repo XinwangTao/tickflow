@@ -1256,6 +1256,34 @@ input[type="checkbox"] {
   background: var(--panel);
   border-left: 1px solid var(--line-strong);
   box-shadow: -18px 0 40px rgba(0, 0, 0, 0.18);
+  animation: drawerIn 160ms ease-out;
+}
+
+.detail-drawer.closing {
+  animation: drawerOut 170ms ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes drawerIn {
+  from {
+    transform: translateX(28px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes drawerOut {
+  from {
+    transform: none;
+    opacity: 1;
+  }
+  to {
+    transform: translateX(28px);
+    opacity: 0;
+  }
 }
 
 .detail-header {

@@ -1,16 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
-import { AnimatePresence } from 'framer-motion'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useAppStore } from './store/useAppStore'
 import { TitleBar } from './components/TitleBar'
 import { IconRail } from './components/IconRail'
 import { Sidebar } from './components/Sidebar'
 import { MainView } from './components/MainView'
 import { DetailDrawer } from './components/DetailDrawer'
-import { SearchOverlay } from './components/SearchOverlay'
-import { SettingsDialog } from './components/SettingsDialog'
-import { ShortcutHelp } from './components/ShortcutHelp'
 import { NewListDialog } from './components/NewListDialog'
 import { Toast } from './components/Toast'
+
+// 弹层按需加载：搜索、设置、快捷键帮助不参与首屏。
+const SearchOverlay = lazy(() =>
+  import('./components/SearchOverlay').then((module) => ({ default: module.SearchOverlay }))
+)
+const SettingsDialog = lazy(() =>
+  import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog }))
+)
+const ShortcutHelp = lazy(() =>
+  import('./components/ShortcutHelp').then((module) => ({ default: module.ShortcutHelp }))
+)
 
 function Splash(): React.ReactNode {
   return (
@@ -47,6 +54,8 @@ export default function App(): React.ReactNode {
   const showToast = useAppStore((state) => state.showToast)
 
   const booted = useRef(false)
+  const [detailMounted, setDetailMounted] = useState(false)
+  const [detailClosing, setDetailClosing] = useState(false)
   const [systemDark, setSystemDark] = useState(
     () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true
   )
@@ -56,6 +65,21 @@ export default function App(): React.ReactNode {
     booted.current = true
     void bootstrap()
   }, [bootstrap])
+
+  useEffect(() => {
+    if (detailId) {
+      setDetailMounted(true)
+      setDetailClosing(false)
+      return
+    }
+    if (!detailMounted) return
+    setDetailClosing(true)
+    const timer = window.setTimeout(() => {
+      setDetailClosing(false)
+      setDetailMounted(false)
+    }, 170)
+    return () => window.clearTimeout(timer)
+  }, [detailId, detailMounted])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -166,13 +190,23 @@ export default function App(): React.ReactNode {
         <MainView />
       </div>
 
-      <AnimatePresence>
-        {detailId ? <DetailDrawer key="detail" /> : null}
-      </AnimatePresence>
-      {searchOpen ? <SearchOverlay /> : null}
-      {settingsOpen ? <SettingsDialog /> : null}
+      {detailMounted ? <DetailDrawer closing={detailClosing} /> : null}
+      {searchOpen ? (
+        <Suspense fallback={null}>
+          <SearchOverlay />
+        </Suspense>
+      ) : null}
+      {settingsOpen ? (
+        <Suspense fallback={null}>
+          <SettingsDialog />
+        </Suspense>
+      ) : null}
       {newListOpen ? <NewListDialog /> : null}
-      {shortcutHelpOpen ? <ShortcutHelp onClose={() => setShortcutHelpOpen(false)} /> : null}
+      {shortcutHelpOpen ? (
+        <Suspense fallback={null}>
+          <ShortcutHelp onClose={() => setShortcutHelpOpen(false)} />
+        </Suspense>
+      ) : null}
       <Toast />
     </div>
   )
