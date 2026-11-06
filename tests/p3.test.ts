@@ -60,7 +60,8 @@ describe('P3 habits', () => {
 
 describe('P3 pomodoro', () => {
   it('记录并查询专注会话', () => {
-    const now = new Date()
+    // 固定中午，避免在 23:30 之后跑测试时 +30 分钟跨到第二天、会话落在查询范围外。
+    const now = new Date(2026, 10, 5, 9, 0, 0)
     const from = new Date(now)
     from.setHours(0, 0, 0, 0)
     const to = new Date(now)
