@@ -101,4 +101,13 @@ describe('parseQuickAdd', () => {
       'FREQ=WEEKLY;BYDAY=MO,WE,FR'
     )
   })
+
+  it('语音转写文本能直接落成任务', () => {
+    // 这条是 Vosk 真实转写结果，用来保证语音入口的语义解析不退化
+    const result = parseQuickAdd('每三天浇一次花明天下午三点提醒我', NOW)
+    expect(result.recurrence).toBe('FREQ=DAILY;INTERVAL=3')
+    expect(result.dueDate).toBe('2026-11-06')
+    expect(result.dueTime).toBe('15:00')
+    expect(result.title).toContain('浇')
+  })
 })

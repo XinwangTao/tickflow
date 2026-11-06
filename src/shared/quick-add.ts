@@ -403,6 +403,23 @@ function formatParsedTime(period: string, hour: number, minute: number): string 
 const TIME_PERIOD = '(上午|早上|早晨|凌晨|中午|下午|傍晚|晚上|夜里)'
 const TIME_COMPACT = '(?:[:：]\\s*(\\d{2})|点\\s*(?:(半)|(\\d{1,2})\\s*分?)?)'
 
+/**
+ * 语音输入（Vosk）会把「下午三点」转成中文数字，规则解析只认阿拉伯数字，
+ * 所以先只针对钟点位置做替换：跟「点/时/分」相邻的中文数字才翻译，
+ * 避免把标题里的「第一天」「一起」之类改坏。
+ */
+function normalizeClockNumerals(text: string): string {
+  return text
+    .replace(/([一二两三四五六七八九十]{1,3})\s*(?=[点时])/g, (full, token: string) => {
+      const value = parseCnCount(token)
+      return value === null ? full : String(value)
+    })
+    .replace(/([一二两三四五六七八九十]{1,3})\s*分/g, (full, token: string) => {
+      const value = parseCnCount(token)
+      return value === null ? full : `${value}分`
+    })
+}
+
 function parseTime(text: string): TimeParse {
   // “10点到11点”“15:30-16:30”只把开始时间作为截止时间，
   // 但要把整个区间从标题里消费掉，避免标题残留“到11点”。
@@ -483,7 +500,7 @@ export function parseQuickAdd(input: string, now: Date = new Date()): QuickAddRe
   const dateParse = parseDate(rest, base)
   if (dateParse.matched) rest = rest.replace(dateParse.matched, ' ')
 
-  const timeParse = parseTime(rest)
+  const timeParse = parseTime(normalizeClockNumerals(rest))
   if (timeParse.matched) rest = rest.replace(timeParse.matched, ' ')
 
   let date = dateParse.date
