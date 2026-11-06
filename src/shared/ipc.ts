@@ -17,6 +17,8 @@ import type {
   CreateTemplateInput,
   CustomFilter,
   Habit,
+  HabitReminder,
+  HabitReminderWithHabit,
   HabitWithStats,
   ImportCounts,
   ListWithCount,
@@ -70,6 +72,7 @@ export const IPC = {
   remindersCreate: 'reminders:create',
   remindersRemove: 'reminders:remove',
   remindersMissedEvent: 'reminders:missed',
+  remindersHabitFiredEvent: 'reminders:habits-fired',
   attachmentsList: 'attachments:list',
   attachmentsAdd: 'attachments:add',
   attachmentsOpen: 'attachments:open',
@@ -79,6 +82,8 @@ export const IPC = {
   habitsUpdate: 'habits:update',
   habitsRemove: 'habits:remove',
   habitsToggle: 'habits:toggle',
+  habitRemindersGet: 'habit-reminders:get',
+  habitRemindersSet: 'habit-reminders:set',
   pomodoroCreate: 'pomodoro:create',
   pomodoroList: 'pomodoro:list',
   statsOverview: 'stats:overview',
@@ -92,10 +97,12 @@ export const IPC = {
   filtersDelete: 'filters:delete',
   syncTest: 'sync:test',
   syncNow: 'sync:now',
+  syncUsage: 'sync:usage',
   syncResultEvent: 'sync:result',
   dataExport: 'data:export',
   dataImport: 'data:import',
   dataOpenDir: 'data:open-dir',
+  dataOpenBackupDir: 'data:open-backup-dir',
   dataBackup: 'data:backup',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
@@ -104,7 +111,8 @@ export const IPC = {
   aiSubtasks: 'ai:subtasks',
   aiSummary: 'ai:summary',
   aiModels: 'ai:models',
-  aiTest: 'ai:test'
+  aiTest: 'ai:test',
+  aiTranscribe: 'ai:transcribe'
 } as const
 
 export interface TickFlowApi {
@@ -149,6 +157,7 @@ export interface TickFlowApi {
     create(taskId: string, triggerAt: string): Promise<Reminder>
     remove(id: string): Promise<void>
     onMissed(callback: (items: ReminderWithTask[]) => void): () => void
+    onHabitFired(callback: (items: HabitReminderWithHabit[]) => void): () => void
   }
   attachments: {
     list(taskId: string): Promise<Attachment[]>
@@ -162,6 +171,10 @@ export interface TickFlowApi {
     update(id: string, patch: UpdateHabitInput): Promise<Habit>
     remove(id: string): Promise<void>
     toggle(habitId: string, date: string): Promise<void>
+  }
+  habitReminders: {
+    get(habitId: string): Promise<HabitReminder | null>
+    set(habitId: string, time: string | null): Promise<HabitReminder | null>
   }
   pomodoro: {
     create(input: PomodoroInput): Promise<PomodoroSession>
@@ -185,12 +198,14 @@ export interface TickFlowApi {
   sync: {
     test(): Promise<SyncResult>
     now(): Promise<SyncResult>
+    usage(): Promise<{ objects: number; bytes: number }>
     onResult(callback: (result: SyncResult) => void): () => void
   }
   data: {
     export(format: 'json' | 'csv' | 'ics'): Promise<{ canceled: boolean; path?: string }>
     importJson(): Promise<{ canceled: boolean; counts?: ImportCounts }>
     openDir(): Promise<string>
+    openBackupDir(): Promise<string>
     backup(): Promise<string>
   }
   settings: {
@@ -205,7 +220,9 @@ export interface TickFlowApi {
     breakdownSubtasks(taskId: string, requestId?: string): Promise<AiSubtasksResponse>
     /** requestId 同样可传给 `cancel`，用于在超时前主动中止总结或拆解。 */
     dailySummary(requestId?: string): Promise<AiSummaryResponse>
-    models(): Promise<AiModelsResult>
+    models(requestId?: string): Promise<AiModelsResult>
     test(): Promise<AiTestResult>
+    /** 离线语音转写：传入录音字节，返回识别文本（失败时给一句人话）。 */
+    transcribe(audio: ArrayBuffer): Promise<{ text?: string; error?: string }>
   }
 }

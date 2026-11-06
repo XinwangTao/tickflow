@@ -186,16 +186,19 @@ select {
 }
 
 .task-check {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   flex: none;
-  margin-top: 1px;
+  margin-top: -2px;
   border: 1.8px solid var(--line-strong);
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: transparent;
+  touch-action: manipulation;
+  position: relative;
+  z-index: 1;
 }
 
 .task-check.checked {
@@ -1170,12 +1173,12 @@ select.input {
   align-items: flex-end;
   overflow: hidden;
   border-radius: 6px;
-  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
 }
 
 .stat-bar {
   width: 100%;
-  min-height: 4px;
+  min-height: 0;
   border-radius: 6px;
 }
 
@@ -1344,4 +1347,19 @@ select.input {
   width: 32px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- mobile backup ---------- */
+
+.backup-textarea {
+  width: 100%;
+  min-height: 180px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--input);
+  outline: none;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  resize: vertical;
 }

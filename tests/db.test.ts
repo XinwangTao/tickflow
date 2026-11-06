@@ -14,7 +14,13 @@ import {
   updateTask
 } from '../src/main/db/tasks'
 import { listTags } from '../src/main/db/tags'
-import { getSettings, setSettings } from '../src/main/db/settings'
+import {
+  getSettings,
+  isSealedSecret,
+  listExportableSettings,
+  setSecretCodec,
+  setSettings
+} from '../src/main/db/settings'
 import { todayKey } from '../src/shared/dates'
 
 let db: DatabaseSync
@@ -39,8 +45,52 @@ describe('database', () => {
     const settings = getSettings(db)
     expect(settings.theme).toBe('dark')
     expect(settings.showCompleted).toBe(false)
-    expect(setSettings(db, { theme: 'light', showCompleted: true }).theme).toBe('light')
+    expect(settings.autoLaunch).toBe(false)
+    expect(settings.startMinimized).toBe(false)
+    const updated = setSettings(db, {
+      theme: 'light',
+      showCompleted: true,
+      autoLaunch: true,
+      startMinimized: true
+    })
+    expect(updated.theme).toBe('light')
     expect(getSettings(db).showCompleted).toBe(true)
+    expect(getSettings(db).autoLaunch).toBe(true)
+    expect(getSettings(db).startMinimized).toBe(true)
+  })
+
+  it('导出设置时剔除 R2 与 AI 凭据', () => {
+    setSettings(db, {
+      theme: 'light',
+      r2AccessKeyId: 'access-key',
+      r2SecretAccessKey: 'secret-key',
+      aiToken: 'ai-token'
+    })
+    const exported = listExportableSettings(db)
+    const keys = exported.map((row) => row.key)
+    expect(keys).not.toContain('r2AccessKeyId')
+    expect(keys).not.toContain('r2SecretAccessKey')
+    expect(keys).not.toContain('aiToken')
+    expect(keys).toContain('theme')
+  })
+
+  it('敏感设置加密落库并可解密读取', () => {
+    setSecretCodec({
+      seal: (value) => `enc:v1:${Buffer.from(value).toString('base64')}`,
+      open: (value) => Buffer.from(value.slice('enc:v1:'.length), 'base64').toString()
+    })
+    try {
+      setSettings(db, { r2SecretAccessKey: 'secret-key', aiToken: 'ai-token' })
+      expect(getSettings(db).r2SecretAccessKey).toBe('secret-key')
+      expect(getSettings(db).aiToken).toBe('ai-token')
+      const raw = db
+        .prepare("SELECT value FROM settings WHERE key = 'r2SecretAccessKey'")
+        .get() as { value: string }
+      expect(isSealedSecret(raw.value)).toBe(true)
+      expect(raw.value).not.toContain('secret-key')
+    } finally {
+      setSecretCodec(null)
+    }
   })
 
   it('创建清单并统计未完成任务', () => {

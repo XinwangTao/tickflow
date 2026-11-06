@@ -429,7 +429,7 @@ function StatsPanel(): ReactNode {
               <div className="stat-bar-track">
                 <div
                   className="stat-bar"
-                  style={{ height: `${Math.max(4, (day.completed / maxCompleted) * 100)}%`, background: 'var(--low)' }}
+                  style={{ height: day.completed > 0 ? `${Math.max(4, (day.completed / maxCompleted) * 100)}%` : '0%', background: 'var(--low)' }}
                 />
               </div>
               <span className="stat-day">{week[new Date(`${day.date}T00:00:00`).getDay()]}</span>
@@ -451,7 +451,7 @@ function StatsPanel(): ReactNode {
                 <div
                   className="stat-bar"
                   style={{
-                    height: `${Math.max(4, (day.focusMinutes / maxFocus) * 100)}%`,
+                    height: day.focusMinutes > 0 ? `${Math.max(4, (day.focusMinutes / maxFocus) * 100)}%` : '0%',
                     background: 'var(--chart-2)'
                   }}
                 />

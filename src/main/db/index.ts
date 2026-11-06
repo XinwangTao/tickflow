@@ -8,8 +8,12 @@ import { ensureInbox } from './lists'
 let db: DatabaseSync | null = null
 let dataDir = ''
 
+export function getBackupDir(): string {
+  return join(app.getPath('userData'), 'backups')
+}
+
 function writeBackup(instance: DatabaseSync): string {
-  const backupDir = join(app.getPath('userData'), 'backups')
+  const backupDir = getBackupDir()
   mkdirSync(backupDir, { recursive: true })
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const target = join(backupDir, `tickflow-${stamp}.db`)

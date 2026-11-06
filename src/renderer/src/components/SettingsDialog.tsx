@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AppInfo } from '@shared/types'
 import {
+  AI_CANCELED_MODELS_HINT,
   AI_DEFAULT_BASE_URL,
   AI_DEFAULT_MODEL,
   AI_DEFAULT_TIMEOUT_MS,
@@ -47,11 +48,41 @@ export function SettingsDialog(): React.ReactNode {
     timeoutMs: String(settings.aiTimeoutMs)
   })
   const [aiTesting, setAiTesting] = useState(false)
+  const [usage, setUsage] = useState<{ objects: number; bytes: number } | null>(null)
+  const [usageBusy, setUsageBusy] = useState(false)
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([])
   const [aiModelsBusy, setAiModelsBusy] = useState(false)
+  const [aiModelsElapsed, setAiModelsElapsed] = useState(0)
+  // 模型目录请求与快速添加共用 ai:cancel 注册表：设置页关闭时也要中止，别在后台跑满超时。
+  const modelsRequestSeq = useRef(0)
+  const activeModelsRequest = useRef<string | null>(null)
 
   useEffect(() => {
     void window.api.app.info().then(setInfo)
+  }, [])
+
+  // 请求期间显示已等待秒数，和快速添加/今日总结保持一致。
+  useEffect(() => {
+    if (!aiModelsBusy) {
+      setAiModelsElapsed(0)
+      return
+    }
+    const timer = setInterval(() => setAiModelsElapsed((seconds) => seconds + 1), 1000)
+    return () => clearInterval(timer)
+  }, [aiModelsBusy])
+
+  // 关闭设置页（组件卸载）时中止模型目录请求，避免摘下界面后还在后台等超时。
+  useEffect(() => {
+    return () => {
+      const active = activeModelsRequest.current
+      if (!active) return
+      activeModelsRequest.current = null
+      try {
+        void window.api.ai.cancel(active).catch(() => undefined)
+      } catch {
+        // 旧 preload 或测试桩没有 cancel 时忽略，不影响关闭设置页。
+      }
+    }
   }, [])
 
   const saveSync = async (): Promise<void> => {
@@ -76,6 +107,18 @@ export function SettingsDialog(): React.ReactNode {
     const result = await window.api.sync.now()
     showToast(result.message, result.ok ? 'success' : 'error', { duration: 6000 })
     if (result.ok) await setSettings({})
+  }
+
+  const checkUsage = async (): Promise<void> => {
+    await saveSync()
+    setUsageBusy(true)
+    try {
+      setUsage(await window.api.sync.usage())
+    } catch (error) {
+      showToast(String(error), 'error', { duration: 6000 })
+    } finally {
+      setUsageBusy(false)
+    }
   }
 
   const saveAi = async (): Promise<void> => {
@@ -106,17 +149,54 @@ export function SettingsDialog(): React.ReactNode {
   }
 
   const loadAiModels = async (): Promise<void> => {
+    if (activeModelsRequest.current) return
     await saveAi()
+    const requestId = `models-${(modelsRequestSeq.current += 1)}`
+    activeModelsRequest.current = requestId
     setAiModelsBusy(true)
     try {
-      const result = await window.api.ai.models()
-      if (result.ok) setAiModels(result.models)
-      showToast(result.message, result.ok ? 'success' : 'error', { duration: 6000 })
+      const result = await window.api.ai.models(requestId)
+      // 已取消（或已被新请求取代）：迟到的目录不再展示，也不弹失败提示。
+      if (activeModelsRequest.current !== requestId) return
+      if (result.ok) {
+        setAiModels(result.models)
+        showToast(result.message, 'success', { duration: 6000 })
+        return
+      }
+      if (result.message === AI_CANCELED_MODELS_HINT) return
+      showToast(result.message, 'error', {
+        duration: 7000,
+        actionLabel: '重试',
+        action: () => loadAiModels()
+      })
     } catch (error) {
-      showToast(`获取模型列表失败：${String(error)}`, 'error', { duration: 6000 })
+      if (activeModelsRequest.current !== requestId) return
+      showToast(`获取模型列表失败：${String(error)}`, 'error', {
+        duration: 7000,
+        actionLabel: '重试',
+        action: () => loadAiModels()
+      })
     } finally {
-      setAiModelsBusy(false)
+      if (activeModelsRequest.current === requestId) {
+        activeModelsRequest.current = null
+        setAiModelsBusy(false)
+      }
     }
+  }
+
+  /** 取消进行中的目录请求：与失败不同，不弹重试入口，当前已选模型保持不变。 */
+  const cancelLoadAiModels = (): void => {
+    const active = activeModelsRequest.current
+    if (!active) return
+    activeModelsRequest.current = null
+    setAiModelsBusy(false)
+    setAiModelsElapsed(0)
+    try {
+      void window.api.ai.cancel(active).catch(() => undefined)
+    } catch {
+      // 与卸载清理一致：没有 cancel 能力时不影响按钮复位。
+    }
+    showToast(`${AI_CANCELED_MODELS_HINT}，当前模型配置未改变`, 'info')
   }
 
   const copyCors = async (): Promise<void> => {
@@ -166,6 +246,14 @@ export function SettingsDialog(): React.ReactNode {
   const handleOpenDataDir = async (): Promise<void> => {
     try {
       await window.api.data.openDir()
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const handleOpenBackupDir = async (): Promise<void> => {
+    try {
+      await window.api.data.openBackupDir()
     } catch (error) {
       showToast(String(error), 'error')
     }
@@ -236,6 +324,31 @@ export function SettingsDialog(): React.ReactNode {
             <span />
           </button>
         </div>
+        <div className="settings-row">
+          <span className="settings-label">开机自启</span>
+          <button
+            type="button"
+            className={`switch ${settings.autoLaunch ? 'on' : ''}`}
+            role="switch"
+            aria-checked={settings.autoLaunch}
+            onClick={() => void setSettings({ autoLaunch: !settings.autoLaunch })}
+          >
+            <span />
+          </button>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">启动时最小化</span>
+          <button
+            type="button"
+            className={`switch ${settings.startMinimized ? 'on' : ''}`}
+            role="switch"
+            aria-checked={settings.startMinimized}
+            onClick={() => void setSettings({ startMinimized: !settings.startMinimized })}
+          >
+            <span />
+          </button>
+        </div>
+        <p className="settings-note">仅安装版生效；开发模式不会写入系统启动项。</p>
         <div className="settings-row">
           <span className="settings-label">每周起始日</span>
           <div className="segmented">
@@ -375,10 +488,26 @@ export function SettingsDialog(): React.ReactNode {
             type="button"
             className="btn"
             disabled={aiModelsBusy}
+            title={`从本机 ${AI_DEFAULT_BASE_URL} 读取 /v1/models；超时会自动回落，不必等待`}
             onClick={() => void loadAiModels()}
           >
-            {aiModelsBusy ? '获取中…' : '获取模型列表'}
+            {aiModelsBusy
+              ? aiModelsElapsed > 0
+                ? `获取中 ${aiModelsElapsed}s`
+                : '获取中…'
+              : '获取模型列表'}
           </button>
+          {aiModelsBusy ? (
+            <button
+              type="button"
+              className="btn"
+              title="取消本次模型目录请求"
+              aria-label="取消获取模型列表"
+              onClick={cancelLoadAiModels}
+            >
+              取消
+            </button>
+          ) : null}
         </div>
         <p className="settings-note">
           默认连接本机 CC Switch（{AI_DEFAULT_BASE_URL}）。模型名需与 /v1/models 返回的 id
@@ -401,11 +530,17 @@ export function SettingsDialog(): React.ReactNode {
             <button type="button" className="btn" onClick={() => void handleOpenDataDir()}>
               打开数据目录
             </button>
+            <button type="button" className="btn" onClick={() => void handleOpenBackupDir()}>
+              打开备份目录
+            </button>
             <button type="button" className="btn" onClick={() => void handleBackup()}>
               立即备份
             </button>
           </div>
         </div>
+        <p className="settings-note">
+          升级加密存储前的旧备份可能含明文密钥；确认新版本同步正常后，可清理备份目录里的旧文件。
+        </p>
         <div className="settings-row">
           <span className="settings-label">导出</span>
           <div className="settings-actions">
@@ -501,12 +636,28 @@ export function SettingsDialog(): React.ReactNode {
           <button type="button" className="btn btn-primary" onClick={() => void runSync()}>
             立即同步
           </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={usageBusy}
+            onClick={() => void checkUsage()}
+          >
+            {usageBusy ? '查询中…' : '查看用量'}
+          </button>
         </div>
         <p className="settings-note">
           上次同步：
           {settings.r2LastSync ? formatDateTime(settings.r2LastSync) : '从未'}。
           R2 密钥保存在本机数据库，建议使用仅限该桶的 API Token。
         </p>
+        <p className="settings-note">
+          仅同步清单与任务；每台设备覆盖写一份快照，单份上限 5 MiB，正常使用远低于 R2 免费额度。
+        </p>
+        {usage ? (
+          <p className="settings-note">
+            云端 {usage.objects} 份快照 · {(usage.bytes / 1024).toFixed(1)} KB（R2 免费额度 10GB、每月 100 万 Class A / 1000 万 Class B）
+          </p>
+        ) : null}
         <p className="settings-note">
           Android 端需要给 R2 桶配置 CORS（允许 https://localhost）。
           <button type="button" className="btn sync-copy" onClick={() => void copyCors()}>

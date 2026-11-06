@@ -252,6 +252,18 @@ export async function testSync(db: DatabaseSync): Promise<SyncResult> {
   }
 }
 
+export async function getSyncUsage(
+  db: DatabaseSync
+): Promise<{ objects: number; bytes: number }> {
+  const config = getSyncConfig(db)
+  if (!isSyncConfigured(config)) throw new Error('请先填写完整的 R2 配置')
+  const objects = await new R2Client(config).listObjects()
+  return {
+    objects: objects.length,
+    bytes: objects.reduce((sum, object) => sum + object.size, 0)
+  }
+}
+
 export async function syncNow(db: DatabaseSync): Promise<SyncResult> {
   const config = getSyncConfig(db)
   if (!isSyncConfigured(config)) {
@@ -259,13 +271,14 @@ export async function syncNow(db: DatabaseSync): Promise<SyncResult> {
   }
   try {
     const local = buildSnapshot(db)
-    const { snapshot, downloaded } = await syncWithR2(local, config)
+    const { snapshot, downloaded, bytes } = await syncWithR2(local, config)
     const counts = applySnapshot(db, snapshot)
     setSettings(db, { r2LastSync: nowIso() })
     return {
       ok: true,
-      message: `同步完成：${counts.tasks} 个任务、${counts.lists} 个清单（下载 ${downloaded} 份快照）`,
+      message: `同步完成：${counts.tasks} 个任务、${counts.lists} 个清单（下载 ${downloaded} 份快照，上传 ${(bytes / 1024).toFixed(1)} KB）`,
       downloaded,
+      bytes,
       updatedAt: snapshot.updatedAt
     }
   } catch (error) {

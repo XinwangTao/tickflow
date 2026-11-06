@@ -77,6 +77,18 @@ export default function App(): React.ReactNode {
   }, [showToast])
 
   useEffect(() => {
+    return window.api.reminders.onHabitFired((items) => {
+      if (items.length === 0) return
+      const names = items
+        .slice(0, 3)
+        .map((item) => item.habitName)
+        .join('、')
+      const suffix = items.length > 3 ? ' 等' : ''
+      showToast(`习惯提醒：${names}${suffix}`, 'info', { duration: 6000 })
+    })
+  }, [showToast])
+
+  useEffect(() => {
     return window.api.app.onQuickAdd(() => {
       void useAppStore.getState().selectView('today').then(() => {
         useAppStore.getState().focusQuickAdd()

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Reminder, ReminderCenterData, ReminderWithTask } from '@shared/types'
 import { uuidv7 } from '@shared/uuid'
 import { logChange } from './change-log'
+import { listHabitReminderCenter } from './habit-reminders'
 import { getDeviceId, nowIso } from './util'
 
 interface ReminderRow {
@@ -122,7 +123,8 @@ export function listReminderCenter(
 
   return {
     upcoming: upcomingRows.map(toItem),
-    recent: recentRows.map(toItem)
+    recent: recentRows.map(toItem),
+    ...listHabitReminderCenter(db, now)
   }
 }
 

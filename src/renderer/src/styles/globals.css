@@ -626,6 +626,39 @@ input[type="checkbox"] {
   color: var(--muted);
 }
 
+.quick-add-mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.quick-add-mic:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+}
+
+.quick-add-mic.recording {
+  color: #fff;
+  border-color: #e5484d;
+  background: #e5484d;
+  animation: quick-add-mic-pulse 1.2s ease-in-out infinite;
+}
+
+.quick-add-mic:disabled { opacity: 0.55; cursor: default; }
+
+@keyframes quick-add-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.45); }
+  50% { box-shadow: 0 0 0 5px rgba(229, 72, 77, 0); }
+}
+
 .quick-add-ai {
   display: inline-flex;
   align-items: center;
@@ -3843,12 +3876,12 @@ kbd {
   align-items: flex-end;
   overflow: hidden;
   border-radius: 4px;
-  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
 }
 
 .focus-bar {
   width: 100%;
-  min-height: 3px;
+  min-height: 0;
   border-radius: 4px 4px 0 0;
   background: var(--chart-1);
   transition: height 0.2s ease;
@@ -3887,4 +3920,59 @@ kbd {
 .focus-table th {
   color: var(--muted);
   font-weight: 500;
+}
+
+.notification-row.clickable {
+  width: 100%;
+  text-align: left;
+}
+
+.habit-reminder-row {
+  display: flex;
+  gap: 8px;
+}
+
+.habit-reminder-row .input {
+  flex: 1;
+}
+
+/* ---------- about dialog ---------- */
+
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 2px;
+}
+
+.about-logo {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #f07a3c));
+  color: var(--accent-contrast);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.about-hero h3 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+
+.about-hero p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.about-meta {
+  display: flex;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 11px;
 }

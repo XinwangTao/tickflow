@@ -41,6 +41,19 @@ export interface R2Config {
   prefix?: string
 }
 
+/** 单份快照上限，远低于 R2 免费额度，防止附件/异常数据把对象撑大。 */
+export const MAX_SNAPSHOT_BYTES = 5 * 1024 * 1024
+
+export function assertSnapshotSize(body: string): number {
+  const bytes = new TextEncoder().encode(body).length
+  if (bytes > MAX_SNAPSHOT_BYTES) {
+    throw new Error(
+      `快照 ${(bytes / 1024 / 1024).toFixed(2)} MiB 超过 ${MAX_SNAPSHOT_BYTES / 1024 / 1024} MiB 上限；请确认没有把附件写进快照`
+    )
+  }
+  return bytes
+}
+
 function mergeById<T extends { id: string; updatedAt: string }>(
   local: T[],
   remote: T[]
@@ -126,19 +139,27 @@ export class R2Client {
     return `${this.prefix}${deviceId}.json`
   }
 
-  async listKeys(): Promise<string[]> {
+  async listObjects(): Promise<Array<{ key: string; size: number }>> {
     const url = `${this.base}?list-type=2&prefix=${encodeURIComponent(this.prefix)}`
     const response = await this.client.fetch(url, { method: 'GET' })
     if (!response.ok) {
       throw new Error(`R2 列表失败：${response.status} ${await errorText(response)}`)
     }
     const xml = await response.text()
-    const keys: string[] = []
-    for (const match of xml.matchAll(/<Key>([\s\S]*?)<\/Key>/g)) {
-      const key = decodeXml(match[1])
-      if (key.endsWith('.json')) keys.push(key)
+    const objects: Array<{ key: string; size: number }> = []
+    for (const block of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const keyMatch = block[1].match(/<Key>([\s\S]*?)<\/Key>/)
+      if (!keyMatch) continue
+      const key = decodeXml(keyMatch[1])
+      if (!key.endsWith('.json')) continue
+      const sizeMatch = block[1].match(/<Size>(\d+)<\/Size>/)
+      objects.push({ key, size: sizeMatch ? Number(sizeMatch[1]) : 0 })
     }
-    return keys
+    return objects
+  }
+
+  async listKeys(): Promise<string[]> {
+    return (await this.listObjects()).map((object) => object.key)
   }
 
   async getJson<T>(key: string): Promise<T | null> {
@@ -152,15 +173,18 @@ export class R2Client {
     return (await response.json()) as T
   }
 
-  async putJson(key: string, value: unknown): Promise<void> {
+  async putJson(key: string, value: unknown): Promise<number> {
+    const body = JSON.stringify(value)
+    const bytes = assertSnapshotSize(body)
     const response = await this.client.fetch(`${this.base}/${encodeKey(key)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(value)
+      body
     })
     if (!response.ok) {
       throw new Error(`R2 上传失败：${response.status} ${await errorText(response)}`)
     }
+    return bytes
   }
 
   async test(): Promise<void> {
@@ -171,7 +195,7 @@ export class R2Client {
 export async function syncWithR2(
   local: SyncSnapshot,
   config: R2Config
-): Promise<{ snapshot: SyncSnapshot; downloaded: number }> {
+): Promise<{ snapshot: SyncSnapshot; downloaded: number; bytes: number }> {
   const client = new R2Client(config)
   const keys = await client.listKeys()
   const remotes: SyncSnapshot[] = []
@@ -180,6 +204,6 @@ export async function syncWithR2(
     if (remote && remote.version === 1) remotes.push(remote)
   }
   const snapshot = mergeSnapshots(local, remotes)
-  await client.putJson(client.keyFor(local.deviceId), snapshot)
-  return { snapshot, downloaded: remotes.length }
+  const bytes = await client.putJson(client.keyFor(local.deviceId), snapshot)
+  return { snapshot, downloaded: remotes.length, bytes }
 }

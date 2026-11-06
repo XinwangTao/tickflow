@@ -43,6 +43,11 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   const [aiElapsed, setAiElapsed] = useState(0)
   const [draftBusy, setDraftBusy] = useState(false)
   const [aiDraft, setAiDraft] = useState<QuickAddDraft | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const streamRef = useRef<MediaStream | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // 进行中的 AI 请求：id 用于取消，text 用于判断响应是否已经过期。
   const aiRequestSeq = useRef(0)
@@ -299,6 +304,73 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     })
   }
 
+
+  // 语音输入走本机离线识别（vosk），录完把文字追加进输入框，
+  // 剩下的日期/重复解析仍由原来的规则 + AI 流程负责。
+  const stopStream = (): void => {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+  }
+
+  const finishRecording = async (): Promise<void> => {
+    const chunks = chunksRef.current
+    chunksRef.current = []
+    recorderRef.current = null
+    stopStream()
+    setRecording(false)
+    if (!chunks.length) return
+    setTranscribing(true)
+    try {
+      const blob = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' })
+      const result = await window.api.ai.transcribe(await blob.arrayBuffer())
+      if (result?.text) {
+        const text = result.text.trim()
+        setValue((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))
+        inputRef.current?.focus()
+      } else {
+        showToast(result?.error || '没听清，再说一次？', 'error')
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '语音识别失败', 'error')
+    } finally {
+      setTranscribing(false)
+    }
+  }
+
+  const toggleRecording = async (): Promise<void> => {
+    if (recording) {
+      recorderRef.current?.stop()
+      return
+    }
+    if (transcribing) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      const recorder = new MediaRecorder(stream)
+      chunksRef.current = []
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data)
+      }
+      recorder.onstop = () => {
+        void finishRecording()
+      }
+      recorderRef.current = recorder
+      recorder.start()
+      setRecording(true)
+    } catch (error) {
+      stopStream()
+      setRecording(false)
+      showToast(error instanceof Error ? error.message : '打不开麦克风', 'error')
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      recorderRef.current?.stop()
+      stopStream()
+    }
+  }, [])
+
   return (
     <section className={`quick-add ${focused ? 'focused' : ''}`}>
       <div className="quick-add-bar">
@@ -323,6 +395,18 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
           }}
           aria-label="快速添加任务"
         />
+        <button
+          type="button"
+          className={`quick-add-mic ${recording ? 'recording' : ''}`}
+          title={recording ? '停止录音并识别' : '按住说话？点一下开始，再点结束'}
+          aria-label={recording ? '停止录音' : '语音输入'}
+          aria-pressed={recording}
+          disabled={transcribing}
+          onClick={() => void toggleRecording()}
+        >
+          <Icon name={recording ? 'stop' : 'mic'} size={14} />
+          {transcribing ? '识别中' : recording ? '录音中' : ''}
+        </button>
         {settings.aiEnabled ? (
           <>
             {aiBusy ? (

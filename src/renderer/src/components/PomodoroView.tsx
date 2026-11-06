@@ -529,7 +529,7 @@ export function PomodoroView(): React.ReactNode {
                     <div
                       className="focus-bar"
                       style={{
-                        height: `${Math.max(3, (day.minutes / weekMax) * 100)}%`
+                        height: day.minutes > 0 ? `${Math.max(3, (day.minutes / weekMax) * 100)}%` : '0%'
                       }}
                     />
                   </div>

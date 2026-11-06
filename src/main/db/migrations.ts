@@ -202,6 +202,25 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_attachments_task ON attachments(task_id);
       `)
     }
+  },
+  {
+    version: 6,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS habit_reminders (
+          id TEXT PRIMARY KEY,
+          habit_id TEXT NOT NULL UNIQUE REFERENCES habits(id) ON DELETE CASCADE,
+          trigger_at TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          sent_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          device_id TEXT NOT NULL
+        ) STRICT;
+
+        CREATE INDEX IF NOT EXISTS idx_habit_reminders_trigger ON habit_reminders(trigger_at);
+      `)
+    }
   }
 ]
 

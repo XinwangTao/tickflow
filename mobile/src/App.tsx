@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { App as CapacitorApp } from '@capacitor/app'
 import type { Priority } from '@shared/types'
 import { INBOX_ID } from '@shared/types'
 import type { SyncTask } from '@shared/sync'
@@ -23,7 +24,8 @@ import {
 } from './db'
 import { Icon } from './Icon'
 import { MoreTab } from './MoreTab'
-import { autoSync, syncNow, testSync } from './sync'
+import { buildBackupJson, importBackupJson } from './backup'
+import { autoSync, getSyncUsage, syncNow, testSync } from './sync'
 
 const PRIORITY_LABELS = ['无', '低', '中', '高']
 const PRIORITY_COLORS = ['var(--muted)', 'var(--low)', 'var(--medium)', 'var(--high)']
@@ -79,6 +81,7 @@ function TaskRow({
         type="button"
         className={`task-check ${task.status === 'completed' ? 'checked' : ''}`}
         aria-label={task.status === 'completed' ? '标记为未完成' : '标记为已完成'}
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation()
           onToggle()
@@ -518,6 +521,12 @@ function SettingsTab({
   })
   const [deviceId, setDeviceId] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [usage, setUsage] = useState<{ objects: number; bytes: number } | null>(null)
+  const [usageBusy, setUsageBusy] = useState(false)
+  const [backupBusy, setBackupBusy] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importing, setImporting] = useState(false)
 
   useEffect(() => {
     void getDeviceId().then(setDeviceId)
@@ -549,6 +558,60 @@ function SettingsTab({
     setSyncing(false)
     onToast(result.message, result.ok ? 'success' : 'error')
     if (result.ok) onSaved()
+  }
+
+  const checkUsage = async (): Promise<void> => {
+    await save()
+    setUsageBusy(true)
+    try {
+      setUsage(await getSyncUsage())
+    } catch (error) {
+      onToast(String(error), 'error')
+    } finally {
+      setUsageBusy(false)
+    }
+  }
+
+  const exportBackup = async (): Promise<void> => {
+    setBackupBusy(true)
+    try {
+      const json = await buildBackupJson()
+      const file = new File([json], `tickflow-backup-${todayKey()}.json`, {
+        type: 'application/json'
+      })
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: '刻度清单备份' })
+        onToast('已打开分享面板', 'success')
+      } else {
+        await navigator.clipboard.writeText(json)
+        onToast(`备份已复制到剪贴板（${(json.length / 1024).toFixed(1)} KB）`, 'success')
+      }
+    } catch (error) {
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        onToast(String(error), 'error')
+      }
+    } finally {
+      setBackupBusy(false)
+    }
+  }
+
+  const runImport = async (): Promise<void> => {
+    if (!importText.trim()) return
+    setImporting(true)
+    try {
+      const counts = await importBackupJson(importText)
+      onToast(
+        `导入完成：${counts.tasks} 个任务、${counts.habits} 个习惯、${counts.sessions} 条番茄`,
+        'success'
+      )
+      setImportOpen(false)
+      setImportText('')
+      onSaved()
+    } catch (error) {
+      onToast(String(error), 'error')
+    } finally {
+      setImporting(false)
+    }
   }
 
   const copyCors = async (): Promise<void> => {
@@ -658,9 +721,22 @@ function SettingsTab({
           >
             {syncing ? '同步中…' : '立即同步'}
           </button>
+          <button
+            type="button"
+            className="secondary-btn"
+            disabled={usageBusy}
+            onClick={() => void checkUsage()}
+          >
+            {usageBusy ? '查询中…' : '查看用量'}
+          </button>
         </div>
         <p className="hint">
           上次同步：{settings.r2LastSync ? new Date(settings.r2LastSync).toLocaleString('zh-CN') : '从未'}
+        </p>
+        <p className="hint">
+          {usage
+            ? `云端 ${usage.objects} 份快照 · ${(usage.bytes / 1024).toFixed(1)} KB（R2 免费额度 10GB）`
+            : '仅同步清单与任务，每台设备覆盖写一份快照，单份上限 5 MiB。'}
         </p>
         <p className="hint">
           Android 需要给桶配置 CORS（允许 https://localhost）。
@@ -671,10 +747,71 @@ function SettingsTab({
       </section>
 
       <section className="settings-section">
+        <h3>本地备份</h3>
+        <p className="hint">导出清单/任务/习惯/番茄；R2 与 AI 凭据不会写入备份。</p>
+        <div className="button-row">
+          <button
+            type="button"
+            className="secondary-btn"
+            disabled={backupBusy}
+            onClick={() => void exportBackup()}
+          >
+            {backupBusy ? '导出中…' : '导出 JSON'}
+          </button>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => setImportOpen(true)}
+          >
+            导入 JSON
+          </button>
+        </div>
+      </section>
+
+      <section className="settings-section">
         <h3>设备</h3>
         <p className="hint">设备 ID：{deviceId}</p>
         <p className="hint">刻度清单 Android 0.1.0 · 本地优先 · R2 快照同步</p>
       </section>
+
+      {importOpen ? (
+        <div
+          className="sheet-overlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setImportOpen(false)
+          }}
+        >
+          <div className="sheet sheet-tall">
+            <div className="sheet-handle" />
+            <div className="sheet-header">
+              <h2>导入 JSON 备份</h2>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="关闭"
+                onClick={() => setImportOpen(false)}
+              >
+                <Icon name="close" size={18} />
+              </button>
+            </div>
+            <textarea
+              className="backup-textarea"
+              value={importText}
+              placeholder="粘贴从「导出 JSON」得到的备份内容"
+              onChange={(event) => setImportText(event.target.value)}
+            />
+            <button
+              type="button"
+              className="primary-btn"
+              disabled={importing || !importText.trim()}
+              onClick={() => void runImport()}
+            >
+              {importing ? '导入中…' : '开始导入'}
+            </button>
+            <p className="hint">按 ID 合并，已存在的记录会跳过，不会删除现有数据。</p>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -778,6 +915,61 @@ export default function App(): ReactNode {
       setToast((current) => (current?.id === id ? null : current))
     }, 2600)
   }
+
+  useEffect(() => {
+    let removed = false
+    let handle: { remove: () => Promise<void> } | null = null
+    void CapacitorApp.addListener('backButton', () => {
+      if (detailId) {
+        setDetailId(null)
+        return
+      }
+      if (quickOpen) {
+        setQuickOpen(false)
+        return
+      }
+      if (addListOpen) {
+        setAddListOpen(false)
+        return
+      }
+      if (searchOpen) {
+        setSearchOpen(false)
+        return
+      }
+      if (listMenuId) {
+        setListMenuId(null)
+        return
+      }
+      if (renamingListId) {
+        setRenamingListId(null)
+        return
+      }
+      if (tab !== 'today' || listId) {
+        setTab('today')
+        setListId(null)
+        return
+      }
+      void CapacitorApp.minimizeApp()
+    })
+      .then((listener) => {
+        handle = listener
+        if (removed) void listener.remove()
+      })
+      .catch(() => undefined)
+    return () => {
+      removed = true
+      void handle?.remove()
+    }
+  }, [
+    addListOpen,
+    detailId,
+    listId,
+    listMenuId,
+    quickOpen,
+    renamingListId,
+    searchOpen,
+    tab
+  ])
 
   const reload = async (): Promise<void> => {
     const [nextLists, all] = await Promise.all([

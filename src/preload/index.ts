@@ -64,6 +64,15 @@ const api: TickFlowApi = {
       return () => {
         ipcRenderer.removeListener(IPC.remindersMissedEvent, listener)
       }
+    },
+    onHabitFired: (callback) => {
+      const listener = (_event: IpcRendererEvent, items: Parameters<typeof callback>[0]): void => {
+        callback(items)
+      }
+      ipcRenderer.on(IPC.remindersHabitFiredEvent, listener)
+      return () => {
+        ipcRenderer.removeListener(IPC.remindersHabitFiredEvent, listener)
+      }
     }
   },
   attachments: {
@@ -79,6 +88,10 @@ const api: TickFlowApi = {
     update: (id, patch) => ipcRenderer.invoke(IPC.habitsUpdate, id, patch),
     remove: (id) => ipcRenderer.invoke(IPC.habitsRemove, id),
     toggle: (habitId, date) => ipcRenderer.invoke(IPC.habitsToggle, habitId, date)
+  },
+  habitReminders: {
+    get: (habitId) => ipcRenderer.invoke(IPC.habitRemindersGet, habitId),
+    set: (habitId, time) => ipcRenderer.invoke(IPC.habitRemindersSet, habitId, time)
   },
   pomodoro: {
     create: (input) => ipcRenderer.invoke(IPC.pomodoroCreate, input),
@@ -102,6 +115,7 @@ const api: TickFlowApi = {
   sync: {
     test: () => ipcRenderer.invoke(IPC.syncTest),
     now: () => ipcRenderer.invoke(IPC.syncNow),
+    usage: () => ipcRenderer.invoke(IPC.syncUsage),
     onResult: (callback) => {
       const listener = (
         _event: IpcRendererEvent,
@@ -119,6 +133,7 @@ const api: TickFlowApi = {
     export: (format) => ipcRenderer.invoke(IPC.dataExport, format),
     importJson: () => ipcRenderer.invoke(IPC.dataImport),
     openDir: () => ipcRenderer.invoke(IPC.dataOpenDir),
+    openBackupDir: () => ipcRenderer.invoke(IPC.dataOpenBackupDir),
     backup: () => ipcRenderer.invoke(IPC.dataBackup)
   },
   settings: {
@@ -131,8 +146,9 @@ const api: TickFlowApi = {
     breakdownSubtasks: (taskId, requestId) =>
       ipcRenderer.invoke(IPC.aiSubtasks, taskId, requestId),
     dailySummary: (requestId) => ipcRenderer.invoke(IPC.aiSummary, requestId),
-    models: () => ipcRenderer.invoke(IPC.aiModels),
-    test: () => ipcRenderer.invoke(IPC.aiTest)
+    models: (requestId?: string) => ipcRenderer.invoke(IPC.aiModels, requestId),
+    test: () => ipcRenderer.invoke(IPC.aiTest),
+    transcribe: (audio: ArrayBuffer) => ipcRenderer.invoke(IPC.aiTranscribe, audio)
   }
 }
 

@@ -924,6 +924,17 @@ describe('describeAiFailure 失败分类与提示', () => {
     expect(info.retryable).toBe(false)
     expect(info.hint).toContain('模型列表为空')
   })
+
+  it('模型目录超时使用专用提示，不会与任务解析超时混淆', () => {
+    const info = describeAiFailure(new Error('AI 模型列表请求超时'), {
+      baseUrl: AI_DEFAULT_BASE_URL,
+      timeoutMs: 3000
+    })
+    expect(info.kind).toBe('timeout')
+    expect(info.retryable).toBe(false)
+    expect(info.hint).toContain('模型列表请求超时（3 秒）')
+    expect(info.hint).toContain('CC Switch')
+  })
 })
 
 describe('AI 失败重试', () => {

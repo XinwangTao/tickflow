@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.6.0",
     "aws4fetch": "^1.0.20",
     "dexie": "^4.4.7",

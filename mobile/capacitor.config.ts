@@ -9,6 +9,13 @@ const config: CapacitorConfig = {
   },
   android: {
     backgroundColor: '#1b1c1f'
+  },
+  plugins: {
+    SystemBars: {
+      // App CSS uses env(safe-area-inset-*); native avoids the early CSS-variable
+      // injection that can run before document.documentElement exists.
+      insetsHandling: 'native'
+    }
   }
 }
 

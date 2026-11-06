@@ -18,6 +18,7 @@ import type {
   UpdateTaskInput
 } from '@shared/types'
 import { getDataDir, getDb } from './db'
+import { transcribeWithFallback } from './asr'
 import {
   addAttachment,
   openAttachment,
@@ -34,16 +35,17 @@ import {
   summarizeTodayWithAi,
   testAiConnection
 } from './ai'
-import { createManualBackup, exportData, importJson, openDataDir } from './data'
+import { createManualBackup, exportData, importJson, openBackupDir, openDataDir } from './data'
 import { listAttachments } from './db/attachments'
 import * as filterRepo from './db/filters'
+import * as habitReminderRepo from './db/habit-reminders'
 import * as habitRepo from './db/habits'
 import * as listRepo from './db/lists'
 import * as pomodoroRepo from './db/pomodoro'
 import * as reminderRepo from './db/reminders'
 import * as settingsRepo from './db/settings'
 import * as statsRepo from './db/stats'
-import { syncNow, testSync } from './sync'
+import { getSyncUsage, syncNow, testSync } from './sync'
 import * as tagRepo from './db/tags'
 import * as taskRepo from './db/tasks'
 import * as templateRepo from './db/templates'
@@ -143,6 +145,12 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.habitsToggle, (_event, habitId: string, date: string) =>
     habitRepo.toggleHabitLog(getDb(), habitId, date)
   )
+  ipcMain.handle(IPC.habitRemindersGet, (_event, habitId: string) =>
+    habitReminderRepo.getHabitReminder(getDb(), habitId)
+  )
+  ipcMain.handle(IPC.habitRemindersSet, (_event, habitId: string, time: string | null) =>
+    habitReminderRepo.setHabitReminder(getDb(), habitId, time)
+  )
 
   ipcMain.handle(IPC.pomodoroCreate, (_event, input: PomodoroInput) =>
     pomodoroRepo.createPomodoroSession(getDb(), input)
@@ -175,6 +183,7 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.syncTest, () => testSync(getDb()))
   ipcMain.handle(IPC.syncNow, () => syncNow(getDb()))
+  ipcMain.handle(IPC.syncUsage, () => getSyncUsage(getDb()))
 
   ipcMain.handle(IPC.dataExport, (event, format: 'json' | 'csv' | 'ics') =>
     exportData(getDb(), format, BrowserWindow.fromWebContents(event.sender))
@@ -183,12 +192,17 @@ export function registerIpc(): void {
     importJson(getDb(), BrowserWindow.fromWebContents(event.sender))
   )
   ipcMain.handle(IPC.dataOpenDir, () => openDataDir())
+  ipcMain.handle(IPC.dataOpenBackupDir, () => openBackupDir())
   ipcMain.handle(IPC.dataBackup, () => createManualBackup())
 
   ipcMain.handle(IPC.settingsGet, () => settingsRepo.getSettings(getDb()))
-  ipcMain.handle(IPC.settingsSet, (_event, patch: Partial<Settings>) =>
-    settingsRepo.setSettings(getDb(), patch)
-  )
+  ipcMain.handle(IPC.settingsSet, (_event, patch: Partial<Settings>) => {
+    const next = settingsRepo.setSettings(getDb(), patch)
+    if (patch.autoLaunch !== undefined && app.isPackaged) {
+      app.setLoginItemSettings({ openAtLogin: next.autoLaunch })
+    }
+    return next
+  })
 
   ipcMain.handle(IPC.aiQuickAdd, (_event, input: string, requestId?: string) => {
     const db = getDb()
@@ -242,9 +256,20 @@ export function registerIpc(): void {
     if (!requestId || !controller) return pending
     return pending.finally(() => releaseAiRequest(requestId))
   })
-  ipcMain.handle(IPC.aiModels, () =>
-    listAiModels(aiConfigFromSettings(settingsRepo.getSettings(getDb())))
-  )
+  ipcMain.handle(IPC.aiModels, (_event, requestId?: string) => {
+    const db = getDb()
+    const controller = requestId ? registerAiRequest(requestId) : null
+    const pending = listAiModels(aiConfigFromSettings(settingsRepo.getSettings(db)), {
+      signal: controller?.signal
+    })
+    if (!requestId || !controller) return pending
+    return pending.finally(() => releaseAiRequest(requestId))
+  })
+  ipcMain.handle(IPC.aiTranscribe, async (_event, audio: ArrayBuffer) => {
+    const data = Buffer.from(new Uint8Array(audio))
+    return transcribeWithFallback(settingsRepo.getSettings(getDb()), data)
+  })
+
   ipcMain.handle(IPC.aiTest, () =>
     testAiConnection(aiConfigFromSettings(settingsRepo.getSettings(getDb())))
   )

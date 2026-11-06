@@ -7,6 +7,11 @@ import { useAppStore } from '../store/useAppStore'
 
 const HABIT_COLORS = ['#30a46c', '#0091ff', '#f5c542', '#e5484d', '#8e4ec6', '#e93d82']
 
+function localTimeOf(iso: string): string {
+  const date = new Date(iso)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
 function textOn(hex: string): string {
   const value = hex.replace('#', '')
   if (value.length !== 6) return '#ffffff'
@@ -165,10 +170,26 @@ function HabitModal({
     habit?.frequency ?? 'daily'
   )
   const [target, setTarget] = useState(habit?.targetPerWeek ?? 7)
+  const [reminderTime, setReminderTime] = useState('')
+
+  useEffect(() => {
+    if (!habit) return
+    let alive = true
+    void window.api.habitReminders
+      .get(habit.id)
+      .then((reminder) => {
+        if (alive && reminder) setReminderTime(localTimeOf(reminder.triggerAt))
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [habit])
 
   const submit = async (): Promise<void> => {
     if (!name.trim()) return
     try {
+      let habitId = habit?.id ?? ''
       if (habit) {
         await window.api.habits.update(habit.id, {
           name,
@@ -178,14 +199,16 @@ function HabitModal({
           targetPerWeek: target
         })
       } else {
-        await window.api.habits.create({
+        const created = await window.api.habits.create({
           name,
           icon: icon.trim() || null,
           color,
           frequency,
           targetPerWeek: target
         })
+        habitId = created.id
       }
+      await window.api.habitReminders.set(habitId, reminderTime || null)
       onSaved()
     } catch (error) {
       showToast(String(error), 'error')
@@ -275,6 +298,25 @@ function HabitModal({
           }
         />
       </label>
+      <label className="field">
+        <span className="field-label">每天提醒（可选）</span>
+        <div className="habit-reminder-row">
+          <input
+            className="input"
+            type="time"
+            value={reminderTime}
+            onChange={(event) => setReminderTime(event.target.value)}
+          />
+          {reminderTime ? (
+            <button type="button" className="btn" onClick={() => setReminderTime('')}>
+              清除
+            </button>
+          ) : null}
+        </div>
+      </label>
+      <p className="settings-note">
+        到点发送系统通知；错过的提醒会在下次启动补发，也会记录在通知中心。
+      </p>
       <div className="modal-actions">
         {habit ? (
           <button type="button" className="btn" onClick={() => void archive()}>

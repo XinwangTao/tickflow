@@ -75,6 +75,8 @@ export interface Settings {
   weekStart: 0 | 1
   defaultListId: string | null
   showCompleted: boolean
+  autoLaunch: boolean
+  startMinimized: boolean
   fontScale: number
   r2Endpoint: string
   r2Bucket: string
@@ -87,6 +89,9 @@ export interface Settings {
   aiBaseUrl: string
   aiModel: string
   aiToken: string
+  /** 离线语音识别：vosk 运行时与模型目录，留空则用自动探测。 */
+  asrPython?: string
+  asrModel?: string
   aiTimeoutMs: number
 }
 
@@ -94,6 +99,7 @@ export interface SyncResult {
   ok: boolean
   message: string
   downloaded?: number
+  bytes?: number
   updatedAt?: string
 }
 
@@ -183,9 +189,26 @@ export interface ReminderWithTask extends Reminder {
   taskTitle: string
 }
 
+export interface HabitReminder {
+  id: string
+  habitId: string
+  triggerAt: string
+  enabled: boolean
+  sentAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface HabitReminderWithHabit extends HabitReminder {
+  habitName: string
+  habitColor: string
+}
+
 export interface ReminderCenterData {
   upcoming: ReminderWithTask[]
   recent: ReminderWithTask[]
+  habitUpcoming: HabitReminderWithHabit[]
+  habitRecent: HabitReminderWithHabit[]
 }
 
 export interface Attachment {

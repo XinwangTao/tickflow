@@ -1,0 +1,45 @@
+{
+  "seed": {
+    "id": "01a1af27-be33-7dc1-8e20-e5c15d4dd94b",
+    "title": "offline-seed"
+  },
+  "elapsedMs": 11,
+  "rows": [
+    {
+      "i": 0,
+      "title": "offline-0-upd",
+      "notes": "offline",
+      "deleted": true
+    },
+    {
+      "i": 1,
+      "title": "offline-1-upd",
+      "notes": "offline",
+      "deleted": true
+    },
+    {
+      "i": 2,
+      "title": "offline-2-upd",
+      "notes": "offline",
+      "deleted": true
+    },
+    {
+      "i": 3,
+      "title": "offline-3-upd",
+      "notes": "offline",
+      "deleted": true
+    },
+    {
+      "i": 4,
+      "title": "offline-4-upd",
+      "notes": "offline",
+      "deleted": true
+    }
+  ],
+  "total": 6,
+  "tombstones": 5,
+  "online": false,
+  "pageErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}

@@ -1,5 +1,6 @@
 import {
   AI_CONNECTION_MAX_TOKENS,
+  AI_CANCELED_MODELS_HINT,
   AI_CANCELED_QUICK_ADD_HINT,
   AI_CANCELED_SUBTASKS_HINT,
   AI_CANCELED_SUMMARY_HINT,
@@ -319,6 +320,15 @@ export async function listAiModels(
     const { models, attempts } = await requestAiModelsResult(config, options)
     return { ok: true, models, message: `已获取 ${models.length} 个本机模型`, attempts }
   } catch (error) {
+    if (isAiCanceled(error)) {
+      // 用户主动取消目录请求：与失败分开，提示里不引导调大超时或重试。
+      return {
+        ok: false,
+        models: [],
+        message: AI_CANCELED_MODELS_HINT,
+        attempts: error instanceof AiRequestError ? error.attempts : 1
+      }
+    }
     const failure = failureOf(error, config)
     return {
       ok: false,

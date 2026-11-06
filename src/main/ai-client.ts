@@ -246,7 +246,12 @@ async function requestAiModelsOnce(
   options: AiClientOptions = {}
 ): Promise<AiModelInfo[]> {
   const fetchImpl = options.fetch ?? fetch
+  const external = options.signal
+  // 已经取消过就不再发请求，避免“点了取消还在跑”。
+  if (external?.aborted) throw new AiCanceledError()
   const controller = new AbortController()
+  const onExternalAbort = (): void => controller.abort()
+  external?.addEventListener('abort', onExternalAbort)
   const timeout = config.timeoutMs > 0 ? config.timeoutMs : AI_DEFAULT_TIMEOUT_MS
   const timer = setTimeout(() => controller.abort(), timeout)
 
@@ -271,12 +276,15 @@ async function requestAiModelsOnce(
     if (models.length === 0) throw new Error('AI 模型列表为空')
     return models
   } catch (error) {
+    // 同一个 AbortError 有两种来源：用户取消与超时，提示完全不同。
+    if (external?.aborted) throw new AiCanceledError()
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('AI 模型列表请求超时')
     }
     throw error
   } finally {
     clearTimeout(timer)
+    external?.removeEventListener('abort', onExternalAbort)
   }
 }
 

@@ -136,6 +136,8 @@ const DEFAULT_SETTINGS: Settings = {
   weekStart: 1,
   defaultListId: null,
   showCompleted: false,
+  autoLaunch: false,
+  startMinimized: false,
   fontScale: 1,
   r2Endpoint: '',
   r2Bucket: '',

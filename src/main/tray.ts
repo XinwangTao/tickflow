@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, Tray, nativeImage } from 'electron'
 import { join } from 'node:path'
 import { getDb } from './db'
 import { getCounts } from './db/tasks'
+import { buildTrayMenuTemplate } from './tray-menu'
 
 let tray: Tray | null = null
 let timer: NodeJS.Timeout | null = null
@@ -25,29 +26,9 @@ export function setupTray(win: BrowserWindow, onQuickAdd: () => void): void {
       today = 0
     }
     tray?.setContextMenu(
-      Menu.buildFromTemplate([
-        {
-          label: '显示刻度清单',
-          click: () => {
-            if (win.isMinimized()) win.restore()
-            win.show()
-            win.focus()
-          }
-        },
-        {
-          label: '快速添加',
-          click: () => {
-            if (win.isMinimized()) win.restore()
-            win.show()
-            win.focus()
-            onQuickAdd()
-          }
-        },
-        { type: 'separator' },
-        { label: `今天 ${today} 条`, enabled: false },
-        { type: 'separator' },
-        { label: '退出', click: () => app.quit() }
-      ])
+      Menu.buildFromTemplate(
+        buildTrayMenuTemplate(win, onQuickAdd, () => app.quit(), today)
+      )
     )
   }
 

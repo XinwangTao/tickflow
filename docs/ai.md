@@ -23,6 +23,11 @@ AI 只提供增强：超时、服务未启动、模型报错或返回结构非�
 把返回的 `id` 原样放进下拉框，避免手工抄写出大小写或分隔符错误。若当前填写的
 模型不在目录中，设置页会给出提示。
 
+加载期间按钮显示「获取中 Ns」已等待秒数，旁边出现 **取消**：中止那次 `fetch` 后提示
+「已取消获取模型列表，当前模型配置未改变」，不再等待超时，也不会把迟到的目录塞进下拉框。
+关闭设置页（组件卸载）时同样会静默中止进行中的目录请求。目录请求失败时 toast 提供
+**重试**，网络恢复后无需重新打开设置页；瞬时故障仍会自动重试 1 次，提示里会标注次数。
+
 ### 查看本机可用模型
 
 ```bash
@@ -82,7 +87,9 @@ authorization: Bearer <aiToken，可选>
 `GET {baseUrl}/v1/models`，请求头同上。客户端兼容 `{ "data": [...] }` 与纯数组，
 只读取 `id`（逐字保留）与可选的 `display_name`，去重后最多返回 200 个。
 非 2xx 返回 `AI 模型列表返回 <status>：<前 200 字符>`，超时返回
-`AI 模型列表请求超时`；设置页会把这些信息直接展示在 toast 中。
+`AI 模型列表请求超时`；设置页会把这些信息直接展示在 toast 中，并提供「重试」。
+目录请求同样支持 `ai:cancel` 的 requestId（`models-N`），用户取消时返回
+`已取消获取模型列表`，与失败提示分开。
 
 「测试连接」会发送一条 `max_tokens: 768` 的最小请求。推理模型会先输出 thinking
 块，预算过小时可能只有 thinking 没有正文，从而误报失败；768 能为 thinking + 简短回复
@@ -190,7 +197,7 @@ renderer 只是多等这一小会儿，不会因此重复创建任务：
 | 请求超时 | 超过 `aiTimeoutMs`，由 `AbortController` 中止 | 否 | `AI 请求超时（15 秒），可在设置里调大超时或换更快的模型` |
 | 鉴权失败 | HTTP 401 / 403 | 否 | `AI 鉴权失败，请检查设置里的 Token（本机服务通常留空）` |
 | 模型或参数错误 | HTTP 400 / 404 / 422 | 否 | `模型或请求不可用，请在设置页用「获取模型列表」逐字核对模型 ID` |
-| 用户主动取消 | `ai:cancel` 中止 `fetch`，或 Esc /「取消」按钮（快速添加、今日总结、子任务拆解都支持） | 否 | 提示「已取消 AI 解析」/「已取消 AI 总结生成」/「已取消 AI 拆解」，不写库、不弹草稿 |
+| 用户主动取消 | `ai:cancel` 中止 `fetch`，或 Esc /「取消」按钮（快速添加、今日总结、子任务拆解、设置页模型目录都支持） | 否 | 提示「已取消 AI 解析」/「已取消 AI 总结生成」/「已取消 AI 拆解」/「已取消获取模型列表」，不写库、不弹草稿、不改配置 |
 | 只有 thinking、没有正文 | `stop_reason=max_tokens` 且正文为空 | 否 | 保留「AI 只返回了推理过程，正文为空（输出预算不足）」 |
 | 返回结构无法识别 | 取到 JSON 但字段不合规 | 否 | `AI 返回内容无法解析，已按本地规则处理` |
 
@@ -203,12 +210,15 @@ renderer 只是多等这一小会儿，不会因此重复创建任务：
 `withAiRetry` 直接结束、不重试、不追加「已自动重试 N 次」；只有内部超时计时器中止
 才提示「AI 请求超时」。失败分类里取消是独立的 `canceled` 类型，提示不会引导用户去调大超时。
 
-取消覆盖三个入口，共用同一套 `requestId → AbortController` 注册表：快速添加用
-`quick-add-N`、今日总结用 `summary-N`、子任务拆解用 `subtasks-N`。今日总结与拆解在
-切换任务、关闭详情面板或卡片卸载时会**静默中止**（不弹提示），用户主动点「取消」时才提示；
-main 返回的 `warning` 使用 `AI_CANCELED_QUICK_ADD_HINT` / `AI_CANCELED_SUMMARY_HINT` /
-`AI_CANCELED_SUBTASKS_HINT` 三个常量，renderer 与 main 不会各写一套文案。
-今日总结与快速添加一样在按钮上显示「生成中 Ns」的已等待秒数，超时前能看到进度而不是界面卡住。
+取消覆盖四个入口，共用同一套 `requestId → AbortController` 注册表：快速添加用
+`quick-add-N`、今日总结用 `summary-N`、子任务拆解用 `subtasks-N`、设置页模型目录用
+`models-N`。今日总结与拆解在切换任务、关闭详情面板或卡片卸载时会**静默中止**（不弹提示），
+关闭设置页时目录请求同样静默中止；用户主动点「取消」时才提示。
+main 返回的 `warning` / `message` 使用 `AI_CANCELED_QUICK_ADD_HINT` /
+`AI_CANCELED_SUMMARY_HINT` / `AI_CANCELED_SUBTASKS_HINT` / `AI_CANCELED_MODELS_HINT`
+常量，renderer 与 main 不会各写一套文案。
+今日总结与快速添加一样在按钮上显示「生成中 Ns」的已等待秒数，模型目录按钮显示
+「获取中 Ns」，超时前能看到进度而不是界面卡住。
 
 - 提示文案统一由 `src/shared/ai.ts` 的 `describeAiFailure` 生成：先说明原因（超时秒数、
   服务地址、HTTP 状态），再给出下一步（调大超时、启动 CC Switch、核对模型 ID、检查 Token），
@@ -246,20 +256,21 @@ main 返回的 `warning` 使用 `AI_CANCELED_QUICK_ADD_HINT` / `AI_CANCELED_SUMM
 | `src/shared/quick-add-draft.ts` | AI 快速添加草稿：清单匹配、标签拆分、日期/时间校验、优先级收敛、落库前转换 |
 | `src/shared/subtask-draft.ts` | AI 拆解子任务草稿：生成可编辑行、勾选/去重/空标题过滤、确认前的最终收集 |
 | `src/main/ai-client.ts` | `/v1/messages` 与 `/v1/models` 请求、鉴权头、单次超时、外部取消信号、瞬时故障自动重试、响应文本提取 |
-| `src/main/ai.ts` | 三个功能的编排与降级、失败提示与尝试次数、`requestId → AbortController` 注册表、模型列表、连接测试 |
+| `src/main/ai.ts` | 三个功能的编排与降级、失败提示与尝试次数、`requestId → AbortController` 注册表、模型列表与取消、连接测试 |
 | `src/main/ipc.ts` | `ai:quick-add` / `ai:cancel` / `ai:subtasks` / `ai:summary` / `ai:models` / `ai:test` |
 | `src/renderer/src/components/QuickAdd.tsx` | AI 快速添加入口、可编辑结果草稿、取消与过期结果丢弃、添加后撤销 |
 | `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口、可编辑草稿、批量添加后撤销、取消与切任务/关面板自动中止 |
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片：按需生成、已等待秒数、取消、失败回落到本地统计并可重试 |
-| `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试 |
+| `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试；模型目录即选即用、加载秒数、取消与失败重试 |
 | `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：50+ 条规则用例 + AI 解析/归一化/合并用例 + 失败与请求契约 |
-| `tests/ai-cancel.test.ts` | 取消：取消与超时区分、不重试、已取消的 signal 不发请求、requestId 注册表与不泄漏、并行请求互不影响、快速添加/今日总结/子任务拆解三处取消都回传规则结果并说明已取消 |
+| `tests/ai-cancel.test.ts` | 取消：取消与超时区分、不重试、已取消的 signal 不发请求、requestId 注册表与不泄漏、并行请求互不影响、快速添加/今日总结/子任务拆解/模型目录四处取消都回传规则结果或提示并说明已取消 |
+| `tests/ai-settings-ui.test.ts` | 设置页模型目录：成功后展示下拉框、失败 toast 重试后恢复、加载中取消并丢弃迟到目录、关闭设置页自动中止请求 |
 | `tests/quick-add-draft.test.ts` | AI 快速添加草稿：清单名匹配、默认日期、清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、空标题保护 |
 | `tests/subtask-draft.test.ts` | AI 拆解草稿：可编辑行生成、全选默认、勾选收集、空标题/重复标题过滤、10 条上限 |
 | `tests/subtask-draft-ui.test.ts` | 拆解草稿 UI：先展示不写库 → 改标题/优先级/取消勾选 → 添加 → 撤销；取消草稿、全不选禁用、确认时按最新列表去重、规则降级一步添加、取消进行中的请求与切换任务自动中止 |
 | `tests/quick-add-ui.test.ts` | 快速添加草稿 UI：先展示不写库 → 编辑后确认 → 撤销、取消流程、解析中取消/改输入丢弃迟到结果、Enter 提示与 Esc 中止 |
 | `tests/ai-summary-ui.test.ts` | 今日总结卡片 UI：成功渲染 summary/重点/建议、取消后丢弃迟到结果、失败回落到本地统计并从 toast 重试切换回 AI 文案、关闭 AI 不渲染也不发请求 |
-| `e2e/ai-quick-add.spec.ts` | 桌面端 AI 结果 E2E（13 例）：可编辑草稿→添加→撤销、5xx 重试→规则降级→撤销、今日总结、子任务拆解可编辑草稿→批量撤销、取消解析、今日总结取消、关闭详情面板中止拆解、改写输入丢弃旧结果、超时不重试、关闭 AI、总结失败后重试恢复、拆解失败规则降级、设置页模型目录即选即用 |
+| `e2e/ai-quick-add.spec.ts` | 桌面端 AI 结果 E2E（15 例）：可编辑草稿→添加→撤销、5xx 重试→规则降级→撤销、今日总结、子任务拆解可编辑草稿→批量撤销、取消解析、今日总结取消、关闭详情面板中止拆解、改写输入丢弃旧结果、超时不重试、关闭 AI、总结失败后重试恢复、拆解失败规则降级、设置页模型目录即选即用、模型目录加载取消、模型目录失败后 toast 重试 |
 
 验证命令：
 
@@ -281,10 +292,11 @@ npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败�
                          # tests/quick-add-ui.test.ts 覆盖「先展示草稿不写库 → 编辑后确认 → 撤销」与取消流程，
                          # 以及解析中点取消/改输入后迟到结果被丢弃、Enter 提示与 Esc 中止；
                          # tests/ai-cancel.test.ts 覆盖取消与超时的区分、取消不重试、requestId 注册表不泄漏，
-                         # 以及快速添加/今日总结/子任务拆解三处取消都返回规则结果并说明已取消、已取消的
-                         # signal 不再发请求；
-                         # tests/ai-summary-ui.test.ts 覆盖今日总结卡片的取消、迟到结果丢弃、失败后 toast 重试
-npm run test:ai          # 只跑 AI 相关测试：ai、请求取消、今日总结卡片、快速添加回归集、规则解析、草稿、拆解草稿与草稿 UI
+                         # 以及快速添加/今日总结/子任务拆解/模型目录四处取消都返回规则结果或已取消提示、
+                         # 已取消的 signal 不再发请求；
+                         # tests/ai-summary-ui.test.ts 覆盖今日总结卡片的取消、迟到结果丢弃、失败后 toast 重试；
+                         # tests/ai-settings-ui.test.ts 覆盖设置页模型目录的加载取消、失败重试、关闭设置页中止请求
+npm run test:ai          # 只跑 AI 相关测试：ai、请求取消、今日总结卡片、设置页模型目录、快速添加回归集、规则解析、草稿、拆解草稿与草稿 UI
 npm run test:e2e         # 构建后跑 Playwright：AI 结果 E2E + 桌面端视图冒烟（见 6.2）
 ```
 
@@ -352,6 +364,11 @@ curl -s http://127.0.0.1:15721/v1/messages \
 - **模型目录即选即用**：设置页点「获取模型列表」请求本机 `GET /v1/models`，断言目录中
   没有当前模型时出现核对提示；从下拉框选中目录里的 id 后提示消失，保存后快速添加的
   `POST /v1/messages` 请求体 `model` 与选中 id 逐字一致，且 Token 为空时不带 `authorization`。
+- **模型目录加载可取消**：假网关延迟 2.5 秒返回目录；点「取消获取模型列表」后断言 toast
+  写明已取消、按钮恢复可用，等过延迟后下拉框仍不出现，且只发出过一次目录请求。
+- **模型目录失败后重试**：假网关前 2 次（首次 + 自动重试）返回 500，断言 toast 含
+  「获取模型列表失败」「AI 服务繁忙」「已自动重试 1 次」；点 toast「重试」后第 3 次成功，
+  下拉框出现且包含目录里的 id。
 - **今日总结**：断言 AI 的 `summary`、`highlights`、`suggestions` 渲染，且不显示
   「已回落到本地统计」说明。
 - **子任务拆解**：从详情面板触发，断言先出现可编辑草稿且暂不写库；改标题、取消勾选一条后点

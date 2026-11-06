@@ -1,6 +1,6 @@
 # 刻度清单 TickFlow
 
-本地优先的任务管理应用。桌面端 P4 已交付核心任务管理、日历/四象限/看板/时间线、子任务/提醒/重复、习惯打卡、番茄专注、统计、批量撤销、模板、自定义过滤器、托盘、导入导出与 Windows 安装包；Android 端已用 Capacitor + React + Dexie 构建，桌面/手机通过 Cloudflare R2 快照同步。
+本地优先的任务管理应用。桌面端已交付核心任务管理、日历/四象限/看板（清单/优先级/日期分组）/时间线、子任务/提醒/习惯提醒/重复、习惯打卡、番茄专注（白噪音与 7 天专注图表）、统计、批量撤销、模板、自定义过滤器、标签管理、附件、通知中心、托盘、导入导出与 Windows 安装包；Android 端已用 Capacitor + React + Dexie 构建（含习惯/番茄/统计/已完成分组/白噪音），桌面/手机通过 Cloudflare R2 快照同步清单与任务。
 
 ## 技术栈
 
@@ -21,6 +21,26 @@ npm run dist       # build + check:bundle + Windows NSIS 安装包（release/）
 npm run build      # 构建 out/
 npm run check:bundle # 构建产物体积预算 + 主进程运行时依赖检查（见 docs/packaging.md）
 npx electron .     # 运行构建产物
+```
+
+## 安装与分发
+
+### Windows
+
+1. 运行 `release/刻度清单 Setup 0.1.0.exe`
+2. 安装包未签名，SmartScreen 可能提示“更多信息 → 仍要运行”
+3. 数据写入 `%APPDATA%\tickflow`，卸载不会删除数据
+
+### Android
+
+- 正式安装包：`mobile/android/app/build/outputs/apk/release/app-release.apk`（已签名）
+- 调试包：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`
+- 首次安装需允许“安装未知应用”；后续升级必须使用同一 keystore，并递增 `versionCode`
+
+### 校验产物
+
+```bash
+sha256sum -c release/SHA256SUMS.txt
 ```
 
 ## 数据位置
@@ -49,5 +69,9 @@ npm run apk
 
 ## 文档
 
+- 发布验收报告：`docs/release-report.md`（版本、测试、产物哈希、已知限制）
+- 版本变更：`CHANGELOG.md`
 - 产品简报：`docs/product/tickflow_brief.md`
+- 像素级清单：`docs/product/tickflow-pixel-checklist.md`
 - 主流程图：`docs/archify/tickflow_workflow.html`（旁路 JSON 同名）
+- 真机/R2 验收：`docs/device-r2-acceptance.md`

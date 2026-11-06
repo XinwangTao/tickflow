@@ -10,6 +10,7 @@ import type {
 import { addDaysToKey, startOfWeekKey, todayKey } from '@shared/dates'
 import { uuidv7 } from '@shared/uuid'
 import { logChange } from './change-log'
+import { deleteHabitRemindersForHabit } from './habit-reminders'
 import { getDeviceId, nowIso } from './util'
 
 interface HabitRow {
@@ -201,6 +202,7 @@ export function updateHabit(db: DatabaseSync, id: string, patch: UpdateHabitInpu
 
   const updated = db.prepare('SELECT * FROM habits WHERE id = ?').get(id) as unknown as HabitRow
   const habit = toHabit(updated)
+  if (archived && !existing.archived) deleteHabitRemindersForHabit(db, id)
   logChange(db, 'habit', id, 'update', habit)
   return habit
 }
@@ -212,6 +214,7 @@ export function deleteHabit(db: DatabaseSync, id: string): void {
   if (!row) return
   const now = nowIso()
   db.prepare('UPDATE habits SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
+  deleteHabitRemindersForHabit(db, id)
   logChange(db, 'habit', id, 'delete', { id })
 }
 

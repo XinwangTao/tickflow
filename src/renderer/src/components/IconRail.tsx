@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ViewKey } from '@shared/types'
+import { AboutDialog } from './AboutDialog'
 import { Icon, type IconName } from './Icon'
 import { NotificationCenter } from './NotificationCenter'
 import { useAppStore } from '../store/useAppStore'
@@ -38,8 +39,8 @@ export function IconRail(): React.ReactNode {
   const setSearchOpen = useAppStore((state) => state.setSearchOpen)
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen)
   const setSettings = useAppStore((state) => state.setSettings)
-  const showToast = useAppStore((state) => state.showToast)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [aboutOpen, setAboutOpen] = useState(false)
   const [unread, setUnread] = useState(0)
 
   const refreshUnread = useCallback(async (): Promise<void> => {
@@ -47,7 +48,8 @@ export function IconRail(): React.ReactNode {
       const data = await window.api.reminders.center()
       const since = readTimestamp()
       setUnread(
-        data.recent.filter((item) => item.sentAt != null && item.sentAt > since).length
+        data.recent.filter((item) => item.sentAt != null && item.sentAt > since).length +
+          data.habitRecent.filter((item) => item.sentAt != null && item.sentAt > since).length
       )
     } catch {
       // notification badge is best-effort
@@ -189,7 +191,7 @@ export function IconRail(): React.ReactNode {
           className="rail-item"
           title="关于"
           aria-label="关于"
-          onClick={() => showToast('刻度清单 TickFlow · P2', 'info')}
+          onClick={() => setAboutOpen(true)}
         >
           <Icon name="help" size={19} />
         </button>
@@ -202,6 +204,8 @@ export function IconRail(): React.ReactNode {
         onRead={handleRead}
       />
     ) : null}
+
+    {aboutOpen ? <AboutDialog onClose={() => setAboutOpen(false)} /> : null}
     </>
   )
 }

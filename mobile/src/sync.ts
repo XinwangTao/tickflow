@@ -52,13 +52,14 @@ export async function syncNow(): Promise<SyncResult> {
   }
   try {
     const local = await buildSnapshot()
-    const { snapshot, downloaded } = await syncWithR2(local, config)
+    const { snapshot, downloaded, bytes } = await syncWithR2(local, config)
     await applySnapshot(snapshot)
     await setSetting('r2LastSync', new Date().toISOString())
     return {
       ok: true,
-      message: `同步完成：${snapshot.tasks.length} 个任务、${snapshot.lists.length} 个清单（下载 ${downloaded} 份快照）`,
+      message: `同步完成：${snapshot.tasks.length} 个任务、${snapshot.lists.length} 个清单（下载 ${downloaded} 份快照，上传 ${(bytes / 1024).toFixed(1)} KB）`,
       downloaded,
+      bytes,
       updatedAt: snapshot.updatedAt
     }
   } catch (error) {
@@ -70,4 +71,14 @@ export async function autoSync(): Promise<SyncResult | null> {
   const settings = await getSettingsMap()
   if (settings.r2AutoSync !== '1') return null
   return syncNow()
+}
+
+export async function getSyncUsage(): Promise<{ objects: number; bytes: number }> {
+  const config = await getSyncConfig()
+  if (!isSyncConfigured(config)) throw new Error('请先填写完整的 R2 配置')
+  const objects = await new R2Client(config).listObjects()
+  return {
+    objects: objects.length,
+    bytes: objects.reduce((sum, object) => sum + object.size, 0)
+  }
 }

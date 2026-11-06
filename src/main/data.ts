@@ -3,8 +3,9 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ImportCounts } from '@shared/types'
-import { backupNow, getDataDir } from './db'
+import { backupNow, getBackupDir, getDataDir } from './db'
 import { getInboxId } from './db/lists'
+import { listExportableSettings } from './db/settings'
 import { getDeviceId, nowIso } from './db/util'
 import { logChange } from './db/change-log'
 
@@ -47,6 +48,13 @@ export async function openDataDir(): Promise<string> {
   return dir
 }
 
+export async function openBackupDir(): Promise<string> {
+  const dir = getBackupDir()
+  const error = await shell.openPath(dir)
+  if (error) throw new Error(`无法打开备份目录：${error}`)
+  return dir
+}
+
 export function createManualBackup(): string {
   return backupNow()
 }
@@ -79,7 +87,7 @@ export async function exportData(
       habits: allRows(db, 'SELECT * FROM habits'),
       habit_logs: allRows(db, 'SELECT * FROM habit_logs'),
       pomodoro_sessions: allRows(db, 'SELECT * FROM pomodoro_sessions'),
-      settings: allRows(db, 'SELECT * FROM settings')
+      settings: listExportableSettings(db)
     }
     writeFileSync(result.filePath, JSON.stringify(payload, null, 2), 'utf8')
   } else if (format === 'csv') {

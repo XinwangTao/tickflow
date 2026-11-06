@@ -14,9 +14,11 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
-    "test:ai": "vitest run tests/ai.test.ts tests/ai-cancel.test.ts tests/ai-summary-ui.test.ts tests/quick-add-regression.test.ts tests/quick-add.test.ts tests/quick-add-draft.test.ts tests/quick-add-ui.test.ts tests/subtask-draft.test.ts tests/subtask-draft-ui.test.ts",
+    "test:ai": "vitest run tests/ai.test.ts tests/ai-cancel.test.ts tests/ai-summary-ui.test.ts tests/ai-settings-ui.test.ts tests/quick-add-regression.test.ts tests/quick-add.test.ts tests/quick-add-draft.test.ts tests/quick-add-ui.test.ts tests/subtask-draft.test.ts tests/subtask-draft-ui.test.ts",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
+    "test:android": "node scripts/android-smoke.mjs",
+    "test:android:inpage": "node scripts/android-smoke-inpage.mjs",
     "dist": "npm run build && npm run check:bundle && electron-builder --win",
     "check:bundle": "node scripts/check-bundle.mjs"
   },

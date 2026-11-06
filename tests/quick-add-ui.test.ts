@@ -39,6 +39,8 @@ const SETTINGS: Settings = {
   weekStart: 1,
   defaultListId: 'inbox',
   showCompleted: false,
+  autoLaunch: false,
+  startMinimized: false,
   fontScale: 1,
   r2Endpoint: '',
   r2Bucket: '',

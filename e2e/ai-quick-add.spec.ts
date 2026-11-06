@@ -745,4 +745,87 @@ test.describe('AI 失败与边界路径', () => {
       await gateway.close()
     }
   })
+
+  test('设置页模型目录加载可取消，迟到的目录不会出现', async () => {
+    const catalogModel = 'ccs-claude-openai--ccs-claude-openai-2--kimi-k2.7-code'
+    const gateway = await startFakeGateway((request) => {
+      if (request.method === 'GET' && request.path === '/v1/models') {
+        return {
+          status: 200,
+          body: { data: [{ id: catalogModel }] },
+          // 模拟本机网关迟迟不返回，给「取消」留出操作时间。
+          delayMs: 2500
+        }
+      }
+      return { status: 200, body: anthropicReply('{}') }
+    })
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      await page.locator('.rail-item[title="设置"]').click()
+      const dialog = page.getByRole('dialog', { name: '设置' })
+      await expect(dialog).toBeVisible()
+
+      await dialog.getByRole('button', { name: '获取模型列表' }).click()
+      // 请求途中出现「取消」，点它中止这次目录请求。
+      await dialog.getByLabel('取消获取模型列表').click()
+
+      const toast = page.locator('.toast')
+      await expect(toast).toContainText('已取消获取模型列表')
+      await expect(toast).toContainText('当前模型配置未改变')
+      await expect(dialog.getByRole('button', { name: '获取模型列表' })).toBeEnabled()
+
+      // 等过假网关的延迟：迟到的目录不能变成下拉框，也没有失败提示。
+      await page.waitForTimeout(3000)
+      await expect(dialog.getByLabel(/本机模型/)).toHaveCount(0)
+      await expect(dialog.getByText(/当前模型不在本机 \/v1\/models 列表里/)).toHaveCount(0)
+
+      // 取消不重试：只发出过一次目录请求。
+      expect(gateway.requests.filter((request) => request.path === '/v1/models')).toHaveLength(1)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+
+  test('设置页模型目录失败后可从 toast 重试并恢复目录', async () => {
+    const catalogModel = 'ccs-claude-openai--ccs-claude-openai-2--kimi-k2.7-code'
+    let modelsAttempts = 0
+    const gateway = await startFakeGateway((request) => {
+      if (request.method === 'GET' && request.path === '/v1/models') {
+        modelsAttempts += 1
+        // 首次请求 + 自动重试都失败，交给用户从 toast 手动重试。
+        return modelsAttempts <= 2
+          ? { status: 500, body: { type: 'error', error: { message: 'mock catalog down' } } }
+          : { status: 200, body: { data: [{ id: catalogModel }] } }
+      }
+      return { status: 200, body: anthropicReply('{}') }
+    })
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      await page.locator('.rail-item[title="设置"]').click()
+      const dialog = page.getByRole('dialog', { name: '设置' })
+      await dialog.getByRole('button', { name: '获取模型列表' }).click()
+
+      const toast = page.locator('.toast')
+      await expect(toast).toContainText('获取模型列表失败', { timeout: 15_000 })
+      await expect(toast).toContainText('AI 服务繁忙')
+      await expect(toast).toContainText('已自动重试 1 次')
+      await expect(dialog.getByLabel(/本机模型/)).toHaveCount(0)
+      expect(modelsAttempts).toBe(2)
+
+      // toast 上的「重试」不需要重新打开设置页。
+      await toast.locator('.toast-action').click()
+      const catalog = dialog.getByLabel(/本机模型/)
+      await expect(catalog).toBeVisible()
+      await expect(catalog.locator('option', { hasText: catalogModel })).toHaveCount(1)
+      expect(modelsAttempts).toBe(3)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
 })

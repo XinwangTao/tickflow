@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AI_CANCELED_MESSAGE,
+  AI_CANCELED_MODELS_HINT,
   AI_CANCELED_SUBTASKS_HINT,
   AI_CANCELED_SUMMARY_HINT,
   AI_DEFAULT_BASE_URL,
@@ -14,6 +15,7 @@ import {
   activeAiRequestCount,
   breakdownSubtasksWithAi,
   cancelAiRequest,
+  listAiModels,
   parseQuickAddWithAi,
   registerAiRequest,
   releaseAiRequest,
@@ -258,5 +260,46 @@ describe('取消 AI 请求', () => {
 
     expect(hanging.calls()).toBe(0)
     expect(response.warning).toBe(AI_CANCELED_SUMMARY_HINT)
+  })
+
+  it('取消进行中的模型目录请求：返回已取消提示且不重试', async () => {
+    const hanging = hangingFetch()
+    const controller = registerAiRequest('models-cancel')
+    expect(controller).not.toBeNull()
+
+    const pending = listAiModels(CONFIG, {
+      fetch: hanging.fetch,
+      signal: controller?.signal,
+      maxAttempts: 3,
+      retryDelayMs: 0
+    })
+
+    expect(cancelAiRequest('models-cancel')).toBe(true)
+    const result = await pending
+
+    // 取消不是瞬时故障：即使允许 3 次尝试也只发一次请求。
+    expect(hanging.calls()).toBe(1)
+    expect(result.ok).toBe(false)
+    expect(result.models).toEqual([])
+    expect(result.message).toBe(AI_CANCELED_MODELS_HINT)
+    expect(result.attempts).toBe(1)
+    expect(activeAiRequestCount()).toBe(0)
+  })
+
+  it('已经取消的模型目录信号不会发出请求', async () => {
+    const hanging = hangingFetch()
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await listAiModels(CONFIG, {
+      fetch: hanging.fetch,
+      signal: controller.signal,
+      maxAttempts: 3
+    })
+
+    expect(hanging.calls()).toBe(0)
+    expect(result.ok).toBe(false)
+    expect(result.message).toBe(AI_CANCELED_MODELS_HINT)
+    expect(result.attempts).toBe(1)
   })
 })

@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 
 export type IconName =
   | 'check'
+  | 'mic'
+  | 'stop'
   | 'tasks'
   | 'calendar'
   | 'calendar-range'
@@ -150,6 +152,13 @@ const ICONS: Record<IconName, ReactNode> = {
       <path d="M12 17.2v.1" />
     </>
   ),
+  mic: (
+    <>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </>
+  ),
+  stop: <rect x="7" y="7" width="10" height="10" rx="2" />,
   plus: <path d="M12 5v14M5 12h14" />,
   more: (
     <>

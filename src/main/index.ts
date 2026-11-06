@@ -1,8 +1,15 @@
-import { app, BrowserWindow, globalShortcut, shell } from 'electron'
+import { app, BrowserWindow, session, globalShortcut, safeStorage, shell } from 'electron'
 import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { IPC } from '@shared/ipc'
 import { closeDatabase, getDb, initDatabase } from './db'
+import {
+  SECRET_PREFIX,
+  getSettings,
+  isSealedSecret,
+  setSecretCodec,
+  setSettings
+} from './db/settings'
 import { registerIpc } from './ipc'
 import { startReminderScheduler, stopReminderScheduler } from './reminders'
 import { autoSync } from './sync'
@@ -19,6 +26,7 @@ if (userDataOverride) {
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
+const launchedByAutostart = process.argv.includes('--autostart')
 
 function quickAdd(): void {
   if (!mainWindow) return
@@ -55,6 +63,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    if (launchedByAutostart && getSettings(getDb()).startMinimized) return
     mainWindow?.show()
   })
   mainWindow.on('close', (event) => {
@@ -99,6 +108,54 @@ function createWindow(): void {
   }
 }
 
+function configureSecretCodec(): boolean {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return false
+    setSecretCodec({
+      seal(value) {
+        return SECRET_PREFIX + safeStorage.encryptString(value).toString('base64')
+      },
+      open(value) {
+        return safeStorage.decryptString(
+          Buffer.from(value.slice(SECRET_PREFIX.length), 'base64')
+        )
+      }
+    })
+    return true
+  } catch (error) {
+    console.warn('[tickflow] 系统加密不可用，敏感设置将保持明文：', error)
+    return false
+  }
+}
+
+function migratePlaintextSecrets(): void {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      "SELECT key, value FROM settings WHERE key IN ('r2AccessKeyId', 'r2SecretAccessKey', 'aiToken')"
+    )
+    .all() as Array<{ key: string; value: string }>
+  if (!rows.some((row) => row.value && !isSealedSecret(String(row.value)))) return
+  const settings = getSettings(db)
+  setSettings(db, {
+    r2AccessKeyId: settings.r2AccessKeyId,
+    r2SecretAccessKey: settings.r2SecretAccessKey,
+    aiToken: settings.aiToken
+  })
+}
+
+function applyAutoLaunch(): void {
+  if (!app.isPackaged) return
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: getSettings(getDb()).autoLaunch,
+      args: ['--autostart']
+    })
+  } catch (error) {
+    console.warn('[tickflow] 应用开机自启设置失败：', error)
+  }
+}
+
 const gotLock = app.requestSingleInstanceLock()
 
 if (!gotLock) {
@@ -113,7 +170,13 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     app.setAppUserModelId('com.tickflow.app')
+    // 语音快速添加要拿麦克风；只放行 media，其余权限保持默认拒绝。
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === 'media')
+    })
     initDatabase()
+    if (configureSecretCodec()) migratePlaintextSecrets()
+    applyAutoLaunch()
     registerIpc()
     createWindow()
 
