@@ -423,8 +423,62 @@ function nextMonthlyWeekday(base: Date, weekday: number, nth: number): Date | nu
   return null
 }
 
+/** 下一次“每月 N 号 / N 号和 M 号”：在多个日期中取最近的一次。 */
+function nextMonthlyDates(base: Date, days: number[]): Date {
+  for (let offset = 0; offset < 13; offset += 1) {
+    const candidates = days
+      .map((day) => addMonths(base.getFullYear(), base.getMonth(), offset, day))
+      .filter((date): date is Date => date !== null && date.getTime() >= base.getTime())
+      .sort((a, b) => a.getTime() - b.getTime())
+    if (candidates.length) return candidates[0]
+  }
+  return base
+}
+
+/** 下一次“每月最后一个工作日”：跳过周末，本月已过则顺延到下个月。 */
+function nextMonthlyLastWorkday(base: Date): Date {
+  for (let offset = 0; offset < 13; offset += 1) {
+    const month = addMonths(base.getFullYear(), base.getMonth(), offset, 1)
+    if (!month) continue
+    const last = lastDayOfMonth(month.getFullYear(), month.getMonth())
+    while (last.getDay() === 0 || last.getDay() === 6) last.setDate(last.getDate() - 1)
+    if (last.getTime() >= base.getTime()) return last
+  }
+  return base
+}
+
+/** “每月第2个和第4个周二”：多个序号组合成 BYDAY=2TU,4TU，首次取最近一次。 */
+function nextMonthlyOrdinalWeekday(
+  base: Date,
+  weekday: number,
+  ordinals: number[]
+): Date | null {
+  const candidates = ordinals
+    .map((nth) => nextMonthlyWeekday(base, weekday, nth))
+    .filter((date): date is Date => date !== null)
+    .sort((a, b) => a.getTime() - b.getTime())
+  return candidates[0] ?? null
+}
+
+const WORKDAY_BYDAY = 'MO,TU,WE,TH,FR'
+
+/** 自然季度的第一天/最后一天：1/4/7/10 月，已过则顺延到下一个季度。 */
+function nextQuarterEdge(base: Date, edge: 'first' | 'last'): Date {
+  for (let year = base.getFullYear(); year <= base.getFullYear() + 1; year += 1) {
+    for (const month of [0, 3, 6, 9]) {
+      const date =
+        edge === 'first'
+          ? new Date(year, month, 1)
+          : lastDayOfMonth(year, month + 2)
+      if (date.getTime() >= base.getTime()) return date
+    }
+  }
+  return base
+}
+
 interface RecurrenceParse {
-  rrule: string
+  /** 单次日期范围（“下周一到周五”）只给首次日期，不写重复规则。 */
+  rrule: string | null
   matched: string
   first: Date
 }
@@ -542,7 +596,7 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
     }
   }
 
-  match = text.match(/每月\s*(?:的)?\s*最后\s*(?:一)?天/)
+  match = text.match(/每个?月\s*(?:的)?\s*最后\s*(?:一)?天/)
   if (match) {
     return {
       rrule: 'FREQ=MONTHLY;BYMONTHDAY=-1',
@@ -551,8 +605,18 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
     }
   }
 
+  // “每月最后一个工作日”：最后一个周一到周五（跳过周末）。
+  match = text.match(/每个?月\s*(?:的)?\s*最后\s*(?:一)?\s*(?:个)?\s*工作日/)
+  if (match) {
+    return {
+      rrule: `FREQ=MONTHLY;BYDAY=${WORKDAY_BYDAY};BYSETPOS=-1`,
+      matched: match[0],
+      first: nextMonthlyLastWorkday(base)
+    }
+  }
+
   // “每月底”与“每月最后一天”等价，只是口语写法。
-  match = text.match(/每月\s*(?:的)?\s*(?:月)?\s*(?:底|末)/)
+  match = text.match(/每个?月\s*(?:的)?\s*(?:月)?\s*(?:底|末)/)
   if (match) {
     return {
       rrule: 'FREQ=MONTHLY;BYMONTHDAY=-1',
@@ -563,7 +627,7 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
 
   // “每月最后一个周五”“每月最后1个周五”：BYSETPOS=-1。
   match = text.match(
-    /每月\s*(?:的)?\s*最后\s*(?:一)?\s*(?:个)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])/
+    /每个?月\s*(?:的)?\s*最后\s*(?:一)?\s*(?:个)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])/
   )
   if (match) {
     const weekday = WEEKDAY_MAP[match[1]]
@@ -580,31 +644,68 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
   }
 
   // “每月第一个周一”“每月第2个周四”：BYSETPOS=N。
+  // 也支持“每月第2个和第4个周二”：BYDAY=2TU,4TU。
   match = text.match(
-    /每月\s*(?:的)?\s*第\s*([一二三四五1-5])\s*(?:个)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])/
+    /每个?月\s*(?:的)?\s*第\s*([一二三四五1-5])\s*(?:个)?\s*((?:\s*(?:和|及|与|、|,|，)\s*第?\s*[一二三四五1-5]\s*(?:个)?\s*)*)(?:周|星期|礼拜)\s*([一二三四五六日天])/
   )
   if (match) {
-    const nth = parseCnCount(match[1])
-    const weekday = WEEKDAY_MAP[match[2]]
-    if (nth && nth > 0 && Number.isInteger(weekday)) {
-      const first = nextMonthlyWeekday(base, weekday, nth)
+    const firstNth = parseCnCount(match[1])
+    const weekday = WEEKDAY_MAP[match[3]]
+    const extraNths = Array.from(match[2].matchAll(/[一二三四五1-5]/g), (item) =>
+      parseCnCount(item[0])
+    ).filter((value): value is number => Boolean(value && value > 0))
+    const ordinals = Array.from(new Set([firstNth, ...extraNths])).filter(
+      (value): value is number => Boolean(value && value > 0)
+    )
+    if (ordinals.length && Number.isInteger(weekday)) {
+      const first = nextMonthlyOrdinalWeekday(base, weekday, ordinals)
       if (first) {
-        return {
-          rrule: `FREQ=MONTHLY;BYDAY=${WEEKDAY_CODES[weekday]};BYSETPOS=${nth}`,
-          matched: match[0],
-          first
-        }
+        const rrule =
+          ordinals.length === 1
+            ? `FREQ=MONTHLY;BYDAY=${WEEKDAY_CODES[weekday]};BYSETPOS=${ordinals[0]}`
+            : `FREQ=MONTHLY;BYDAY=${ordinals
+                .map((nth) => `${nth}${WEEKDAY_CODES[weekday]}`)
+                .join(',')}`
+        return { rrule, matched: match[0], first }
       }
     }
   }
 
-  match = text.match(/每月\s*(\d{1,2})\s*[日号]/)
+  // “每月1号”“每月1号和15号”“每月1号、15号”：多个日期合成 BYMONTHDAY。
+  match = text.match(
+    /每个?月\s*(?:的)?\s*((?:\d{1,2}\s*[日号]\s*(?:(?:和|及|与|、|,|，)\s*)?)+)/
+  )
   if (match) {
-    const day = Number(match[1])
+    const days = Array.from(
+      new Set(
+        Array.from(match[1].matchAll(/(\d{1,2})\s*[日号]/g), (item) => Number(item[1]))
+      )
+    )
+      .filter((day) => day >= 1 && day <= 31)
+      .sort((a, b) => a - b)
+    if (days.length) {
+      return {
+        rrule: `FREQ=MONTHLY;BYMONTHDAY=${days.join(',')}`,
+        matched: match[0],
+        first: nextMonthlyDates(base, days)
+      }
+    }
+  }
+
+  // “每季度第一天 / 最后一天”：按自然季度（1/4/7/10 月）锚定，避免 DTSTART 月漂移。
+  match = text.match(/每\s*(?:个)?\s*季度\s*(?:的)?\s*(?:第)?\s*(一|1|最后\s*(?:一)?)\s*天/)
+  if (match) {
+    const edge = match[1].includes('最后') ? 'last' : 'first'
     return {
-      rrule: `FREQ=MONTHLY;BYMONTHDAY=${day}`,
+      // 用 YEARLY + BYMONTH 锚定自然季度；MONTHLY;INTERVAL=3 会随 DTSTART 月份漂移，
+      // 11 月开始时永远命中不到 1/4/7/10 月，rrule 会算出空集。
+      // 季度第一天在 1/4/7/10 月，最后一天在 3/6/9/12 月，两者不能共用同一组 BYMONTH。
+      rrule:
+        edge === 'first'
+          ? 'FREQ=YEARLY;BYMONTH=1,4,7,10;BYMONTHDAY=1'
+          : 'FREQ=YEARLY;BYMONTH=3,6,9,12;BYMONTHDAY=-1',
       matched: match[0],
-      first: nextMonthlyDate(base, day)
+      first: nextQuarterEdge(base, edge)
     }
   }
 
@@ -625,6 +726,12 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
       matched: match[0],
       first: base
     }
+  }
+
+  // “隔天”是没有“每”的口语写法，等价于两天一次。
+  match = text.match(/隔天/)
+  if (match) {
+    return { rrule: 'FREQ=DAILY;INTERVAL=2', matched: match[0], first: base }
   }
 
   // “每3天”“每隔两天”“每两周”“每两个月”：带数量的周期，落到 INTERVAL。
@@ -673,16 +780,30 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
 
   // “周一到周五”“周一到周三”：起止都含；跨周时按周一起算一圈。
   // 放在带数量的周期之后，避免“每两周的周一到周五”被这里的“周一到周五”抢先命中。
+  // 带“本周/下周/上周”前缀时是一次性日期范围（下周一到周五 = 下周一），不是重复任务。
   match = text.match(
-    /每?(?:周|星期|礼拜)\s*([一二三四五六日天])\s*(?:到|至|~|-)\s*(?:周|星期|礼拜)?\s*([一二三四五六日天])/
+    /(本|这|下|上)?\s*(每)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])\s*(?:到|至|~|-)\s*(?:周|星期|礼拜)?\s*([一二三四五六日天])/
   )
   if (match) {
-    const from = WEEKDAY_MAP[match[1]]
-    const to = WEEKDAY_MAP[match[2]]
+    const prefix = match[1]
+    const every = match[2] === '每'
+    const from = WEEKDAY_MAP[match[3]]
+    const to = WEEKDAY_MAP[match[4]]
     if (Number.isInteger(from) && Number.isInteger(to)) {
       const span = (to - from + 7) % 7
       const days: number[] = []
       for (let i = 0; i <= span; i += 1) days.push((from + i) % 7)
+      if (prefix && !every) {
+        let first = nextWeekday(base, from, prefix === '下' ? 'nextweek' : 'this')
+        if (prefix === '上') {
+          first = addDays(first, -7)
+        } else if (first.getTime() < base.getTime()) {
+          const end = addDays(first, span)
+          // 整段已经过去（“本周一到周三”在周四说）顺延到下一周；仍在区间内则以今天为起点。
+          first = end.getTime() < base.getTime() ? addDays(first, 7) : base
+        }
+        return { rrule: null, matched: match[0], first }
+      }
       return {
         rrule: `FREQ=WEEKLY;BYDAY=${days.map((weekday) => WEEKDAY_CODES[weekday]).join(',')}`,
         matched: match[0],
@@ -727,10 +848,11 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
     }
   }
 
-  match = text.match(/(?:每个?)?工作日/)
+  // “工作日”“每个工作日”“每周工作日”：周一至周五重复。
+  match = text.match(/每\s*(?:个)?\s*(?:周|星期|礼拜)?\s*工作日|工作日/)
   if (match) {
     return {
-      rrule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+      rrule: `FREQ=WEEKLY;BYDAY=${WORKDAY_BYDAY}`,
       matched: match[0],
       first: nextWeekday(base, 1, 'next')
     }
@@ -751,7 +873,7 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
     return { rrule: 'FREQ=WEEKLY', matched: match[0], first: base }
   }
 
-  match = text.match(/每月/)
+  match = text.match(/每个?月/)
   if (match) {
     return {
       rrule: 'FREQ=MONTHLY',

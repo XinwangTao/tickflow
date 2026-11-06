@@ -161,12 +161,28 @@ authorization: Bearer <aiToken，可选>
   `每2周的周一、周三` → `FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE`，
   `每两周的周一到周五` 也会保留 `INTERVAL=2` 与五个星期；`的周二` 不会残留在标题里。
   另外补上 `每周末` → `FREQ=WEEKLY;BYDAY=SA,SU`、`每月底` → `FREQ=MONTHLY;BYMONTHDAY=-1`。
+- **工作日与星期区间**：`工作日` / `每个工作日` / `每周工作日` →
+  `FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR`，标题里不会残留「每周」；`隔天`（不写「每」）
+  → `FREQ=DAILY;INTERVAL=2`。带 `本周` / `下周` / `上周` 的星期区间是**一次性日期范围**，
+  不是重复任务：`下周一到周五 出差` 落在 2026-11-09、`本周五到周日` 落在本周五，
+  `上周一到周三` 落在上周一；本周区间已整段过去时顺延到下一周，避免建出立即逾期的任务。
+- **每月多日期与工作日**：`每个月的最后一天` / `每个月底` 与 `每月最后一天` 等价；
+  `每月的1号和15号` → `FREQ=MONTHLY;BYMONTHDAY=1,15`（支持 `、` / `和` / `及` 连接和
+  `1号15号` 连写）；`每月最后一个工作日` →
+  `FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1`；`每月第2个和第4个周二` →
+  `FREQ=MONTHLY;BYDAY=2TU,4TU`（`第二个、第四个周四` 同样支持）。首次日期都取最近一次
+  未过去的触发日。`每季度第一天` 用 `FREQ=YEARLY;BYMONTH=1,4,7,10;BYMONTHDAY=1`，
+  `每季度最后一天` 用 `FREQ=YEARLY;BYMONTH=3,6,9,12;BYMONTHDAY=-1` 锚定自然季度，
+  不会因为起始月份不同而漂移，也不会算出空集。
 - 重复与时间同时出现时，首次日期跟着重复规则的第一次走：`每周五下午 总结` 落在下个周五
   15:00，而不是被「下午」默认成今天；只写了时间（`下午 开会`）才落在今天。
 - 重复规则在界面和草稿下拉框里按语义展示：`FREQ=DAILY;INTERVAL=3` 显示「每3天」、
   `FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE` 显示「每2周的周一、周三」、
-  `FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1` 显示「每月最后一个周五」，
-  不再笼统显示成「每天 / 每周」。
+  `FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1` 显示「每月最后一个周五」、
+  `FREQ=MONTHLY;BYDAY=2TU,4TU` 显示「每月第2个、第4个周二」、
+  `FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1` 显示「每月最后一个工作日」、
+  自然季度边界显示「每季度第一天 / 最后一天」，不再笼统显示成「每天 / 每周」或
+  把 `2TU` 原样暴露给用户。
 - **提前提醒**：`提前30分钟提醒`、`提前提醒我半小时`、`提前1小时通知我`、
   `提前一天提醒` 会被规则识别为提前量（分钟），从标题里移除，并在任务创建后写入
   `reminders` 表；`提前30分钟出发` 这类没有提醒动词的句子不会被误吞。
@@ -180,7 +196,14 @@ authorization: Bearer <aiToken，可选>
 提示词会带上当前时间、星期与全部可用清单名，并明确要求「只有输入中明确提到清单时才填写
 `listName`，不要根据任务内容猜测」，同时要求原样保留 `#标签` / `!优先级` / `~清单`
 显式语法，并给出 `reminderMinutes` 的常见换算，尽量让 AI 输出可直接落库的结构。
-重复示例里补充了 `每两周的周二` → `FREQ=WEEKLY;INTERVAL=2;BYDAY=TU`；
+重复示例里补充了 `每两周的周二` → `FREQ=WEEKLY;INTERVAL=2;BYDAY=TU`、
+`隔天` → `FREQ=DAILY;INTERVAL=2`、`工作日/每周工作日` →
+`FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR`、`每月1号和15号` → `FREQ=MONTHLY;BYMONTHDAY=1,15`、
+`每月第2个和第4个周二` → `FREQ=MONTHLY;BYDAY=2TU,4TU`、
+`每月最后一个工作日` → `FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1`、
+`每季度第一天` → `FREQ=YEARLY;BYMONTH=1,4,7,10;BYMONTHDAY=1`，
+并明确 `本周/下周/上周的星期区间` 是单次日期范围（`recurrence` 必须为 null），
+避免模型把它解析成每周重复。
 口语时间要求模型换算成具体值（`今晚8点` → 当天 20:00、`明早` → 次日 08:00、
 `月底` → 当月最后一天、`30分钟后` → 当前时间加偏移），只说时段时按与规则一致的
 默认钟点（下午 15:00、晚上 20:00 等）填写，避免 AI 与本地规则给出两套不同答案。
@@ -306,9 +329,9 @@ main 返回的 `warning` / `message` 使用 `AI_CANCELED_QUICK_ADD_HINT` /
 | `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口、可编辑草稿、批量添加后撤销、取消与切任务/关面板自动中止 |
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片：按需生成、已等待秒数、取消、失败回落到本地统计并可重试 |
 | `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试；模型目录即选即用、加载秒数、取消与失败重试 |
-| `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：83 条规则用例 + 28 条 AI 解析/归一化/合并用例 + 失败与请求契约 |
-| `tests/quick-add.test.ts` | 规则解析单测：标签/优先级/清单、重复、提前提醒，以及本轮的口语时段默认钟点、相对时刻、月界/周末、`每两周的周二`、重复+时段的首次日期 |
-| `tests/recurrence.test.ts` | 重复规则：RRULE 大小写/分号/BYDAY 顺序收敛、非法 INTERVAL/COUNT/FREQ 丢弃、BYSETPOS 保留、中文重复短语翻译、界面语义文案（每3天/每2周的周一/每月最后一个周五） |
+| `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：96 条规则用例 + 31 条 AI 解析/归一化/合并用例 + 失败与请求契约 |
+| `tests/quick-add.test.ts` | 规则解析单测：标签/优先级/清单、重复、提前提醒，以及口语时段默认钟点、相对时刻、月界/周末、`每两周的周二`、重复+时段的首次日期、工作日/隔天、每月多日期、多个第 N 个星期与自然季度边界 |
+| `tests/recurrence.test.ts` | 重复规则：RRULE 大小写/分号/BYDAY 顺序收敛、非法 INTERVAL/COUNT/FREQ 丢弃、BYSETPOS 与带序号的 BYDAY 保留、生成的季度/多日期规则可被 rrule 正常展开、中文重复短语翻译、界面语义文案（每3天/每2周的周一/每月最后一个周五/每月第2个、第4个周二/每月最后一个工作日/每季度第一天） |
 | `tests/ai-cancel.test.ts` | 取消：取消与超时区分、不重试、已取消的 signal 不发请求、requestId 注册表与不泄漏、并行请求互不影响、快速添加/今日总结/子任务拆解/模型目录四处取消都回传规则结果或提示并说明已取消 |
 | `tests/ai-settings-ui.test.ts` | 设置页模型目录：成功后展示下拉框、失败 toast 重试后恢复、加载中取消并丢弃迟到目录、关闭设置页自动中止请求 |
 | `tests/quick-add-draft.test.ts` | AI 快速添加草稿：清单名匹配、默认日期、清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、提前提醒保留与清空、空标题保护 |
@@ -361,17 +384,20 @@ curl -s http://127.0.0.1:15721/v1/messages \
 `tests/quick-add-regression.test.ts` 把“用户输入 → 最终落库字段”固化成可重复执行的回归集，
 所有用例固定在同一时刻 `2026-11-05 周四 09:00`，避免相对日期随时钟漂移。
 
-- **规则用例（83 条）**：覆盖相对日期、星期、跨年、月日、时间区间、重复、提前提醒、
-  显式标签/优先级/清单、纯标题与非法日期，以及这一轮补强的口语时段（`今晚`/`明早`/`下午`）、
+- **规则用例（96 条）**：覆盖相对日期、星期、跨年、月日、时间区间、重复、提前提醒、
+  显式标签/优先级/清单、纯标题与非法日期，以及口语时段（`今晚`/`明早`/`下午`）、
   相对时刻（`30分钟后`）、中文数量（`两周后`/`半年后`）、月界（`月底`/`下个月初`/`12月底`）、
-  周末、`每两周的周二` 与 `每周末`。每条都精确断言 `title`、`priority`、`tags`、
-  `listName`、`dueDate`、`dueTime`、`allDay`、`recurrence`、`reminderOffsetMin` 全部字段，
-  未写出的字段按默认值比较，不会出现“只校验标题”的宽松通过。
-- **AI 合并用例（28 条）**：用假 fetch 返回贴近真实模型的输出，覆盖 Markdown 代码块与
+  周末、`每两周的周二` 与 `每周末`，以及工作日前缀、`隔天`、本周/下周/上周的星期区间、
+  `每个月的最后一天`、多个每月日期、`每月最后一个工作日`、多个第 N 个星期与季度边界。
+  每条都精确断言 `title`、`priority`、`tags`、`listName`、`dueDate`、`dueTime`、`allDay`、
+  `recurrence`、`reminderOffsetMin` 全部字段，未写出的字段按默认值比较，
+  不会出现“只校验标题”的宽松通过。
+- **AI 合并用例（31 条）**：用假 fetch 返回贴近真实模型的输出，覆盖 Markdown 代码块与
   前后解释、模型只返回标题、漏日期/时间/重复/提前提醒、没提清单却猜清单、显式提到清单、
   非法日期/时间/优先级/提前量、标题残留显式标记、字符串优先级、OpenAI `choices` 响应、
   AI 日期优先于规则、非法/中文 recurrence 的收敛与回落、每月第 N 个星期补齐，
-  以及模型漏掉 `今晚`/`30分钟后`/`月底`/`每两周的周二` 时由规则补齐等场景，
+  以及模型漏掉 `今晚`/`30分钟后`/`月底`/`每两周的周二`/`下周一到周五`/多个每月日期/
+  每月最后一个工作日时由规则补齐等场景，
   断言合并后的最终结果。
 - **失败与重试**：非法 JSON、JSON 缺 title、只有 thinking 被 `max_tokens` 截断、401 不重试、
   500 重试一次后成功、连接失败重试后仍失败、超时提示秒数且不重试、空输入与关闭 AI

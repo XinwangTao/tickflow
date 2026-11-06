@@ -130,6 +130,104 @@ describe('parseQuickAdd', () => {
     )
   })
 
+  it('解析每季度第一天/最后一天这类自然季度边界', () => {
+    const first = parseQuickAdd('每季度第一天 复盘', NOW)
+    expect(first.title).toBe('复盘')
+    expect(first.recurrence).toBe(
+      'FREQ=YEARLY;BYMONTH=1,4,7,10;BYMONTHDAY=1'
+    )
+    // 2026-11 已进入 Q4，下一次季度第一天是 2027-01-01
+    expect(first.dueDate).toBe('2027-01-01')
+
+    const last = parseQuickAdd('每季度最后一天 结转', NOW)
+    expect(last.title).toBe('结转')
+    expect(last.recurrence).toBe(
+      'FREQ=YEARLY;BYMONTH=3,6,9,12;BYMONTHDAY=-1'
+    )
+    expect(last.dueDate).toBe('2026-12-31')
+  })
+
+  it('解析“每个月”口语与多个每月日期', () => {
+    const lastDay = parseQuickAdd('每个月的最后一天 对账', NOW)
+    expect(lastDay.title).toBe('对账')
+    expect(lastDay.recurrence).toBe('FREQ=MONTHLY;BYMONTHDAY=-1')
+    expect(lastDay.dueDate).toBe('2026-11-30')
+    expect(parseQuickAdd('每个月底 结转', NOW).recurrence).toBe(
+      'FREQ=MONTHLY;BYMONTHDAY=-1'
+    )
+
+    const multi = parseQuickAdd('每月的1号和15号 对账', NOW)
+    expect(multi.title).toBe('对账')
+    expect(multi.recurrence).toBe('FREQ=MONTHLY;BYMONTHDAY=1,15')
+    // 11-01 已过，取最近的 11-15
+    expect(multi.dueDate).toBe('2026-11-15')
+
+    expect(parseQuickAdd('每月1号、15号、28号 还款', NOW).recurrence).toBe(
+      'FREQ=MONTHLY;BYMONTHDAY=1,15,28'
+    )
+    expect(parseQuickAdd('每月1号、15号、28号 还款', NOW).title).toBe('还款')
+  })
+
+  it('解析每月第 N 个与最后一个工作日', () => {
+    const lastWorkday = parseQuickAdd('每月最后一个工作日 对账', NOW)
+    expect(lastWorkday.title).toBe('对账')
+    expect(lastWorkday.recurrence).toBe(
+      'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1'
+    )
+    // 2026-11-30 是周一，也是 11 月最后一个工作日
+    expect(lastWorkday.dueDate).toBe('2026-11-30')
+
+    const lastWorkdayOfDec = parseQuickAdd('每月最后一个工作日 对账', new Date(2026, 11, 1, 9))
+    expect(lastWorkdayOfDec.dueDate).toBe('2026-12-31')
+  })
+
+  it('解析多个“每月第 N 个星期”', () => {
+    const multi = parseQuickAdd('每月第2个和第4个周二 复盘', NOW)
+    expect(multi.title).toBe('复盘')
+    expect(multi.recurrence).toBe('FREQ=MONTHLY;BYDAY=2TU,4TU')
+    expect(multi.dueDate).toBe('2026-11-10')
+
+    const chinese = parseQuickAdd('每月第二个、第四个周四 复盘', NOW)
+    expect(chinese.recurrence).toBe('FREQ=MONTHLY;BYDAY=2TH,4TH')
+    expect(chinese.dueDate).toBe('2026-11-12')
+  })
+
+  it('解析工作日的前缀写法', () => {
+    const everyWorkday = parseQuickAdd('每周工作日 整理周报', NOW)
+    expect(everyWorkday.title).toBe('整理周报')
+    expect(everyWorkday.recurrence).toBe('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR')
+
+    expect(parseQuickAdd('每个工作日 打卡', NOW).title).toBe('打卡')
+    expect(parseQuickAdd('工作日 交日报', NOW).title).toBe('交日报')
+  })
+
+  it('解析隔天与本周/下周/上周的星期区间', () => {
+    const everyOtherDay = parseQuickAdd('隔天 浇花', NOW)
+    expect(everyOtherDay.title).toBe('浇花')
+    expect(everyOtherDay.recurrence).toBe('FREQ=DAILY;INTERVAL=2')
+    expect(everyOtherDay.dueDate).toBe('2026-11-05')
+
+    // “下周一到周五”是一次性日期范围：落在下周一，不是每周重复
+    const nextWeek = parseQuickAdd('下周一到周五 出差', NOW)
+    expect(nextWeek.title).toBe('出差')
+    expect(nextWeek.recurrence).toBeNull()
+    expect(nextWeek.dueDate).toBe('2026-11-09')
+
+    const thisWeek = parseQuickAdd('本周五到周日 团建', NOW)
+    expect(thisWeek.title).toBe('团建')
+    expect(thisWeek.recurrence).toBeNull()
+    expect(thisWeek.dueDate).toBe('2026-11-06')
+
+    // 本周区间已整段过去：顺延到下一周的周一，避免建出立即逾期的任务
+    const pastThisWeek = parseQuickAdd('本周一到周三 早会', NOW)
+    expect(pastThisWeek.dueDate).toBe('2026-11-09')
+    expect(pastThisWeek.recurrence).toBeNull()
+
+    const lastWeek = parseQuickAdd('上周一到周三 复盘', NOW)
+    expect(lastWeek.dueDate).toBe('2026-10-26')
+    expect(lastWeek.recurrence).toBeNull()
+  })
+
   it('区间不吞掉普通星期列表', () => {
     expect(parseQuickAdd('每周一三五 晨会', NOW).recurrence).toBe(
       'FREQ=WEEKLY;BYDAY=MO,WE,FR'

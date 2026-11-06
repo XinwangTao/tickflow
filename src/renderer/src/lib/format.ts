@@ -32,6 +32,26 @@ export function describeRecurrence(rule: string): string {
     if (value < 0) return `倒数第${Math.abs(value)}个`
     return `第${value}个`
   }
+  /**
+   * BYDAY 可能带序号（RFC5545 的 `2TU`、`-1FR`）：拆出“第 N 个 + 星期”，
+   * 展示成“第2个周二”而不是把 `2TU` 原样丢给用户。
+   */
+  const ordinalDays = (
+    value: string
+  ): Array<{ position: number | null; day: string }> =>
+    value
+      .split(',')
+      .map((item) => {
+        const match = item.trim().toUpperCase().match(/^([+-]?[1-5])?(SU|MO|TU|WE|TH|FR|SA)$/)
+        if (!match) return null
+        return {
+          position: match[1] ? Number(match[1]) : null,
+          day: DAY_NAMES[match[2]]
+        }
+      })
+      .filter(
+        (item): item is { position: number | null; day: string } => item !== null
+      )
 
   if (parts.FREQ === 'DAILY') return every > 1 ? `每${every}天` : '每天'
 
@@ -47,6 +67,15 @@ export function describeRecurrence(rule: string): string {
   }
 
   if (parts.FREQ === 'MONTHLY') {
+    // 兼容旧数据或 AI 返回的 MONTHLY;INTERVAL=3;BYMONTH=1,4,7,10;BYMONTHDAY=±1，
+    // 展示回“每季度第一天/最后一天”，不要读成“每3个月1日”。
+    if (
+      every === 3 &&
+      ((parts.BYMONTH === '1,4,7,10' && parts.BYMONTHDAY === '1') ||
+        (parts.BYMONTH === '3,6,9,12' && parts.BYMONTHDAY === '-1'))
+    ) {
+      return parts.BYMONTHDAY === '1' ? '每季度第一天' : '每季度最后一天'
+    }
     const base = every > 1 ? `每${every}个月` : '每月'
     if (parts.BYDAY && parts.BYSETPOS) {
       const days = dayNames(parts.BYDAY)
@@ -54,7 +83,27 @@ export function describeRecurrence(rule: string): string {
         .map((value) => Number(value))
         .filter((value) => Number.isInteger(value) && value !== 0)
       if (days.length && positions.length) {
+        if (
+          days.length === 5 &&
+          ['一', '二', '三', '四', '五'].every((day) => days.includes(day))
+        ) {
+          return `${base}${positions.map(ordinal).join('、')}工作日`
+        }
         return `${base}${positions.map(ordinal).join('、')}${weekdays(days)}`
+      }
+    }
+    if (parts.BYDAY) {
+      const parsed = ordinalDays(parts.BYDAY)
+      if (parsed.length && parsed.every((item) => item.position !== null)) {
+        const sameDay = parsed.every((item) => item.day === parsed[0].day)
+        if (sameDay) {
+          return `${base}${parsed
+            .map((item) => ordinal(item.position as number))
+            .join('、')}周${parsed[0].day}`
+        }
+        return `${base}${parsed
+          .map((item) => `${ordinal(item.position as number)}周${item.day}`)
+          .join('、')}`
       }
     }
     if (parts.BYMONTHDAY) {
@@ -73,6 +122,13 @@ export function describeRecurrence(rule: string): string {
 
   if (parts.FREQ === 'YEARLY') {
     const base = every > 1 ? `每${every}年` : '每年'
+    if (
+      every === 1 &&
+      ((parts.BYMONTH === '1,4,7,10' && parts.BYMONTHDAY === '1') ||
+        (parts.BYMONTH === '3,6,9,12' && parts.BYMONTHDAY === '-1'))
+    ) {
+      return parts.BYMONTHDAY === '1' ? '每季度第一天' : '每季度最后一天'
+    }
     if (parts.BYMONTH && parts.BYMONTHDAY) {
       return `${base}${parts.BYMONTH}月${parts.BYMONTHDAY}日`
     }

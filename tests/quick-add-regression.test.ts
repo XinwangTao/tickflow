@@ -120,7 +120,22 @@ const RULE_CASES: RuleCase[] = [
   { input: '每月最后一天 对账', expected: { title: '对账', dueDate: '2026-11-30', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=-1' } },
   { input: '每年3月5日 体检', expected: { title: '体检', dueDate: '2027-03-05', recurrence: 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=5' } },
   { input: '每个工作日 打卡', expected: { title: '打卡', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' } },
+  { input: '每周工作日 整理周报', expected: { title: '整理周报', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' } },
   { input: '每周 写周报', expected: { title: '写周报', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY' } },
+  // 每个月口语、多个每月日期、多个第 N 个星期与最后一个工作日
+  { input: '每个月的最后一天 对账', expected: { title: '对账', dueDate: '2026-11-30', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=-1' } },
+  { input: '每月的1号和15号 对账', expected: { title: '对账', dueDate: '2026-11-15', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=1,15' } },
+  { input: '每月1号、15号、28号 还款', expected: { title: '还款', dueDate: '2026-11-15', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=1,15,28' } },
+  { input: '每月最后一个工作日 对账', expected: { title: '对账', dueDate: '2026-11-30', recurrence: 'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1' } },
+  { input: '每月第2个和第4个周二 复盘', expected: { title: '复盘', dueDate: '2026-11-10', recurrence: 'FREQ=MONTHLY;BYDAY=2TU,4TU' } },
+  { input: '每季度第一天 复盘', expected: { title: '复盘', dueDate: '2027-01-01', recurrence: 'FREQ=YEARLY;BYMONTH=1,4,7,10;BYMONTHDAY=1' } },
+  { input: '每季度最后一天 结转', expected: { title: '结转', dueDate: '2026-12-31', recurrence: 'FREQ=YEARLY;BYMONTH=3,6,9,12;BYMONTHDAY=-1' } },
+  { input: '隔天 浇花', expected: { title: '浇花', dueDate: '2026-11-05', recurrence: 'FREQ=DAILY;INTERVAL=2' } },
+  // 带“本周/下周/上周”的星期区间是一次性日期范围，不写重复规则
+  { input: '下周一到周五 出差', expected: { title: '出差', dueDate: '2026-11-09' } },
+  { input: '本周五到周日 团建', expected: { title: '团建', dueDate: '2026-11-06' } },
+  { input: '本周一到周三 早会', expected: { title: '早会', dueDate: '2026-11-09' } },
+  { input: '上周一到周三 复盘', expected: { title: '复盘', dueDate: '2026-10-26' } },
   // 周期 + 星期：INTERVAL 与 BYDAY 同时保留，首次日期取最近的星期
   { input: '每两周的周二 复盘', expected: { title: '复盘', dueDate: '2026-11-10', recurrence: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU' } },
   { input: '每2周的周一、周三 例会', expected: { title: '例会', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE' } },
@@ -232,6 +247,32 @@ const AI_CASES: AiCase[] = [
       title: '健身',
       dueDate: '2026-11-06',
       recurrence: 'FREQ=WEEKLY;BYDAY=MO,WE,FR'
+    }
+  },
+  {
+    name: '模型漏掉“下周一到周五”时按一次性日期范围补齐，不产生重复',
+    input: '下周一到周五 出差',
+    model: { title: '出差' },
+    expected: { title: '出差', dueDate: '2026-11-09', recurrence: null }
+  },
+  {
+    name: '模型漏掉多日期每月重复时由规则补齐',
+    input: '每月的1号和15号 还款',
+    model: { title: '还款' },
+    expected: {
+      title: '还款',
+      dueDate: '2026-11-15',
+      recurrence: 'FREQ=MONTHLY;BYMONTHDAY=1,15'
+    }
+  },
+  {
+    name: '模型漏掉每月最后一个工作日时由规则补齐',
+    input: '每月最后一个工作日 对账',
+    model: { title: '对账' },
+    expected: {
+      title: '对账',
+      dueDate: '2026-11-30',
+      recurrence: 'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1'
     }
   },
   {

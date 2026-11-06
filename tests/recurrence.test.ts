@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { RRule } from 'rrule'
 import {
   normalizeRecurrenceRule,
+  parseQuickAdd,
   parseRecurrenceRule
 } from '../src/shared/quick-add'
 import { describeRecurrence } from '../src/renderer/src/lib/format'
@@ -31,6 +33,9 @@ describe('normalizeRecurrenceRule', () => {
     expect(normalizeRecurrenceRule('FREQ=MONTHLY;BYDAY=mo;BYSETPOS=-1')).toBe(
       'FREQ=MONTHLY;BYDAY=MO;BYSETPOS=-1'
     )
+    expect(normalizeRecurrenceRule('FREQ=MONTHLY;BYDAY=2tu,4tu')).toBe(
+      'FREQ=MONTHLY;BYDAY=2TU,4TU'
+    )
     expect(normalizeRecurrenceRule('FREQ=WEEKLY;UNTIL=20261231T235959Z')).toBe(
       'FREQ=WEEKLY;UNTIL=20261231T235959Z'
     )
@@ -49,6 +54,52 @@ describe('normalizeRecurrenceRule', () => {
       'FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1'
     )
     expect(parseRecurrenceRule('不是重复', now)).toBeNull()
+  })
+})
+
+describe('生成的 RRULE 可被 rrule 正常展开', () => {
+  const NOW = new Date(2026, 10, 5, 9, 0, 0)
+
+  function firstOccurrence(input: string): { dueDate: string; first: string } {
+    const result = parseQuickAdd(input, NOW)
+    expect(result.recurrence).toBeTruthy()
+    const start = result.dueDate?.replace(/-/g, '') ?? ''
+    const rule = RRule.fromString(
+      `DTSTART:${start}T090000\nRRULE:${result.recurrence}`
+    )
+    const first = rule.all()[0]
+    expect(first).toBeTruthy()
+    const pad = (value: number): string => String(value).padStart(2, '0')
+    return {
+      dueDate: result.dueDate ?? '',
+      first: `${first.getFullYear()}-${pad(first.getMonth() + 1)}-${pad(first.getDate())}`
+    }
+  }
+
+  it('自然季度第一/最后一天不会算出空集', () => {
+    expect(firstOccurrence('每季度第一天 复盘')).toEqual({
+      dueDate: '2027-01-01',
+      first: '2027-01-01'
+    })
+    expect(firstOccurrence('每季度最后一天 结转')).toEqual({
+      dueDate: '2026-12-31',
+      first: '2026-12-31'
+    })
+  })
+
+  it('多日期、多序号与最后一个工作日从首次日期开始展开', () => {
+    expect(firstOccurrence('每月的1号和15号 对账')).toEqual({
+      dueDate: '2026-11-15',
+      first: '2026-11-15'
+    })
+    expect(firstOccurrence('每月第2个和第4个周二 复盘')).toEqual({
+      dueDate: '2026-11-10',
+      first: '2026-11-10'
+    })
+    expect(firstOccurrence('每月最后一个工作日 对账')).toEqual({
+      dueDate: '2026-11-30',
+      first: '2026-11-30'
+    })
   })
 })
 
@@ -73,6 +124,30 @@ describe('describeRecurrence', () => {
     expect(describeRecurrence('FREQ=MONTHLY;BYMONTHDAY=1,15')).toBe('每月1日、15日')
     expect(describeRecurrence('FREQ=MONTHLY;BYMONTHDAY=-1')).toBe('每月最后一天')
     expect(describeRecurrence('FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=5')).toBe('每年3月5日')
+  })
+
+  it('展示多个“每月第 N 个星期”与最后一个工作日', () => {
+    expect(describeRecurrence('FREQ=MONTHLY;BYDAY=2TU,4TU')).toBe(
+      '每月第2个、第4个周二'
+    )
+    expect(describeRecurrence('FREQ=MONTHLY;BYDAY=2TH,4TH')).toBe(
+      '每月第2个、第4个周四'
+    )
+    expect(describeRecurrence('FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1')).toBe(
+      '每月最后一个工作日'
+    )
+    expect(describeRecurrence('FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1')).toBe(
+      '每月第1个工作日'
+    )
+  })
+
+  it('展示自然季度边界，而不是每3个月N日', () => {
+    expect(
+      describeRecurrence('FREQ=YEARLY;BYMONTH=1,4,7,10;BYMONTHDAY=1')
+    ).toBe('每季度第一天')
+    expect(
+      describeRecurrence('FREQ=YEARLY;BYMONTH=3,6,9,12;BYMONTHDAY=-1')
+    ).toBe('每季度最后一天')
   })
 
   it('无法识别时原样返回规则', () => {
