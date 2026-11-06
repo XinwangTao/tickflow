@@ -61,7 +61,16 @@ const RULE_CASES: RuleCase[] = [
   { input: '下周一 晨会', expected: { title: '晨会', dueDate: '2026-11-09' } },
   { input: '下周日 家庭日', expected: { title: '家庭日', dueDate: '2026-11-15' } },
   { input: '下个星期天 爬山', expected: { title: '爬山', dueDate: '2026-11-15' } },
+  { input: '上周五 复盘', expected: { title: '复盘', dueDate: '2026-10-30' } },
+  { input: '上上周五 复盘', expected: { title: '复盘', dueDate: '2026-10-23' } },
+  { input: '下下周三 评审', expected: { title: '评审', dueDate: '2026-11-18' } },
+  { input: '下下个星期五 复盘', expected: { title: '复盘', dueDate: '2026-11-20' } },
+  { input: '下下个月15号 续费', expected: { title: '续费', dueDate: '2027-01-15' } },
+  { input: '上个月15号 补录', expected: { title: '补录', dueDate: '2026-10-15' } },
   { input: '下个月15号 还信用卡', expected: { title: '还信用卡', dueDate: '2026-12-15' } },
+  { input: '下个月十五号 还信用卡', expected: { title: '还信用卡', dueDate: '2026-12-15' } },
+  { input: '三月五号 体检', expected: { title: '体检', dueDate: '2027-03-05' } },
+  { input: '十二月三十一号 年终', expected: { title: '年终', dueDate: '2026-12-31' } },
   { input: '下个月 复盘', expected: { title: '复盘', dueDate: '2026-12-05' } },
   { input: '本月20号 交水电费', expected: { title: '交水电费', dueDate: '2026-11-20' } },
   { input: '11月20日 妈妈生日', expected: { title: '妈妈生日', dueDate: '2026-11-20' } },
@@ -97,6 +106,8 @@ const RULE_CASES: RuleCase[] = [
   // 相对当前时刻：分钟/小时，精确到分钟
   { input: '30分钟后 喝水', expected: { title: '喝水', dueDate: '2026-11-05', dueTime: '09:30', allDay: false } },
   { input: '半小时后 出发', expected: { title: '出发', dueDate: '2026-11-05', dueTime: '09:30', allDay: false } },
+  { input: '一个半小时后 出发', expected: { title: '出发', dueDate: '2026-11-05', dueTime: '10:30', allDay: false } },
+  { input: '一小时二十分钟后 休息', expected: { title: '休息', dueDate: '2026-11-05', dueTime: '10:20', allDay: false } },
   { input: '一小时后 休息', expected: { title: '休息', dueDate: '2026-11-05', dueTime: '10:00', allDay: false } },
   // 中文数量的相对日期
   { input: '两周后 复盘', expected: { title: '复盘', dueDate: '2026-11-19' } },
@@ -106,6 +117,9 @@ const RULE_CASES: RuleCase[] = [
   { input: '月底 交房租', expected: { title: '交房租', dueDate: '2026-11-30' } },
   { input: '下个月初 交房租', expected: { title: '交房租', dueDate: '2026-12-01' } },
   { input: '12月底 盘点', expected: { title: '盘点', dueDate: '2026-12-31' } },
+  { input: '十二月底 盘点', expected: { title: '盘点', dueDate: '2026-12-31' } },
+  { input: '上个月底 复盘', expected: { title: '复盘', dueDate: '2026-10-31' } },
+  { input: '下下个月底 复盘', expected: { title: '复盘', dueDate: '2027-01-31' } },
   { input: '本周末 爬山', expected: { title: '爬山', dueDate: '2026-11-07' } },
   { input: '下周末 露营', expected: { title: '露营', dueDate: '2026-11-14' } },
 
@@ -122,6 +136,10 @@ const RULE_CASES: RuleCase[] = [
   { input: '每个工作日 打卡', expected: { title: '打卡', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' } },
   { input: '每周工作日 整理周报', expected: { title: '整理周报', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' } },
   { input: '每周 写周报', expected: { title: '写周报', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY' } },
+  { input: '每个周二 晨会', expected: { title: '晨会', dueDate: '2026-11-10', recurrence: 'FREQ=WEEKLY;BYDAY=TU' } },
+  { input: '每个周一、周三 健身', expected: { title: '健身', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO,WE' } },
+  { input: '每周的周二 晨会', expected: { title: '晨会', dueDate: '2026-11-10', recurrence: 'FREQ=WEEKLY;BYDAY=TU' } },
+  { input: '每周的周一到周五 早会', expected: { title: '早会', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' } },
   // 每个月口语、多个每月日期、多个第 N 个星期与最后一个工作日
   { input: '每个月的最后一天 对账', expected: { title: '对账', dueDate: '2026-11-30', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=-1' } },
   { input: '每月的1号和15号 对账', expected: { title: '对账', dueDate: '2026-11-15', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=1,15' } },
@@ -150,6 +168,12 @@ const RULE_CASES: RuleCase[] = [
   { input: '每周一 提前1小时提醒 晨会', expected: { title: '晨会', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO', reminderOffsetMin: 60 } },
   { input: '提前提醒我半小时 交水电费', expected: { title: '交水电费', reminderOffsetMin: 30 } },
   { input: '提前一天通知我 交房租', expected: { title: '交房租', reminderOffsetMin: 1440 } },
+  { input: '提醒我提前半小时 交水电费', expected: { title: '交水电费', reminderOffsetMin: 30 } },
+  { input: '提醒我提前30分钟，交周报', expected: { title: '交周报', reminderOffsetMin: 30 } },
+  { input: '提前一个半小时提醒 开会', expected: { title: '开会', reminderOffsetMin: 90 } },
+  { input: '提前一小时二十分钟提醒 开会', expected: { title: '开会', reminderOffsetMin: 80 } },
+  { input: '提前两天半提醒 交房租', expected: { title: '交房租', reminderOffsetMin: 3600 } },
+  { input: '提醒我提前30分钟出发', expected: { title: '提醒我提前30分钟出发' } },
   { input: '提前30分钟出发', expected: { title: '提前30分钟出发' } },
 
   // 显式语法：标签/优先级/清单，含中文标点与无空格连写
@@ -545,6 +569,34 @@ const AI_CASES: AiCase[] = [
     input: '月底 交房租',
     model: { title: '交房租' },
     expected: { title: '交房租', dueDate: '2026-11-30' }
+  },
+  {
+    name: '模型漏掉“每个周二”时由规则补齐 BYDAY',
+    input: '每个周二 晨会',
+    model: { title: '晨会' },
+    expected: {
+      title: '晨会',
+      dueDate: '2026-11-10',
+      recurrence: 'FREQ=WEEKLY;BYDAY=TU'
+    }
+  },
+  {
+    name: '模型漏掉“上周五”时由规则补齐过去的日期',
+    input: '上周五 复盘',
+    model: { title: '复盘' },
+    expected: { title: '复盘', dueDate: '2026-10-30' }
+  },
+  {
+    name: '模型漏掉“提醒我提前半小时”时由规则补齐提醒',
+    input: '明天下午3点 提醒我提前半小时 交水电费',
+    model: { title: '交水电费' },
+    expected: {
+      title: '交水电费',
+      dueDate: '2026-11-06',
+      dueTime: '15:00',
+      allDay: false,
+      reminderOffsetMin: 30
+    }
   }
 ]
 

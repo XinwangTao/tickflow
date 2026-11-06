@@ -132,6 +132,9 @@ describe('buildQuickAddPrompt', () => {
     expect(prompt).toContain('reminderMinutes')
     expect(prompt).toContain('“提前30分钟”→30')
     expect(prompt).toContain('“提前一天”→1440')
+    expect(prompt).toContain('“提醒我提前半小时”→30')
+    expect(prompt).toContain('“提前一个半小时”→90')
+    expect(prompt).toContain('“提前两天半”→3600')
   })
 
   it('给出周期+星期与口语时间的换算约定', () => {
@@ -140,6 +143,8 @@ describe('buildQuickAddPrompt', () => {
       lists: ['收集箱']
     })
     expect(prompt).toContain('“每两周的周二”→FREQ=WEEKLY;INTERVAL=2;BYDAY=TU')
+    expect(prompt).toContain('“每个周二/每周的周二”→FREQ=WEEKLY;BYDAY=TU')
+    expect(prompt).toContain('“每个周一、周三”→FREQ=WEEKLY;BYDAY=MO,WE')
     expect(prompt).toContain('“今晚8点”→当天 20:00')
     expect(prompt).toContain('“明早”→次日 08:00')
     expect(prompt).toContain('“月底”→当月最后一天')

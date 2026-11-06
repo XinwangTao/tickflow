@@ -295,6 +295,8 @@ describe('语义解析增强', () => {
     expect(parseRelativeOffset('半小时后 出发')).toMatchObject({ minutes: 30 })
     expect(parseRelativeOffset('两小时以后 出发')).toMatchObject({ minutes: 120 })
     expect(parseRelativeOffset('15分钟之后 出门')).toMatchObject({ minutes: 15 })
+    expect(parseRelativeOffset('一个半小时后 出发')).toMatchObject({ minutes: 90 })
+    expect(parseRelativeOffset('一小时二十分钟后 休息')).toMatchObject({ minutes: 80 })
     expect(parseRelativeOffset('30天后 体检')).toBeNull()
     expect(parseRelativeOffset('提前30分钟提醒')).toBeNull()
 
@@ -308,10 +310,93 @@ describe('语义解析增强', () => {
       dueDate: '2026-11-05',
       dueTime: '12:00'
     })
+    expect(parseQuickAdd('一个半小时后 出发', NOW)).toMatchObject({
+      title: '出发',
+      dueDate: '2026-11-05',
+      dueTime: '10:30',
+      allDay: false
+    })
     // 跨天时日期一起顺延
     expect(parseQuickAdd('90分钟后 关火', new Date(2026, 10, 5, 23, 0, 0))).toMatchObject({
       dueDate: '2026-11-06',
       dueTime: '00:30'
+    })
+  })
+
+  it('上周/上上周/下下周按对应整周计算，且不残留前缀', () => {
+    expect(parseQuickAdd('上周五 复盘', NOW)).toMatchObject({
+      title: '复盘',
+      dueDate: '2026-10-30'
+    })
+    expect(parseQuickAdd('上上周五 复盘', NOW)).toMatchObject({
+      title: '复盘',
+      dueDate: '2026-10-23'
+    })
+    expect(parseQuickAdd('下下周三 评审', NOW)).toMatchObject({
+      title: '评审',
+      dueDate: '2026-11-18'
+    })
+    expect(parseQuickAdd('下下个星期五 复盘', NOW)).toMatchObject({
+      title: '复盘',
+      dueDate: '2026-11-20'
+    })
+    expect(parseQuickAdd('上上周 复盘', NOW).dueDate).toBe('2026-10-22')
+    expect(parseQuickAdd('下下个月15号 续费', NOW)).toMatchObject({
+      title: '续费',
+      dueDate: '2027-01-15'
+    })
+    expect(parseQuickAdd('上个月15号 补录', NOW)).toMatchObject({
+      title: '补录',
+      dueDate: '2026-10-15'
+    })
+  })
+
+  it('中文数字月日与月界直接换算成日期', () => {
+    expect(parseQuickAdd('三月五号 体检', NOW)).toMatchObject({
+      title: '体检',
+      dueDate: '2027-03-05'
+    })
+    expect(parseQuickAdd('十二月三十一号 年终', NOW)).toMatchObject({
+      title: '年终',
+      dueDate: '2026-12-31'
+    })
+    expect(parseQuickAdd('下个月十五号 还信用卡', NOW)).toMatchObject({
+      title: '还信用卡',
+      dueDate: '2026-12-15'
+    })
+    expect(parseQuickAdd('十二月底 盘点', NOW)).toMatchObject({
+      title: '盘点',
+      dueDate: '2026-12-31'
+    })
+    expect(parseQuickAdd('上个月底 复盘', NOW).dueDate).toBe('2026-10-31')
+    expect(parseQuickAdd('下下个月底 复盘', NOW).dueDate).toBe('2027-01-31')
+    // 非法中文日期保持为标题，不写库
+    expect(parseQuickAdd('二月三十号 无效', NOW)).toMatchObject({
+      title: '二月三十号 无效',
+      dueDate: null
+    })
+  })
+
+  it('“每个/每周的”都能被识别为带 BYDAY 的每周重复', () => {
+    expect(parseQuickAdd('每个周二 晨会', NOW)).toMatchObject({
+      title: '晨会',
+      recurrence: 'FREQ=WEEKLY;BYDAY=TU',
+      dueDate: '2026-11-10'
+    })
+    expect(parseQuickAdd('每个周一、周三 健身', NOW)).toMatchObject({
+      title: '健身',
+      recurrence: 'FREQ=WEEKLY;BYDAY=MO,WE',
+      dueDate: '2026-11-09'
+    })
+    expect(parseQuickAdd('每周的周二 晨会', NOW)).toMatchObject({
+      title: '晨会',
+      recurrence: 'FREQ=WEEKLY;BYDAY=TU',
+      dueDate: '2026-11-10'
+    })
+    expect(parseQuickAdd('每周的周一到周五 早会', NOW)).toMatchObject({
+      title: '早会',
+      recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+      dueDate: '2026-11-05'
     })
   })
 
@@ -412,6 +497,28 @@ describe('提前提醒解析', () => {
     expect(parseQuickAdd('提前提醒我半小时 交水电费', NOW).reminderOffsetMin).toBe(30)
     expect(parseQuickAdd('提前一天通知我 交房租', NOW).reminderOffsetMin).toBe(1440)
     expect(parseQuickAdd('提前提醒 30 分钟 复盘', NOW).reminderOffsetMin).toBe(30)
+  })
+
+  it('支持复合时长与“提醒我提前…”语序', () => {
+    expect(parseQuickAdd('提前一个半小时提醒 开会', NOW)).toMatchObject({
+      title: '开会',
+      reminderOffsetMin: 90
+    })
+    expect(parseQuickAdd('提前一小时二十分钟提醒 开会', NOW).reminderOffsetMin).toBe(80)
+    expect(parseQuickAdd('提前两天半提醒 交房租', NOW).reminderOffsetMin).toBe(3600)
+    expect(parseQuickAdd('提醒我提前半小时 交水电费', NOW)).toMatchObject({
+      title: '交水电费',
+      reminderOffsetMin: 30
+    })
+    expect(parseQuickAdd('提醒我提前30分钟，交周报', NOW)).toMatchObject({
+      title: '交周报',
+      reminderOffsetMin: 30
+    })
+    // “提醒我提前30分钟出发”是在描述提醒内容，不是提前量
+    expect(parseQuickAdd('提醒我提前30分钟出发', NOW)).toMatchObject({
+      title: '提醒我提前30分钟出发',
+      reminderOffsetMin: null
+    })
   })
 
   it('没有明确提醒动词的“提前30分钟出发”保持原样', () => {
