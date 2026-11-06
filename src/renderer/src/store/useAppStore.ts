@@ -104,10 +104,12 @@ interface AppState {
   deleteFilter: (id: string) => Promise<void>
   createTask: (input: CreateTaskInput) => Promise<TaskWithMeta | null>
   updateTask: (id: string, patch: UpdateTaskInput) => Promise<void>
+  duplicateTask: (id: string) => Promise<void>
   toggleTask: (task: TaskWithMeta) => Promise<void>
   removeTask: (id: string) => Promise<void>
   restoreTask: (id: string) => Promise<void>
   purgeTask: (id: string) => Promise<void>
+  emptyTrash: () => Promise<void>
   reorderTasks: (listId: string, orderedIds: string[]) => Promise<void>
   batchComplete: () => Promise<void>
   batchDelete: () => Promise<void>
@@ -402,6 +404,43 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  duplicateTask: async (id) => {
+    try {
+      const source = await window.api.tasks.get(id)
+      if (!source) return
+      const created = await window.api.tasks.create({
+        listId: source.listId,
+        parentId: source.parentId,
+        title: `${source.title} 副本`,
+        notes: source.notes,
+        priority: source.priority,
+        dueDate: source.dueDate,
+        dueTime: source.dueTime,
+        allDay: source.allDay,
+        startDate: source.startDate,
+        recurrence: source.recurrence,
+        tagNames: source.tags.map((tag) => tag.name)
+      })
+      await get().refresh()
+      // 复制出来的任务和原任务很像，容易看走眼：给一次撤销，直接把副本永久删除。
+      get().showToast(`已复制「${source.title}」`, 'success', {
+        duration: 6000,
+        actionLabel: '撤销',
+        action: async () => {
+          try {
+            await window.api.tasks.purge(created.id)
+            await get().refresh()
+            get().showToast('已撤销复制', 'info')
+          } catch (error) {
+            get().showToast(errorMessage(error), 'error')
+          }
+        }
+      })
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
   toggleTask: async (task) => {
     try {
       const status = task.status === 'completed' ? 'open' : 'completed'
@@ -461,6 +500,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (get().detailId === id) set({ detailId: null, detailTask: null })
       await get().refresh()
       get().showToast('任务已永久删除', 'info')
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  emptyTrash: async () => {
+    const targets = get().tasks.filter((task) => Boolean(task.deletedAt))
+    if (targets.length === 0) return
+    try {
+      for (const task of targets) {
+        await window.api.tasks.purge(task.id)
+      }
+      await get().refresh()
+      get().showToast(`已永久删除 ${targets.length} 个任务`, 'info')
     } catch (error) {
       get().showToast(errorMessage(error), 'error')
     }

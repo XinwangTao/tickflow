@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ViewKey } from '@shared/types'
 import { todayKey } from '@shared/dates'
 import { useAppStore } from '../store/useAppStore'
@@ -5,6 +6,7 @@ import { AiDailySummary } from './AiDailySummary'
 import { BatchBar } from './BatchBar'
 import { BoardView } from './BoardView'
 import { CalendarView } from './CalendarView'
+import { ConfirmDialog } from './ConfirmDialog'
 import { EmptyState } from './EmptyState'
 import { HabitsView } from './HabitsView'
 import { Icon } from './Icon'
@@ -89,6 +91,8 @@ export function MainView(): React.ReactNode {
   const shiftCalendarMonth = useAppStore((state) => state.shiftCalendarMonth)
   const setCalendarMonth = useAppStore((state) => state.setCalendarMonth)
   const setSettings = useAppStore((state) => state.setSettings)
+  const emptyTrash = useAppStore((state) => state.emptyTrash)
+  const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false)
 
   const isCalendar = view === 'calendar'
   const isMatrix = view === 'matrix'
@@ -132,6 +136,18 @@ export function MainView(): React.ReactNode {
               onClick={() => setSelectionMode(!selectionMode)}
             >
               <Icon name="check-circle" size={17} />
+            </button>
+          ) : null}
+          {view === 'trash' ? (
+            <button
+              type="button"
+              className="icon-btn danger"
+              title="清空垃圾箱"
+              aria-label="清空垃圾箱"
+              disabled={tasks.length === 0}
+              onClick={() => setConfirmEmptyTrash(true)}
+            >
+              <Icon name="trash" size={17} />
             </button>
           ) : null}
           {isList ? (
@@ -222,6 +238,20 @@ export function MainView(): React.ReactNode {
       </div>
 
       <BatchBar />
+
+      {confirmEmptyTrash ? (
+        <ConfirmDialog
+          title="清空垃圾箱"
+          danger
+          confirmLabel="永久删除"
+          message={`垃圾箱中的 ${tasks.length} 个任务将被永久删除，无法恢复。`}
+          onClose={() => setConfirmEmptyTrash(false)}
+          onConfirm={async () => {
+            setConfirmEmptyTrash(false)
+            await emptyTrash()
+          }}
+        />
+      ) : null}
     </main>
   )
 }

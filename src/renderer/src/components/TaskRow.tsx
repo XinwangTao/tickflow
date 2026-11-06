@@ -28,6 +28,7 @@ export function TaskRow({
 }: TaskRowProps): React.ReactNode {
   const toggleTask = useAppStore((state) => state.toggleTask)
   const updateTask = useAppStore((state) => state.updateTask)
+  const duplicateTask = useAppStore((state) => state.duplicateTask)
   const removeTask = useAppStore((state) => state.removeTask)
   const restoreTask = useAppStore((state) => state.restoreTask)
   const purgeTask = useAppStore((state) => state.purgeTask)
@@ -313,6 +314,17 @@ export function TaskRow({
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    className="task-menu-action"
+                    onClick={() => {
+                      void duplicateTask(task.id)
+                      setMenuOpen(false)
+                    }}
+                  >
+                    <Icon name="folder" size={14} />
+                    复制任务
+                  </button>
                   <button
                     type="button"
                     className="task-menu-delete"
