@@ -17,12 +17,11 @@
     "test:ai": "vitest run tests/ai.test.ts tests/quick-add-regression.test.ts tests/quick-add.test.ts tests/quick-add-draft.test.ts tests/quick-add-ui.test.ts",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
-    "dist": "npm run build && electron-builder --win"
+    "dist": "npm run build && npm run check:bundle && electron-builder --win",
+    "check:bundle": "node scripts/check-bundle.mjs"
   },
   "dependencies": {
     "aws4fetch": "^1.0.20",
-    "chrono-node": "^2.10.3",
-    "date-fns": "^4.4.0",
     "framer-motion": "^14.9.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -54,7 +53,14 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/react/**",
+      "!node_modules/react-dom/**",
+      "!node_modules/scheduler/**",
+      "!node_modules/framer-motion/**",
+      "!node_modules/motion-dom/**",
+      "!node_modules/motion-utils/**",
+      "!node_modules/zustand/**"
     ],
     "extraResources": [
       {

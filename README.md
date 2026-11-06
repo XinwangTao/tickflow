@@ -15,10 +15,11 @@
 npm install
 npm run dev        # 开发模式（Vite + Electron）
 npm run typecheck  # 主进程 + 渲染进程类型检查
-npm test           # Vitest（44 个用例）
+npm test           # Vitest 全量用例（含依赖与打包边界检查）
 npm run test:e2e   # Playwright Electron 冒烟
-npm run dist       # Windows NSIS 安装包（release/）
+npm run dist       # build + check:bundle + Windows NSIS 安装包（release/）
 npm run build      # 构建 out/
+npm run check:bundle # 构建产物体积预算 + 主进程运行时依赖检查（见 docs/packaging.md）
 npx electron .     # 运行构建产物
 ```
 
