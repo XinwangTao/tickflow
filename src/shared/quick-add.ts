@@ -91,6 +91,32 @@ interface RecurrenceParse {
   first: Date
 }
 
+function parseCnCount(raw: string): number | null {
+  if (/^\d+$/.test(raw)) return Number(raw)
+  const digits: Record<string, number> = {
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9
+  }
+  if (raw === '十') return 10
+  const tenIndex = raw.indexOf('十')
+  if (tenIndex >= 0) {
+    const tens = tenIndex === 0 ? 1 : digits[raw.slice(0, tenIndex)]
+    const rest = raw.slice(tenIndex + 1)
+    const ones = rest ? digits[rest] : 0
+    if (tens && ones !== undefined) return tens * 10 + ones
+    return null
+  }
+  return digits[raw] ?? null
+}
+
 function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
   let match: RegExpMatchArray | null
 
@@ -123,6 +149,55 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
       rrule: `FREQ=MONTHLY;BYMONTHDAY=${day}`,
       matched: match[0],
       first: nextMonthlyDate(base, day)
+    }
+  }
+
+  // “周一到周五”“周一到周三”：起止都含；跨周时按周一起算一圈。
+  match = text.match(
+    /每?(?:周|星期|礼拜)\s*([一二三四五六日天])\s*(?:到|至|~|-)\s*(?:周|星期|礼拜)?\s*([一二三四五六日天])/
+  )
+  if (match) {
+    const from = WEEKDAY_MAP[match[1]]
+    const to = WEEKDAY_MAP[match[2]]
+    if (Number.isInteger(from) && Number.isInteger(to)) {
+      const span = (to - from + 7) % 7
+      const days: number[] = []
+      for (let i = 0; i <= span; i += 1) days.push((from + i) % 7)
+      const first = Math.min(
+        ...days.map((weekday) => nextWeekday(base, weekday, 'next').getTime())
+      )
+      return {
+        rrule: `FREQ=WEEKLY;BYDAY=${days.map((weekday) => WEEKDAY_CODES[weekday]).join(',')}`,
+        matched: match[0],
+        first: new Date(first)
+      }
+    }
+  }
+
+  // “每3天”“每隔两天”“每两周”“每两个月”：带数量的周期，落到 INTERVAL。
+  match = text.match(
+    /每\s*(隔)?\s*([0-9]+|[一二两三四五六七八九十]+)\s*(天|日|周|星期|礼拜|个月|月|年)/
+  )
+  if (match) {
+    const count = parseCnCount(match[2])
+    if (count && count > 0) {
+      // “每隔一天”= 两天一次（INTERVAL 2），而“每两天”也是 2。
+      const interval = match[1] ? count + 1 : count
+      const unit = match[3]
+      const freq = unit === '天' || unit === '日'
+        ? 'DAILY'
+        : unit === '年'
+          ? 'YEARLY'
+          : unit === '个月' || unit === '月'
+            ? 'MONTHLY'
+            : 'WEEKLY'
+      const first =
+        freq === 'MONTHLY' ? nextMonthlyDate(base, base.getDate()) : base
+      return {
+        rrule: interval > 1 ? `FREQ=${freq};INTERVAL=${interval}` : `FREQ=${freq}`,
+        matched: match[0],
+        first
+      }
     }
   }
 

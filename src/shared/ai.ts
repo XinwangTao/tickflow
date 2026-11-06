@@ -174,6 +174,7 @@ export const AI_CANCELED_MESSAGE = 'AI 请求已取消'
 export const AI_CANCELED_QUICK_ADD_HINT = '已取消 AI 解析'
 export const AI_CANCELED_SUMMARY_HINT = '已取消 AI 总结生成'
 export const AI_CANCELED_SUBTASKS_HINT = '已取消 AI 拆解'
+export const AI_CANCELED_MODELS_HINT = '已取消获取模型列表'
 
 /**
  * 请求被用户取消：既不是超时也不是网络故障，不重试、不弹失败提示。
@@ -281,6 +282,10 @@ export function describeAiFailure(
   } else if (/模型列表为空/.test(raw)) {
     kind = 'empty'
     friendly = 'AI 模型列表为空，请确认 CC Switch 已加载模型'
+  } else if (/模型列表请求超时/.test(raw)) {
+    // 目录超时与正文请求超时分开说明，用户能分清是设置页还是任务解析出了问题。
+    kind = 'timeout'
+    friendly = `AI 模型列表请求超时（${seconds} 秒），请确认 CC Switch 已启动或调大超时`
   } else if (/超时|timeout|timed out|AbortError/i.test(raw)) {
     kind = 'timeout'
     friendly = `AI 请求超时（${seconds} 秒），可在设置里调大超时或换更快的模型`
@@ -657,7 +662,7 @@ export function buildQuickAddPrompt(
     `可用清单：${listText}`,
     `用户输入：${input}`,
     '请把输入解析成一个任务，只返回 JSON，不要 Markdown 代码块或解释。',
-    '字段：title（必填，去掉日期/标签/优先级等修饰后的任务标题）、dueDate（YYYY-MM-DD 或 null）、dueTime（HH:mm 或 null）、allDay（布尔）、priority（0=无 1=低 2=中 3=高）、tags（字符串数组，不含 #）、listName（仅当用户输入中明确出现某个可用清单名时填写；否则必须为 null，不要根据任务内容猜测）、recurrence（RFC5545 RRULE，如 FREQ=WEEKLY;BYDAY=MO；没有则 null）。',
+    '字段：title（必填，去掉日期/标签/优先级等修饰后的任务标题）、dueDate（YYYY-MM-DD 或 null）、dueTime（HH:mm 或 null）、allDay（布尔）、priority（0=无 1=低 2=中 3=高）、tags（字符串数组，不含 #）、listName（仅当用户输入中明确出现某个可用清单名时填写；否则必须为 null，不要根据任务内容猜测）、recurrence（RFC5545 RRULE；没有则 null。“每3天/每隔两天”→FREQ=DAILY;INTERVAL=3；“每两周”→FREQ=WEEKLY;INTERVAL=2；“周一到周五”→FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR；“每周一三五”→BYDAY=MO,WE,FR；“每月5号”→FREQ=MONTHLY;BYMONTHDAY=5）。',
     '用户输入中的 #标签、!优先级（如 !高）、~清单 是显式语法，必须原样保留到 tags / priority / listName，且不要留在 title 里。',
     '相对日期以“当前时间”为基准；没有日期或时间时 dueDate/dueTime 返回 null。'
   ].join('\n')

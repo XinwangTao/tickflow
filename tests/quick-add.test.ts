@@ -77,4 +77,28 @@ describe('parseQuickAdd', () => {
     const result = parseQuickAdd('写周报 #工作 #工作 #重要', NOW)
     expect(result.tags).toEqual(['工作', '重要'])
   })
+
+  it('解析带数量的重复周期（每3天 / 每隔两天 / 每两周）', () => {
+    expect(parseQuickAdd('每3天 浇花', NOW).recurrence).toBe('FREQ=DAILY;INTERVAL=3')
+    expect(parseQuickAdd('每隔两天 复盘', NOW).recurrence).toBe('FREQ=DAILY;INTERVAL=3')
+    expect(parseQuickAdd('每两周 大扫除', NOW).recurrence).toBe('FREQ=WEEKLY;INTERVAL=2')
+    expect(parseQuickAdd('每3天 浇花', NOW).title).toBe('浇花')
+  })
+
+  it('解析周一到周五这类区间', () => {
+    const result = parseQuickAdd('周一到周五 打卡', NOW)
+    expect(result.recurrence).toBe('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR')
+    expect(result.title).toBe('打卡')
+    // 今天是周四，落在周一到周五区间内，就从今天开始
+    expect(result.dueDate).toBe('2026-11-05')
+    expect(parseQuickAdd('周日到周二 值班', NOW).recurrence).toBe(
+      'FREQ=WEEKLY;BYDAY=SU,MO,TU'
+    )
+  })
+
+  it('区间不吞掉普通星期列表', () => {
+    expect(parseQuickAdd('每周一三五 晨会', NOW).recurrence).toBe(
+      'FREQ=WEEKLY;BYDAY=MO,WE,FR'
+    )
+  })
 })
