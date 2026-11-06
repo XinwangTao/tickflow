@@ -160,7 +160,7 @@ test('shortcut help opens with question mark and closes with Escape', async () =
       window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }))
     })
     await expect(page.locator('.modal-header h2')).toHaveText('快捷键')
-    await expect(page.locator('.shortcut-row')).toHaveCount(7)
+    await expect(page.locator('.shortcut-row')).toHaveCount(10)
     await page.keyboard.press('Escape')
     await expect(page.locator('.modal-header h2')).toHaveCount(0)
   } finally {

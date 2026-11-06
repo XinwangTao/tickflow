@@ -10,7 +10,7 @@
 |---|---|
 | TypeScript 类型检查 | 通过（main / preload / renderer） |
 | Vitest | 36 个文件 / 508 项全部通过 |
-| Playwright Electron E2E | 31 条通过（含日历行内添加、日历 AI 草稿、关闭到托盘、自启最小化、关于弹窗、R2 mock 同步；每个用例使用独立 `TICKFLOW_USER_DATA` 临时目录，不读写真实数据） |
+| Playwright Electron E2E | 32 条通过（含键盘操作、日历行内添加、日历 AI 草稿、关闭到托盘、自启最小化、关于弹窗、R2 mock 同步；每个用例使用独立 `TICKFLOW_USER_DATA` 临时目录，不读写真实数据） |
 | 构建体积预算 | 通过：main 200.8 KB / 220 KB，preload 9.2 KB / 16 KB，renderer JS 969.8 KB / 1400 KB（首屏入口 789.3 KB），CSS 67.8 KB / 90 KB |
 | 桌面安装包 | NSIS 重建成功，117 MB，未签名 |
 | Android debug APK | 5.0 MB，`com.tickflow.mobile`，minSdk 24 / targetSdk 36 |

@@ -97,9 +97,30 @@ export function TaskRow({
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
-        if (event.key !== 'Enter' || editing) return
-        if (selectionMode) onToggleSelect?.(task.id)
-        else openDetail(task.id)
+        if (editing || event.target !== event.currentTarget) return
+        const key = event.key
+        if (key === 'Enter') {
+          if (selectionMode) onToggleSelect?.(task.id)
+          else openDetail(task.id)
+          return
+        }
+        if (key === ' ') {
+          event.preventDefault()
+          if (selectionMode) onToggleSelect?.(task.id)
+          else if (!isTrash) void toggleTask(task)
+          return
+        }
+        if (key === 'ArrowDown' || key === 'ArrowUp') {
+          event.preventDefault()
+          const rows = Array.from(document.querySelectorAll<HTMLElement>('.task-row'))
+          const index = rows.indexOf(event.currentTarget)
+          rows[index + (key === 'ArrowDown' ? 1 : -1)]?.focus()
+          return
+        }
+        if (key === 'Delete' && !selectionMode && !isTrash && task.status !== 'abandoned') {
+          event.preventDefault()
+          void removeTask(task.id)
+        }
       }}
     >
       {selectionMode ? (
