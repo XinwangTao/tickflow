@@ -5,6 +5,7 @@ import type {
   AiSummaryResponse,
   AiTestResult
 } from './ai'
+import type { AsrEnvironment, VoiceTranscribeResult } from './voice'
 import type {
   AppInfo,
   ApplyTemplateInput,
@@ -112,7 +113,8 @@ export const IPC = {
   aiSummary: 'ai:summary',
   aiModels: 'ai:models',
   aiTest: 'ai:test',
-  aiTranscribe: 'ai:transcribe'
+  aiTranscribe: 'ai:transcribe',
+  aiAsrStatus: 'ai:asr-status'
 } as const
 
 export interface TickFlowApi {
@@ -223,6 +225,8 @@ export interface TickFlowApi {
     models(requestId?: string): Promise<AiModelsResult>
     test(): Promise<AiTestResult>
     /** 离线语音转写：传入录音字节，返回识别文本（失败时给一句人话）。 */
-    transcribe(audio: ArrayBuffer): Promise<{ text?: string; error?: string }>
+    transcribe(audio: ArrayBuffer, requestId?: string): Promise<VoiceTranscribeResult>
+    /** 检查本机是否具备 python / vosk 模型 / 转写脚本，供设置页诊断。 */
+    asrStatus(): Promise<AsrEnvironment>
   }
 }

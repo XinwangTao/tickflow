@@ -72,6 +72,13 @@ function deferred<T>(): Deferred<T> {
 describe('设置页模型目录的失败重试与取消', () => {
   const models = vi.fn<(requestId?: string) => Promise<AiModelsResult>>()
   const cancel = vi.fn(async () => true)
+  const asrStatus = vi.fn(async () => ({
+    ready: false,
+    python: null,
+    model: null,
+    script: 'scripts/voice/asr_transcribe.py',
+    message: '没有找到 Python 运行时，请在设置里填写 Python 路径'
+  }))
   const setSettings = vi.fn(async () => undefined)
 
   beforeEach(() => {
@@ -87,7 +94,7 @@ describe('设置页模型目录的失败重试与取消', () => {
     })
     ;(window as unknown as { api: unknown }).api = {
       app: { info: vi.fn(async () => ({ version: '0.1.0', platform: 'win32', dataDir: 'tmp' })) },
-      ai: { models, cancel }
+      ai: { models, cancel, asrStatus }
     }
   })
 
@@ -172,5 +179,20 @@ describe('设置页模型目录的失败重试与取消', () => {
     pending.resolve(MODELS_OK)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(useAppStore.getState().toast).toBeNull()
+  })
+
+  it('检查语音环境会保存路径并把缺失项直接说清楚', async () => {
+    render(createElement(SettingsDialog))
+
+    fireEvent.click(screen.getByRole('button', { name: '检查语音环境' }))
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.message).toContain('没有找到 Python 运行时')
+    )
+    expect(asrStatus).toHaveBeenCalledTimes(1)
+    expect(setSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ asrPython: '', asrModel: '' })
+    )
+    expect(useAppStore.getState().toast?.kind).toBe('error')
   })
 })

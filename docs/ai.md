@@ -398,3 +398,89 @@ curl -s http://127.0.0.1:15721/v1/messages \
 - 取消只中止本机发起的那一次请求（按 renderer 生成的 `requestId` 定位），请求结束后注册表立即清空，
   不会残留 controller 或跨请求误取消。快速添加、今日总结、子任务拆解共用这套注册表；
   切任务、关面板等自动中止不会弹出提示，也不会影响其他并行请求。
+
+## 8. 离线语音输入（快速添加）
+
+入口：快速添加栏输入框右侧的麦克风按钮。语音只负责把话转成文字并追加到输入框，
+日期、时间、标签、优先级与重复仍走原有「规则解析 + AI 解析」流程，不新增落库路径。
+
+### 8.1 录音与识别链路
+
+1. renderer 点击麦克风 → `getUserMedia({ audio: true })` 申请麦克风；
+   main 的 `setPermissionRequestHandler` 只放行 `media`，其余权限继续拒绝。
+2. `MediaRecorder` 每 250ms 收集一个数据块，按钮实时显示「录音中 Ns」；
+   最长 60 秒，到点自动停止并进入识别，避免超长音频占内存或卡住 IPC。
+3. 停止后把 `webm/opus` 字节通过 `ai:transcribe` 发给 main，并带 `requestId`（`voice-N`）；
+   main 用 ffmpeg 转成 16kHz 单声道 WAV，再调用本机 Python + vosk 转写。
+4. 识别文字用 `appendTranscript` 追加到输入框（已有内容保留，用空格分隔），
+   用户检查或继续编辑后再按 Enter / Ctrl+Enter 建任务。
+
+录音与转写都在本机完成，不联网。Python、vosk 与 ffmpeg 是可选的本地依赖；
+找不到时麦克风按钮仍可点，但会给出「没有找到离线语音识别环境」等具体原因，
+键盘输入与普通快速添加不受影响。
+
+### 8.2 误触、权限与失败降级
+
+| 场景 | 行为 |
+| --- | --- |
+| 录音短于 0.6 秒 | 判定为误触，直接丢弃，提示「录音太短…」，不发起转写 |
+| 用户点击停止时录音已停止 | 忽略重复点击，不会重复转写 |
+| 麦克风权限被拒绝（`NotAllowedError` / `PermissionDeniedError`） | 提示「麦克风权限被拒绝，请在系统设置里允许 TickFlow 使用麦克风」 |
+| 没有麦克风（`NotFoundError`） | 提示连接录音设备 |
+| 麦克风被占用（`NotReadableError` / `TrackStartError`） | 提示关闭占用程序后重试 |
+| 系统安全策略 / 参数不支持 / 启动中断 | 分别给出对应提示，原始错误保留在冒号后 |
+| 浏览器不支持 `mediaDevices` 或 `MediaRecorder` | 提示「当前环境不支持录音，请改用键盘输入」 |
+| 录音中麦克风被拔出（track `ended`） | 丢弃本次录音并提示「麦克风连接中断」，不转写半截音频 |
+| 录音过程中组件卸载（切换视图） | 停止所有 track、丢弃 onstop 结果，不发起转写 |
+| `MediaRecorder` 报错 | 丢弃录音、提示「录音中断」，按钮恢复可用 |
+| 没有数据块 / 录音过大（>24 MB） | 不调用外部进程，提示重新录音或缩短到 60 秒内 |
+| 空音频 / 已取消的请求 | main 直接返回人话，不启动 ffmpeg 或 Python |
+| ffmpeg 不存在 / 转码失败 / 转码超时 | 分别提示缺少 ffmpeg、转码失败详情、转码超时（20 秒） |
+| Python 不存在 | 提示「找不到语音识别运行时（Python），请在设置里填写路径」 |
+| 缺少 vosk 依赖 | 从 Python stderr / JSON 中识别 `ModuleNotFoundError`，提示「语音识别环境缺少 vosk」 |
+| 识别超时（60 秒） | 提示转写超时并维修正为可重试；renderer 侧另有 75 秒总超时兜底 |
+| 识别结果为空 | 提示「没听清，再说一次？」，输入内容不变 |
+
+### 8.3 取消与超时
+
+- 识别中按钮显示「识别中 Ns」，点击同一按钮即 **取消**：renderer 调 `ai:cancel`
+  中止 main 里那次请求，`runProcess` 会 kill ffmpeg / Python 子进程并清理临时目录。
+- 取消后 toast 提示「已取消语音识别」，迟到的识别结果按 `requestId` 丢弃，
+  不会覆盖用户已经改过的输入；按钮立即恢复。
+- renderer 等待上限 75 秒（`VOICE_TRANSCRIBE_TIMEOUT_MS`），超时后自动取消 main 请求，
+  toast 提供 **重试**（复用同一段录音），不用重新录。
+- 识别期间仍可编辑输入框；取消/超时**不写库**，也不影响 AI 解析的取消注册表。
+
+### 8.4 配置与自检
+
+设置项（存本机 SQLite，均可留空）：
+
+| 设置键 | 默认值 | 说明 |
+| --- | --- | --- |
+| `asrPython` | 空 | Python 可执行文件路径；留空依次尝试环境变量与常见路径 |
+| `asrModel` | 空 | vosk 模型目录；留空同样自动探测 |
+
+自动探测顺序：设置项 → `TICKFLOW_ASR_PYTHON` / `TICKFLOW_ASR_MODEL` → 开发机常见路径。
+设置页「语音输入（离线）」提供两个路径输入框与 **检查语音环境**，会保存配置后调用
+`ai:asr-status`，明确告知缺少脚本、Python 还是模型；找不到时逐项说明，不弹笼统错误。
+
+### 8.5 代码与测试
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/shared/voice.ts` | 录音上限、最短时长、超时/体积常量、错误翻译、格式选择、文字追加 |
+| `src/main/asr.ts` | 查找 Python/模型/脚本、ffmpeg 转码、vosk 转写、子进程超时与取消、友好错误 |
+| `src/main/ipc.ts` | `ai:transcribe`（接受 `requestId`，复用 `ai:cancel`）、`ai:asr-status` |
+| `src/renderer/src/components/QuickAdd.tsx` | 麦克风按钮、录音/识别状态机、权限与误触处理、取消/超时、追加文字 |
+| `src/renderer/src/components/SettingsDialog.tsx` | 语音环境路径配置与「检查语音环境」 |
+| `tests/voice.test.ts` | 纯函数：错误翻译、格式选择、文字追加、时长边界 |
+| `tests/voice-ui.test.ts` | 录音成功追加、权限拒绝、太短丢弃、识别失败、取消丢弃迟到结果、超时重试、环境不支持、麦克风中断、卸载停止 |
+| `tests/asr.test.ts` | 空音频与已取消请求不启动外部进程（安装模型时另跑真实转写） |
+| `tests/ai-settings-ui.test.ts` | 设置页检查语音环境：保存路径并展示缺失项 |
+
+```bash
+npx vitest run tests/voice.test.ts tests/voice-ui.test.ts tests/asr.test.ts
+```
+
+语音相关用例不依赖真实麦克风：`MediaRecorder` 与 `getUserMedia` 用测试桩替代；
+`tests/asr.test.ts` 的真实转写用例只在本机装有 Python + vosk + ffmpeg 时运行，否则整组跳过。

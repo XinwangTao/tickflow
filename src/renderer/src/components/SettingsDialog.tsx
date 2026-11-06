@@ -48,6 +48,11 @@ export function SettingsDialog(): React.ReactNode {
     timeoutMs: String(settings.aiTimeoutMs)
   })
   const [aiTesting, setAiTesting] = useState(false)
+  const [asr, setAsr] = useState({
+    python: settings.asrPython ?? '',
+    model: settings.asrModel ?? ''
+  })
+  const [asrChecking, setAsrChecking] = useState(false)
   const [usage, setUsage] = useState<{ objects: number; bytes: number } | null>(null)
   const [usageBusy, setUsageBusy] = useState(false)
   const [aiModels, setAiModels] = useState<AiModelInfo[]>([])
@@ -128,6 +133,8 @@ export function SettingsDialog(): React.ReactNode {
       aiBaseUrl: ai.baseUrl.trim() || AI_DEFAULT_BASE_URL,
       aiModel: ai.model.trim() || AI_DEFAULT_MODEL,
       aiToken: ai.token.trim(),
+      asrPython: asr.python.trim(),
+      asrModel: asr.model.trim(),
       aiTimeoutMs:
         Number.isFinite(timeout) && timeout >= 1000
           ? Math.min(timeout, 120000)
@@ -145,6 +152,25 @@ export function SettingsDialog(): React.ReactNode {
       showToast(`AI 连接测试失败：${String(error)}`, 'error', { duration: 6000 })
     } finally {
       setAiTesting(false)
+    }
+  }
+
+  const checkAsr = async (): Promise<void> => {
+    await saveAi()
+    setAsrChecking(true)
+    try {
+      const environment = await window.api.ai.asrStatus()
+      showToast(
+        environment.ready
+          ? `离线语音识别可用${environment.model ? `：${environment.model}` : ''}`
+          : environment.message,
+        environment.ready ? 'success' : 'error',
+        { duration: 7000 }
+      )
+    } catch (error) {
+      showToast(`检查语音环境失败：${String(error)}`, 'error', { duration: 7000 })
+    } finally {
+      setAsrChecking(false)
     }
   }
 
@@ -513,6 +539,43 @@ export function SettingsDialog(): React.ReactNode {
           默认连接本机 CC Switch（{AI_DEFAULT_BASE_URL}）。模型名需与 /v1/models 返回的 id
           完全一致，可点「获取模型列表」直接从本机目录选择；AI 超时或不可用时会自动回落到本地规则解析，不影响任务创建。
         </p>
+
+        <h4 className="settings-subhead">语音输入（离线）</h4>
+        <div className="sync-grid">
+          <label className="field sync-grid-wide">
+            <span className="field-label">Python 路径（可选）</span>
+            <input
+              className="input"
+              value={asr.python}
+              placeholder="留空自动探测，例如 F:/asr/venv/Scripts/python.exe"
+              onChange={(event) => setAsr({ ...asr, python: event.target.value })}
+            />
+          </label>
+          <label className="field sync-grid-wide">
+            <span className="field-label">vosk 模型目录（可选）</span>
+            <input
+              className="input"
+              value={asr.model}
+              placeholder="留空自动探测，例如 F:/asr/models/vosk-model-small-cn-0.22"
+              onChange={(event) => setAsr({ ...asr, model: event.target.value })}
+            />
+          </label>
+        </div>
+        <p className="field-hint">
+          快速添加栏的麦克风按钮使用本机离线识别，不联网。留空时按环境变量
+          （TICKFLOW_ASR_PYTHON / TICKFLOW_ASR_MODEL）与常见安装路径自动查找；
+          缺少 ffmpeg、Python、vosk 或模型时，识别失败会给出具体原因，不影响键盘输入。
+        </p>
+        <div className="settings-actions">
+          <button
+            type="button"
+            className="btn"
+            disabled={asrChecking}
+            onClick={() => void checkAsr()}
+          >
+            {asrChecking ? '检查中…' : '检查语音环境'}
+          </button>
+        </div>
       </section>
 
       <section className="settings-section">

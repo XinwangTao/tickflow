@@ -30,3 +30,23 @@ describe.skipIf(!ready)('transcribeAudio', () => {
     expect(result.error).toBeTruthy()
   })
 })
+
+describe('transcribeAudio 输入与取消保护', () => {
+  const config = { python: 'python', model: 'model', script: 'script' }
+
+  it('空音频直接返回提示，不启动外部进程', async () => {
+    const result = await transcribeAudio(config, Buffer.alloc(0))
+    expect(result.text).toBeUndefined()
+    expect(result.error).toContain('没有录到声音')
+  })
+
+  it('已取消的请求不再启动外部进程', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const result = await transcribeAudio(config, Buffer.from('audio'), {
+      signal: controller.signal
+    })
+    expect(result.text).toBeUndefined()
+    expect(result.error).toBe('已取消语音识别')
+  })
+})

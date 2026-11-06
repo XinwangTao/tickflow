@@ -18,7 +18,7 @@ import type {
   UpdateTaskInput
 } from '@shared/types'
 import { getDataDir, getDb } from './db'
-import { transcribeWithFallback } from './asr'
+import { checkAsrEnvironment, transcribeWithFallback } from './asr'
 import {
   addAttachment,
   openAttachment,
@@ -265,10 +265,20 @@ export function registerIpc(): void {
     if (!requestId || !controller) return pending
     return pending.finally(() => releaseAiRequest(requestId))
   })
-  ipcMain.handle(IPC.aiTranscribe, async (_event, audio: ArrayBuffer) => {
+  ipcMain.handle(IPC.aiTranscribe, async (_event, audio: ArrayBuffer, requestId?: string) => {
     const data = Buffer.from(new Uint8Array(audio))
-    return transcribeWithFallback(settingsRepo.getSettings(getDb()), data)
+    const controller = requestId ? registerAiRequest(requestId) : null
+    const pending = transcribeWithFallback(
+      settingsRepo.getSettings(getDb()),
+      data,
+      controller?.signal
+    )
+    if (!requestId || !controller) return pending
+    return pending.finally(() => releaseAiRequest(requestId))
   })
+  ipcMain.handle(IPC.aiAsrStatus, () =>
+    checkAsrEnvironment(settingsRepo.getSettings(getDb()))
+  )
 
   ipcMain.handle(IPC.aiTest, () =>
     testAiConnection(aiConfigFromSettings(settingsRepo.getSettings(getDb())))

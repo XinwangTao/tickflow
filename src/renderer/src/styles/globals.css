@@ -652,6 +652,12 @@ input[type="checkbox"] {
   animation: quick-add-mic-pulse 1.2s ease-in-out infinite;
 }
 
+.quick-add-mic.transcribing {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+  background: var(--accent-soft);
+}
+
 .quick-add-mic:disabled { opacity: 0.55; cursor: default; }
 
 @keyframes quick-add-mic-pulse {
@@ -1678,6 +1684,15 @@ option {
   font-size: 11px;
   line-height: 1.7;
   color: var(--muted);
+}
+
+.settings-subhead {
+  margin: 18px 0 10px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .segmented {

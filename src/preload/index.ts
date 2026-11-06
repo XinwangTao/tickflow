@@ -148,7 +148,9 @@ const api: TickFlowApi = {
     dailySummary: (requestId) => ipcRenderer.invoke(IPC.aiSummary, requestId),
     models: (requestId?: string) => ipcRenderer.invoke(IPC.aiModels, requestId),
     test: () => ipcRenderer.invoke(IPC.aiTest),
-    transcribe: (audio: ArrayBuffer) => ipcRenderer.invoke(IPC.aiTranscribe, audio)
+    transcribe: (audio: ArrayBuffer, requestId?: string) =>
+      ipcRenderer.invoke(IPC.aiTranscribe, audio, requestId),
+    asrStatus: () => ipcRenderer.invoke(IPC.aiAsrStatus)
   }
 }
 
