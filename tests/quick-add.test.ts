@@ -118,6 +118,12 @@ describe('parseQuickAdd', () => {
     expect(lastFriday.recurrence).toBe('FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1')
     expect(lastFriday.dueDate).toBe('2026-11-27')
     expect(lastFriday.title).toBe('收尾')
+
+    // 语音转写常把“最后一个”写成“最后1个”，语义不变
+    const lastFridayArabic = parseQuickAdd('每月最后1个周五 收尾', NOW)
+    expect(lastFridayArabic.recurrence).toBe('FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1')
+    expect(lastFridayArabic.dueDate).toBe('2026-11-27')
+    expect(lastFridayArabic.title).toBe('收尾')
   })
 
   it('解析每季度与每半年', () => {
@@ -232,6 +238,54 @@ describe('parseQuickAdd', () => {
     expect(parseQuickAdd('每周一三五 晨会', NOW).recurrence).toBe(
       'FREQ=WEEKLY;BYDAY=MO,WE,FR'
     )
+  })
+
+  it('解析斜杠分隔的星期与频率次数', () => {
+    // “每周一/三/五”与顿号、和字写法等价，斜杠不会残留在标题里
+    const slashed = parseQuickAdd('每周一/三/五 跑步', NOW)
+    expect(slashed.title).toBe('跑步')
+    expect(slashed.recurrence).toBe('FREQ=WEEKLY;BYDAY=MO,WE,FR')
+    expect(parseQuickAdd('每周一／三／五 跑步', NOW).recurrence).toBe(
+      'FREQ=WEEKLY;BYDAY=MO,WE,FR'
+    )
+    expect(parseQuickAdd('每两周的周一/三/五 例会', NOW).recurrence).toBe(
+      'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR'
+    )
+
+    // “每周一次”不能被星期规则吞成“周一”，次数要从标题里移除
+    const once = parseQuickAdd('每周一次 开会', NOW)
+    expect(once.title).toBe('开会')
+    expect(once.recurrence).toBe('FREQ=WEEKLY')
+    expect(parseQuickAdd('每周1次 开会', NOW).recurrence).toBe('FREQ=WEEKLY')
+    expect(parseQuickAdd('每天两次 吃药', NOW).recurrence).toBe('FREQ=DAILY')
+    expect(parseQuickAdd('每个月一次 复盘', NOW).recurrence).toBe('FREQ=MONTHLY')
+
+    // “每3天一次”“每三天的早上8点”里的次数与“的”都要一起消费
+    const interval = parseQuickAdd('每3天一次 浇花', NOW)
+    expect(interval.title).toBe('浇花')
+    expect(interval.recurrence).toBe('FREQ=DAILY;INTERVAL=3')
+    const intervalTime = parseQuickAdd('每三天的早上8点 吃药', NOW)
+    expect(intervalTime.title).toBe('吃药')
+    expect(intervalTime.recurrence).toBe('FREQ=DAILY;INTERVAL=3')
+    expect(intervalTime.dueTime).toBe('08:00')
+    // 次数与“的”同时出现时也要一起消费
+    const intervalCountTime = parseQuickAdd('每3天一次的早上8点 吃药', NOW)
+    expect(intervalCountTime.title).toBe('吃药')
+    expect(intervalCountTime.recurrence).toBe('FREQ=DAILY;INTERVAL=3')
+    expect(intervalCountTime.dueTime).toBe('08:00')
+    expect(parseQuickAdd('每周一次的会议', NOW).title).toBe('会议')
+  })
+
+  it('解析中文数字的每年日期', () => {
+    const spring = parseQuickAdd('每年三月五日 体检', NOW)
+    expect(spring.title).toBe('体检')
+    expect(spring.recurrence).toBe('FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=5')
+    expect(spring.dueDate).toBe('2027-03-05')
+
+    const newYear = parseQuickAdd('每年十二月三十一号 年终', NOW)
+    expect(newYear.title).toBe('年终')
+    expect(newYear.recurrence).toBe('FREQ=YEARLY;BYMONTH=12;BYMONTHDAY=31')
+    expect(newYear.dueDate).toBe('2026-12-31')
   })
 
   it('语音转写文本能直接落成任务', () => {
@@ -497,6 +551,21 @@ describe('提前提醒解析', () => {
     expect(parseQuickAdd('提前提醒我半小时 交水电费', NOW).reminderOffsetMin).toBe(30)
     expect(parseQuickAdd('提前一天通知我 交房租', NOW).reminderOffsetMin).toBe(1440)
     expect(parseQuickAdd('提前提醒 30 分钟 复盘', NOW).reminderOffsetMin).toBe(30)
+    // 冒号/全角冒号与括号包裹是语音转写和手动输入的常见标点
+    expect(parseQuickAdd('提前提醒：30分钟 开会', NOW)).toMatchObject({
+      title: '开会',
+      reminderOffsetMin: 30
+    })
+    expect(parseQuickAdd('提前提醒我：半小时 开会', NOW).reminderOffsetMin).toBe(30)
+    expect(parseQuickAdd('明天9点开会（提前15分钟提醒）', NOW)).toMatchObject({
+      title: '开会',
+      dueTime: '09:00',
+      reminderOffsetMin: 15
+    })
+    expect(parseQuickAdd('提前30分钟提醒！开会', NOW)).toMatchObject({
+      title: '开会',
+      reminderOffsetMin: 30
+    })
   })
 
   it('支持复合时长与“提醒我提前…”语序', () => {

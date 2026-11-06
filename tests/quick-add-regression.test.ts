@@ -129,10 +129,17 @@ const RULE_CASES: RuleCase[] = [
   { input: '每早8点 跑步', expected: { title: '跑步', dueDate: '2026-11-05', dueTime: '08:00', allDay: false, recurrence: 'FREQ=DAILY' } },
   { input: '每周一 晨会', expected: { title: '晨会', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO' } },
   { input: '每周一三五 健身', expected: { title: '健身', dueDate: '2026-11-06', recurrence: 'FREQ=WEEKLY;BYDAY=MO,WE,FR' } },
+  { input: '每周一/三/五 跑步', expected: { title: '跑步', dueDate: '2026-11-06', recurrence: 'FREQ=WEEKLY;BYDAY=MO,WE,FR' } },
+  { input: '每周一次 开会', expected: { title: '开会', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY' } },
+  { input: '每天两次 吃药', expected: { title: '吃药', dueDate: '2026-11-05', recurrence: 'FREQ=DAILY' } },
+  { input: '每3天一次 浇花', expected: { title: '浇花', dueDate: '2026-11-05', recurrence: 'FREQ=DAILY;INTERVAL=3' } },
+  { input: '每三天的早上8点 吃药', expected: { title: '吃药', dueDate: '2026-11-05', dueTime: '08:00', allDay: false, recurrence: 'FREQ=DAILY;INTERVAL=3' } },
   { input: '每周二、周四 晨跑', expected: { title: '晨跑', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY;BYDAY=TU,TH' } },
   { input: '每月1号 交房租', expected: { title: '交房租', dueDate: '2026-12-01', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=1' } },
   { input: '每月最后一天 对账', expected: { title: '对账', dueDate: '2026-11-30', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=-1' } },
   { input: '每年3月5日 体检', expected: { title: '体检', dueDate: '2027-03-05', recurrence: 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=5' } },
+  { input: '每年三月五日 体检', expected: { title: '体检', dueDate: '2027-03-05', recurrence: 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=5' } },
+  { input: '每年十二月三十一号 年终', expected: { title: '年终', dueDate: '2026-12-31', recurrence: 'FREQ=YEARLY;BYMONTH=12;BYMONTHDAY=31' } },
   { input: '每个工作日 打卡', expected: { title: '打卡', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' } },
   { input: '每周工作日 整理周报', expected: { title: '整理周报', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' } },
   { input: '每周 写周报', expected: { title: '写周报', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY' } },
@@ -145,6 +152,7 @@ const RULE_CASES: RuleCase[] = [
   { input: '每月的1号和15号 对账', expected: { title: '对账', dueDate: '2026-11-15', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=1,15' } },
   { input: '每月1号、15号、28号 还款', expected: { title: '还款', dueDate: '2026-11-15', recurrence: 'FREQ=MONTHLY;BYMONTHDAY=1,15,28' } },
   { input: '每月最后一个工作日 对账', expected: { title: '对账', dueDate: '2026-11-30', recurrence: 'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1' } },
+  { input: '每月最后1个周五 总结', expected: { title: '总结', dueDate: '2026-11-27', recurrence: 'FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1' } },
   { input: '每月第2个和第4个周二 复盘', expected: { title: '复盘', dueDate: '2026-11-10', recurrence: 'FREQ=MONTHLY;BYDAY=2TU,4TU' } },
   { input: '每季度第一天 复盘', expected: { title: '复盘', dueDate: '2027-01-01', recurrence: 'FREQ=YEARLY;BYMONTH=1,4,7,10;BYMONTHDAY=1' } },
   { input: '每季度最后一天 结转', expected: { title: '结转', dueDate: '2026-12-31', recurrence: 'FREQ=YEARLY;BYMONTH=3,6,9,12;BYMONTHDAY=-1' } },
@@ -173,6 +181,9 @@ const RULE_CASES: RuleCase[] = [
   { input: '提前一个半小时提醒 开会', expected: { title: '开会', reminderOffsetMin: 90 } },
   { input: '提前一小时二十分钟提醒 开会', expected: { title: '开会', reminderOffsetMin: 80 } },
   { input: '提前两天半提醒 交房租', expected: { title: '交房租', reminderOffsetMin: 3600 } },
+  { input: '提前提醒：30分钟 开会', expected: { title: '开会', reminderOffsetMin: 30 } },
+  { input: '明天9点开会（提前15分钟提醒）', expected: { title: '开会', dueDate: '2026-11-06', dueTime: '09:00', allDay: false, reminderOffsetMin: 15 } },
+  { input: '提前30分钟提醒！开会', expected: { title: '开会', reminderOffsetMin: 30 } },
   { input: '提醒我提前30分钟出发', expected: { title: '提醒我提前30分钟出发' } },
   { input: '提前30分钟出发', expected: { title: '提前30分钟出发' } },
 
@@ -594,6 +605,38 @@ const AI_CASES: AiCase[] = [
       title: '交水电费',
       dueDate: '2026-11-06',
       dueTime: '15:00',
+      allDay: false,
+      reminderOffsetMin: 30
+    }
+  },
+  {
+    name: '模型漏掉“每周一/三/五”时由规则补齐 BYDAY',
+    input: '每周一/三/五 跑步',
+    model: { title: '跑步' },
+    expected: {
+      title: '跑步',
+      dueDate: '2026-11-06',
+      recurrence: 'FREQ=WEEKLY;BYDAY=MO,WE,FR'
+    }
+  },
+  {
+    name: '模型漏掉“每年三月五日”时由规则补齐年度重复',
+    input: '每年三月五日 体检',
+    model: { title: '体检' },
+    expected: {
+      title: '体检',
+      dueDate: '2027-03-05',
+      recurrence: 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=5'
+    }
+  },
+  {
+    name: '模型漏掉“提前提醒：30分钟”时由规则补齐提醒',
+    input: '明天9点 提前提醒：30分钟 开会',
+    model: { title: '开会' },
+    expected: {
+      title: '开会',
+      dueDate: '2026-11-06',
+      dueTime: '09:00',
       allDay: false,
       reminderOffsetMin: 30
     }

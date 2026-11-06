@@ -339,12 +339,12 @@ function parseWeekdaySelection(tail: string): WeekdaySelection | null {
   }
 
   const list = tail.match(
-    /^\s*(?:的)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天](?:\s*[、,，和及]?\s*(?:周|星期|礼拜)?\s*[一二三四五六日天])*)/
+    /^\s*(?:的)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天](?:\s*[、,，和及/／]?\s*(?:周|星期|礼拜)?\s*[一二三四五六日天])*)/
   )
   if (!list) return null
   const days = Array.from(
     new Set(
-      Array.from(list[1].replace(/[、,，和及]/g, ''), (char) => WEEKDAY_MAP[char]).filter(
+      Array.from(list[1].replace(/[、,，和及/／]/g, ''), (char) => WEEKDAY_MAP[char]).filter(
         (day): day is number => Number.isInteger(day)
       )
     )
@@ -586,12 +586,13 @@ interface ReminderParse {
 export function parseReminderOffset(text: string): ReminderParse | null {
   const duration = durationPattern('分钟|分|小时|钟头|天|日|周|星期|礼拜')
   const patterns = [
-    new RegExp(`提前\\s*提醒\\s*我?\\s*(?:一下)?\\s*(${duration})`),
+    // “提前提醒：30分钟”“提前提醒我：半小时”里常有冒号/逗号，语音转写也可能带标点。
+    new RegExp(`提前\\s*提醒\\s*我?\\s*(?:一下)?\\s*[：:，,]?\\s*(${duration})`),
     new RegExp(
-      `提前\\s*(${duration})\\s*(?:之前)?\\s*(?:提醒我?|通知我?)(?:一下)?`
+      `提前\\s*[：:，,]?\\s*(${duration})\\s*(?:之前)?\\s*(?:提醒我?|通知我?)(?:一下)?`
     ),
     new RegExp(
-      `(?:提醒|通知)\\s*我?\\s*(?:一下)?\\s*提前\\s*(${duration})(?=$|[\\s，。,.!！?？；;])`
+      `(?:提醒|通知)\\s*我?\\s*(?:一下)?\\s*提前\\s*[：:，,]?\\s*(${duration})(?=$|[\\s，。,.!！?？；;])`
     )
   ]
   for (const pattern of patterns) {
@@ -627,16 +628,26 @@ export function parseRelativeOffset(text: string): RelativeOffsetParse | null {
 function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
   let match: RegExpMatchArray | null
 
-  match = text.match(/每年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]/)
+  // “每年3月5日”“每年三月五日”“每年十二月三十一号”都要消费整段日期：
+  // 只认阿拉伯数字时，中文日期会落到 FREQ=YEARLY 并把“三月五日”留在标题里。
+  match = text.match(
+    new RegExp(`每年\\s*(${DATE_NUMBER})\\s*月\\s*(${DATE_NUMBER})\\s*[日号]`)
+  )
   if (match) {
-    const month = Number(match[1])
-    const day = Number(match[2])
-    const first = new Date(base.getFullYear(), month - 1, day)
-    if (first.getTime() < base.getTime()) first.setFullYear(first.getFullYear() + 1)
-    return {
-      rrule: `FREQ=YEARLY;BYMONTH=${month};BYMONTHDAY=${day}`,
-      matched: match[0],
-      first
+    const month = parseDateNumber(match[1])
+    const day = parseDateNumber(match[2])
+    if (month !== null && day !== null && month >= 1 && month <= 12) {
+      let first = makeDate(base.getFullYear(), month - 1, day)
+      if (first && first.getTime() < base.getTime()) {
+        first = makeDate(base.getFullYear() + 1, month - 1, day)
+      }
+      if (first) {
+        return {
+          rrule: `FREQ=YEARLY;BYMONTH=${month};BYMONTHDAY=${day}`,
+          matched: match[0],
+          first
+        }
+      }
     }
   }
 
@@ -671,7 +682,7 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
 
   // “每月最后一个周五”“每月最后1个周五”：BYSETPOS=-1。
   match = text.match(
-    /每个?月\s*(?:的)?\s*最后\s*(?:一)?\s*(?:个)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])/
+    /每个?月\s*(?:的)?\s*最后\s*(?:一|1)?\s*(?:个)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])/
   )
   if (match) {
     const weekday = WEEKDAY_MAP[match[1]]
@@ -797,29 +808,59 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
             : 'WEEKLY'
       const first =
         freq === 'MONTHLY' ? nextMonthlyDate(base, base.getDate()) : base
+      // “每3天一次”“每周一次”“每三天的早上8点”：次/回与“的”都不进入 RRULE，
+      // 但要一起消费掉，否则“一次”会被后面的星期规则当成周一、“的”会留在标题里。
+      const after = text.slice((match.index ?? 0) + match[0].length)
+      const tail = after.match(
+        /^(?:\s*的)?\s*(?:(?:[0-9]+|[一二两三四五六七八九十]+)\s*(?:次|回)\s*的?)?/
+      )
+      const tailText = tail ? tail[0] : ''
+      const afterTail = after.slice(tailText.length)
       // “每两周的周二”“每2周的周一、周三”：周期与星期同时给出，合成 INTERVAL + BYDAY，
       // 首次日期取最近的一个星期，避免把“的周二”留在标题里。
       if (freq === 'WEEKLY') {
-        const selection = parseWeekdaySelection(
-          text.slice((match.index ?? 0) + match[0].length)
-        )
+        const selection = parseWeekdaySelection(afterTail)
         if (selection) {
           const prefix = interval > 1 ? `FREQ=WEEKLY;INTERVAL=${interval}` : 'FREQ=WEEKLY'
           return {
             rrule: `${prefix};BYDAY=${selection.days
               .map((weekday) => WEEKDAY_CODES[weekday])
               .join(',')}`,
-            matched: match[0] + selection.matched,
+            matched: match[0] + tailText + selection.matched,
             first: earliestWeekday(base, selection.days)
           }
         }
       }
       return {
         rrule: interval > 1 ? `FREQ=${freq};INTERVAL=${interval}` : `FREQ=${freq}`,
-        matched: match[0],
+        matched: match[0] + tailText,
         first
       }
     }
+  }
+
+  // “每周一次/每周1次/每周两次/每天三次”：RRULE 无法表达“一周两次”的次数，
+  // 但频率本身仍可保留；这里只消费次数，避免“一次”被当成星期一或残留在标题里。
+  match = text.match(
+    /每\s*(?:个)?\s*(周|星期|礼拜|天|日|月|年)\s*(?:的)?\s*([0-9]+|[一二两三四五六七八九十]+)\s*(?:次|回)\s*的?/
+  )
+  if (match) {
+    const unit = match[1]
+    const freq =
+      unit === '天' || unit === '日'
+        ? 'DAILY'
+        : unit === '月'
+          ? 'MONTHLY'
+          : unit === '年'
+            ? 'YEARLY'
+            : 'WEEKLY'
+    const first =
+      freq === 'MONTHLY'
+        ? nextMonthlyDate(base, base.getDate())
+        : freq === 'YEARLY'
+          ? (makeDate(base.getFullYear() + 1, base.getMonth(), base.getDate()) ?? base)
+          : base
+    return { rrule: `FREQ=${freq}`, matched: match[0], first }
   }
 
   // “周一到周五”“周一到周三”：起止都含；跨周时按周一起算一圈。
@@ -867,13 +908,13 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
   }
 
   match = text.match(
-    /每\s*(?:个)?\s*(?:周|星期|礼拜)\s*(?:的)?\s*(?:周|星期|礼拜)?\s*([一二三四五六日天](?:\s*[、,，和及]?\s*(?:周|星期|礼拜)?\s*[一二三四五六日天])*)/
+    /每\s*(?:个)?\s*(?:周|星期|礼拜)\s*(?:的)?\s*(?:周|星期|礼拜)?\s*([一二三四五六日天](?:\s*[、,，和及/／]?\s*(?:周|星期|礼拜)?\s*[一二三四五六日天])*)/
   )
   if (match) {
     // “每周一三五”“每周二、周四”支持多个星期；BYDAY 按周一→周日排序。
     const weekdays = Array.from(
       new Set(
-        Array.from(match[1].replace(/[、,，和及]/g, ''), (char) => WEEKDAY_MAP[char]).filter(
+        Array.from(match[1].replace(/[、,，和及/／]/g, ''), (char) => WEEKDAY_MAP[char]).filter(
           (day): day is number => Number.isInteger(day)
         )
       )
@@ -1317,8 +1358,11 @@ export function parseQuickAddDetailed(input: string, now: Date = new Date()): Qu
 
   const title =
     rest
+      // “开会（提前15分钟提醒）”摘掉提醒后会剩下空括号，顺手清掉。
+      .replace(/[（(【\[《]\s*[）)】\]》]/g, ' ')
       .replace(/\s+/g, ' ')
-      .replace(/^[\s,，。;；:：]+|[\s,，。;；:：]+$/g, '')
+      // 开头残留的感叹号/问号多来自被摘掉的提醒或重复短语（“提前30分钟提醒！开会”）。
+      .replace(/^[\s,，。;；:：!！?？]+|[\s,，。;；:：]+$/g, '')
       .trim() || '新任务'
 
   return {
