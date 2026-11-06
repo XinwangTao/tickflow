@@ -92,6 +92,7 @@ interface AppState {
   setCalendarMonth: (month: string) => void
   setSelectionMode: (enabled: boolean) => void
   toggleSelection: (id: string) => void
+  selectAll: (ids: string[]) => void
   clearSelection: () => void
   createList: (name: string, color: string, emoji?: string | null) => Promise<void>
   updateList: (id: string, patch: UpdateListInput) => Promise<void>
@@ -295,6 +296,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedIds: ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]
     })
   },
+
+  selectAll: (ids) => set({ selectedIds: Array.from(new Set(ids)) }),
 
   clearSelection: () => set({ selectionMode: false, selectedIds: [] }),
 

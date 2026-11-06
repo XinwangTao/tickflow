@@ -134,7 +134,10 @@ const api: TickFlowApi = {
     importJson: () => ipcRenderer.invoke(IPC.dataImport),
     openDir: () => ipcRenderer.invoke(IPC.dataOpenDir),
     openBackupDir: () => ipcRenderer.invoke(IPC.dataOpenBackupDir),
-    backup: () => ipcRenderer.invoke(IPC.dataBackup)
+    backup: () => ipcRenderer.invoke(IPC.dataBackup),
+    verifyBackup: () => ipcRenderer.invoke(IPC.dataVerifyBackup),
+    verifyAllBackups: () => ipcRenderer.invoke(IPC.dataVerifyAllBackups),
+    restoreBackup: () => ipcRenderer.invoke(IPC.dataRestoreBackup)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

@@ -3,8 +3,10 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ImportCounts } from '@shared/types'
-import { backupNow, getBackupDir, getDataDir } from './db'
+import { backupNow, closeDatabase, getBackupDir, getDataDir } from './db'
 import { getInboxId } from './db/lists'
+import { verifyLatestBackup } from './db/backup-verify'
+import { replaceDatabaseFile } from './db/backup-restore'
 import { listExportableSettings } from './db/settings'
 import { getDeviceId, nowIso } from './db/util'
 import { logChange } from './db/change-log'
@@ -53,6 +55,37 @@ export async function openBackupDir(): Promise<string> {
   const error = await shell.openPath(dir)
   if (error) throw new Error(`无法打开备份目录：${error}`)
   return dir
+}
+
+export async function restoreLatestBackup(
+  parent: BrowserWindow | null
+): Promise<{ canceled: boolean; path?: string }> {
+  const check = verifyLatestBackup()
+  if (!check.path || !check.ok) {
+    throw new Error(`无法恢复：${check.message}`)
+  }
+  const options = {
+    type: 'warning' as const,
+    buttons: ['恢复并重启', '取消'],
+    defaultId: 1,
+    cancelId: 1,
+    title: '恢复最近备份',
+    message: '当前数据库将被备份替换，应用会立即重启。',
+    detail: `备份文件：${check.path}
+当前库会先保存为安全副本（pre-restore-*.db）。`
+  }
+  const confirm = parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options)
+  if (confirm.response !== 0) return { canceled: true }
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const safety = join(getBackupDir(), `pre-restore-${stamp}.db`)
+  closeDatabase()
+  replaceDatabaseFile(getDataDir(), check.path, safety)
+  app.relaunch()
+  app.exit(0)
+  return { canceled: false, path: check.path }
 }
 
 export function createManualBackup(): string {

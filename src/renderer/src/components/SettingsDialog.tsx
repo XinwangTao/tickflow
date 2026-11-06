@@ -285,6 +285,47 @@ export function SettingsDialog(): React.ReactNode {
     }
   }
 
+  const handleRestoreBackup = async (): Promise<void> => {
+    try {
+      await window.api.data.restoreBackup()
+    } catch (error) {
+      showToast(String(error), 'error', { duration: 6000 })
+    }
+  }
+
+  const handleVerifyAllBackups = async (): Promise<void> => {
+    try {
+      const results = await window.api.data.verifyAllBackups()
+      const failed = results.filter((item) => !item.ok)
+      showToast(
+        failed.length === 0
+          ? `全部 ${results.length} 份备份校验通过`
+          : `${results.length - failed.length}/${results.length} 份通过，失败：${failed
+              .map((item) => item.path ?? item.message)
+              .join('、')}`,
+        failed.length === 0 ? 'success' : 'error',
+        { duration: 7000 }
+      )
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
+  const handleVerifyBackup = async (): Promise<void> => {
+    try {
+      const result = await window.api.data.verifyBackup()
+      showToast(
+        result.ok
+          ? `备份校验通过：${result.path ?? ''}`
+          : `备份校验失败：${result.message}`,
+        result.ok ? 'success' : 'error',
+        { duration: 6000 }
+      )
+    } catch (error) {
+      showToast(String(error), 'error')
+    }
+  }
+
   return (
     <Modal title="设置" onClose={() => close(false)} width={560}>
       <section className="settings-section">
@@ -596,6 +637,19 @@ export function SettingsDialog(): React.ReactNode {
             <button type="button" className="btn" onClick={() => void handleOpenBackupDir()}>
               打开备份目录
             </button>
+            <button type="button" className="btn" onClick={() => void handleVerifyBackup()}>
+              校验最近备份
+            </button>
+            <button type="button" className="btn" onClick={() => void handleVerifyAllBackups()}>
+              校验全部备份
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => void handleRestoreBackup()}
+            >
+              恢复最近备份
+            </button>
             <button type="button" className="btn" onClick={() => void handleBackup()}>
               立即备份
             </button>
@@ -603,6 +657,7 @@ export function SettingsDialog(): React.ReactNode {
         </div>
         <p className="settings-note">
           升级加密存储前的旧备份可能含明文密钥；确认新版本同步正常后，可清理备份目录里的旧文件。
+          恢复最近备份会先校验、保存当前库安全副本，再替换并重启应用。
         </p>
         <div className="settings-row">
           <span className="settings-label">导出</span>

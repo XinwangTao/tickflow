@@ -232,11 +232,11 @@ describe('desktop syncNow against local S3 mock', () => {
     // LWW：A 的较新标题覆盖 B 的旧标题。
     updateTask(a, taskA.id, { title: 'A 任务（新）' })
     a.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(
-      '2026-11-06T10:00:00.000Z',
+      '2099-11-06T10:00:00.000Z',
       taskA.id
     )
     b.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(
-      '2026-11-06T09:00:00.000Z',
+      '2099-11-06T09:00:00.000Z',
       taskA.id
     )
     expect((await syncNow(a)).ok).toBe(true)
@@ -248,7 +248,7 @@ describe('desktop syncNow against local S3 mock', () => {
     // tombstone：B 删除后 A 同步，不复活。
     removeTask(b, taskA.id)
     b.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(
-      '2026-11-06T11:00:00.000Z',
+      '2099-11-06T11:00:00.000Z',
       taskA.id
     )
     expect((await syncNow(b)).ok).toBe(true)

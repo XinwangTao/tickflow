@@ -35,7 +35,15 @@ import {
   summarizeTodayWithAi,
   testAiConnection
 } from './ai'
-import { createManualBackup, exportData, importJson, openBackupDir, openDataDir } from './data'
+import {
+  createManualBackup,
+  exportData,
+  importJson,
+  openBackupDir,
+  openDataDir,
+  restoreLatestBackup
+} from './data'
+import { verifyAllBackups, verifyLatestBackup } from './db/backup-verify'
 import { listAttachments } from './db/attachments'
 import * as filterRepo from './db/filters'
 import * as habitReminderRepo from './db/habit-reminders'
@@ -194,6 +202,11 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.dataOpenDir, () => openDataDir())
   ipcMain.handle(IPC.dataOpenBackupDir, () => openBackupDir())
   ipcMain.handle(IPC.dataBackup, () => createManualBackup())
+  ipcMain.handle(IPC.dataVerifyBackup, () => verifyLatestBackup())
+  ipcMain.handle(IPC.dataVerifyAllBackups, () => verifyAllBackups())
+  ipcMain.handle(IPC.dataRestoreBackup, (event) =>
+    restoreLatestBackup(BrowserWindow.fromWebContents(event.sender))
+  )
 
   ipcMain.handle(IPC.settingsGet, () => settingsRepo.getSettings(getDb()))
   ipcMain.handle(IPC.settingsSet, (_event, patch: Partial<Settings>) => {

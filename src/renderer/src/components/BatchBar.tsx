@@ -4,10 +4,12 @@ import { Icon } from './Icon'
 export function BatchBar(): React.ReactNode {
   const selectionMode = useAppStore((state) => state.selectionMode)
   const selectedIds = useAppStore((state) => state.selectedIds)
+  const tasks = useAppStore((state) => state.tasks)
   const lists = useAppStore((state) => state.lists)
   const batchComplete = useAppStore((state) => state.batchComplete)
   const batchDelete = useAppStore((state) => state.batchDelete)
   const batchMove = useAppStore((state) => state.batchMove)
+  const selectAll = useAppStore((state) => state.selectAll)
   const clearSelection = useAppStore((state) => state.clearSelection)
 
   if (!selectionMode) return null
@@ -16,6 +18,17 @@ export function BatchBar(): React.ReactNode {
   return (
     <div className="batch-bar">
       <span className="batch-count">已选 {selectedIds.length}</span>
+      <button
+        type="button"
+        className="btn"
+        onClick={() =>
+          selectAll(
+            selectedIds.length === tasks.length ? [] : tasks.map((task) => task.id)
+          )
+        }
+      >
+        {selectedIds.length === tasks.length && tasks.length > 0 ? '取消全选' : '全选'}
+      </button>
       <button
         type="button"
         className="btn"

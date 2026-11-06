@@ -105,6 +105,9 @@ export const IPC = {
   dataOpenDir: 'data:open-dir',
   dataOpenBackupDir: 'data:open-backup-dir',
   dataBackup: 'data:backup',
+  dataVerifyBackup: 'data:verify-backup',
+  dataVerifyAllBackups: 'data:verify-all-backups',
+  dataRestoreBackup: 'data:restore-backup',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   aiQuickAdd: 'ai:quick-add',
@@ -209,6 +212,9 @@ export interface TickFlowApi {
     openDir(): Promise<string>
     openBackupDir(): Promise<string>
     backup(): Promise<string>
+    verifyBackup(): Promise<{ path: string | null; ok: boolean; message: string }>
+    verifyAllBackups(): Promise<Array<{ path: string | null; ok: boolean; message: string }>>
+    restoreBackup(): Promise<{ canceled: boolean; path?: string }>
   }
   settings: {
     get(): Promise<Settings>

@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // 构建产物体积与运行时依赖检查。先执行 `npm run build`，再执行 `npm run check:bundle`。
 import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { builtinModules } from 'node:module'
 import { join } from 'node:path'
 
 const root = process.cwd()
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const buildFiles = pkg.build?.files ?? []
 const dependencies = Object.keys(pkg.dependencies ?? {})
+const builtins = new Set(builtinModules)
 
 const KB = 1024
 const budgets = {
@@ -65,6 +67,7 @@ for (const file of ['out/main/index.js', 'out/preload/index.js']) {
   for (const match of source.matchAll(/require\(["']([^"']+)["']\)/g)) {
     const specifier = match[1]
     if (specifier.startsWith('.') || specifier.startsWith('node:') || specifier === 'electron') continue
+    if (builtins.has(specifier)) continue
     const name = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]
     if (!dependencies.includes(name)) failures.push(`${file} require("${name}")，但 package.json dependencies 中没有它`)
     if (excluded.has(name)) failures.push(`${file} require("${name}")，但 build.files 排除了它`)

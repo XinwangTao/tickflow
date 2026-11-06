@@ -125,3 +125,23 @@ test('about dialog shows version and data directory', async () => {
     await app.close()
   }
 })
+
+
+test('shortcut help opens with question mark and closes with Escape', async () => {
+  const app = await electron.launch({ args: ['.'] })
+  try {
+    const page = await app.firstWindow()
+    await page.waitForSelector('.main-title', { timeout: 20_000 })
+    await page.locator('.main-title').click()
+    await page.evaluate(() => {
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }))
+    })
+    await expect(page.locator('.modal-header h2')).toHaveText('快捷键')
+    await expect(page.locator('.shortcut-row')).toHaveCount(6)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.modal-header h2')).toHaveCount(0)
+  } finally {
+    await app.close()
+  }
+})

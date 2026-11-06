@@ -8,6 +8,7 @@ import { MainView } from './components/MainView'
 import { DetailDrawer } from './components/DetailDrawer'
 import { SearchOverlay } from './components/SearchOverlay'
 import { SettingsDialog } from './components/SettingsDialog'
+import { ShortcutHelp } from './components/ShortcutHelp'
 import { NewListDialog } from './components/NewListDialog'
 import { Toast } from './components/Toast'
 
@@ -40,6 +41,7 @@ export default function App(): React.ReactNode {
   const detailId = useAppStore((state) => state.detailId)
   const searchOpen = useAppStore((state) => state.searchOpen)
   const settingsOpen = useAppStore((state) => state.settingsOpen)
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false)
   const newListOpen = useAppStore((state) => state.newListOpen)
   const bootstrap = useAppStore((state) => state.bootstrap)
   const showToast = useAppStore((state) => state.showToast)
@@ -120,12 +122,23 @@ export default function App(): React.ReactNode {
     const onKeyDown = (event: KeyboardEvent): void => {
       const state = useAppStore.getState()
       const mod = event.ctrlKey || event.metaKey
+      const target = event.target as HTMLElement | null
+      const editing = Boolean(
+        target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT' ||
+            target.isContentEditable)
+      )
       if (mod && event.key.toLowerCase() === 'n') {
         event.preventDefault()
         state.focusQuickAdd()
       } else if (mod && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         state.setSearchOpen(true)
+      } else if (event.key === '?' && !editing) {
+        event.preventDefault()
+        setShortcutHelpOpen(true)
       } else if (event.key === 'Escape') {
         if (state.searchOpen) state.setSearchOpen(false)
         else if (state.settingsOpen) state.setSettingsOpen(false)
@@ -155,6 +168,7 @@ export default function App(): React.ReactNode {
       {searchOpen ? <SearchOverlay /> : null}
       {settingsOpen ? <SettingsDialog /> : null}
       {newListOpen ? <NewListDialog /> : null}
+      {shortcutHelpOpen ? <ShortcutHelp onClose={() => setShortcutHelpOpen(false)} /> : null}
       <Toast />
     </div>
   )
