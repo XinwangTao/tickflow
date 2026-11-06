@@ -44,10 +44,32 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   const [draftBusy, setDraftBusy] = useState(false)
   const [aiDraft, setAiDraft] = useState<QuickAddDraft | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // 进行中的 AI 请求：id 用于取消，text 用于判断响应是否已经过期。
+  const aiRequestSeq = useRef(0)
+  const activeAiRequest = useRef<{ id: string; text: string } | null>(null)
+  const valueRef = useRef('')
+
+  useEffect(() => {
+    valueRef.current = value
+  }, [value])
 
   useEffect(() => {
     if (focusToken > 0) inputRef.current?.focus()
   }, [focusToken])
+
+  // 切换视图导致组件卸载时中止进行中的解析：草稿本来也留不下来，不应继续消耗 token。
+  useEffect(() => {
+    return () => {
+      const active = activeAiRequest.current
+      if (!active) return
+      activeAiRequest.current = null
+      try {
+        void window.api.ai.cancel(active.id).catch(() => undefined)
+      } catch {
+        // 旧 preload 或测试桩没有 cancel 时忽略，不影响卸载。
+      }
+    }
+  }, [])
 
   // 请求期间显示已等待秒数：超时前用户能看到进度，不会以为界面卡住。
   useEffect(() => {
@@ -139,7 +161,12 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
 
   const submit = async (useAi: boolean): Promise<void> => {
     const text = value.trim()
-    if (!text || aiBusy) return
+    if (!text) return
+    if (aiBusy) {
+      // 进行中时普通 Enter 不再静默失败，明确告诉用户可以中止这次解析。
+      showToast('AI 正在解析，按 Esc 或点「取消」可中止', 'info')
+      return
+    }
     if (aiDraft) {
       if (!useAi) {
         showToast('请先添加或取消上方的 AI 解析结果', 'info')
@@ -154,9 +181,17 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     let aiUsed = false
     if (useAi && settings.aiEnabled) {
       aiUsed = true
+      const requestId = `quick-add-${(aiRequestSeq.current += 1)}`
+      activeAiRequest.current = { id: requestId, text }
       setAiBusy(true)
       try {
-        const response = await window.api.ai.parseQuickAdd(text)
+        const response = await window.api.ai.parseQuickAdd(text, requestId)
+        // 已取消或已被新请求取代：迟到的结果一律丢弃，绝不落到草稿区。
+        if (activeAiRequest.current?.id !== requestId) return
+        if (valueRef.current.trim() !== text) {
+          showToast('输入已变化，已忽略上一次 AI 解析结果', 'info')
+          return
+        }
         if (response.ok && response.source === 'ai') {
           // AI 成功时先进入草稿，不立即写库：用户可以改标题、时间、清单后再添加。
           const draft = createQuickAddDraft(
@@ -179,10 +214,14 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
         result = response.result
         aiWarning = response.warning
       } catch (error) {
+        if (activeAiRequest.current?.id !== requestId) return
         result = parseQuickAdd(text)
         aiWarning = String(error)
       } finally {
-        setAiBusy(false)
+        if (activeAiRequest.current?.id === requestId) {
+          activeAiRequest.current = null
+          setAiBusy(false)
+        }
       }
     } else {
       result = parseQuickAdd(text)
@@ -202,6 +241,18 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
         aiWarning ? 7000 : 6000
       )
     }
+  }
+
+  /** 取消进行中的 AI 解析：先让 main 中止 fetch，再丢弃响应，输入内容保持不变。 */
+  const cancelAiParse = (): void => {
+    const active = activeAiRequest.current
+    if (!active) return
+    activeAiRequest.current = null
+    setAiBusy(false)
+    setAiElapsed(0)
+    void window.api.ai.cancel(active.id).catch(() => undefined)
+    showToast('已取消 AI 解析，输入内容已保留', 'info')
+    inputRef.current?.focus()
   }
 
   const updateDraft = (patch: Partial<QuickAddDraft>): void => {
@@ -264,22 +315,39 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
             if (event.key === 'Enter') {
               event.preventDefault()
               void submit(event.ctrlKey || event.metaKey)
+            } else if (event.key === 'Escape' && aiBusy) {
+              // Esc 直接中止这次解析，不用等满超时。
+              event.preventDefault()
+              cancelAiParse()
             }
           }}
           aria-label="快速添加任务"
         />
         {settings.aiEnabled ? (
-          <button
-            type="button"
-            className={`quick-add-ai ${aiBusy ? 'busy' : ''}`}
-            title={`AI 解析并添加（Ctrl+Enter）· 超过 ${aiTimeoutSeconds} 秒自动回落到规则解析`}
-            aria-label="AI 解析并添加"
-            disabled={aiBusy || !value.trim()}
-            onClick={() => void submit(true)}
-          >
-            <Icon name="sparkles" size={14} />
-            {aiBusy ? (aiElapsed > 0 ? `解析中 ${aiElapsed}s` : '解析中') : 'AI'}
-          </button>
+          <>
+            {aiBusy ? (
+              <button
+                type="button"
+                className="quick-add-ai-cancel"
+                title="取消本次 AI 解析（Esc）"
+                aria-label="取消 AI 解析"
+                onClick={cancelAiParse}
+              >
+                取消
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={`quick-add-ai ${aiBusy ? 'busy' : ''}`}
+              title={`AI 解析并添加（Ctrl+Enter）· 超过 ${aiTimeoutSeconds} 秒自动回落到规则解析`}
+              aria-label="AI 解析并添加"
+              disabled={aiBusy || !value.trim()}
+              onClick={() => void submit(true)}
+            >
+              <Icon name="sparkles" size={14} />
+              {aiBusy ? (aiElapsed > 0 ? `解析中 ${aiElapsed}s` : '解析中') : 'AI'}
+            </button>
+          </>
         ) : null}
         {value.trim() ? <kbd className="quick-add-enter">↵</kbd> : null}
       </div>

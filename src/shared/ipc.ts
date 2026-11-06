@@ -100,6 +100,7 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   aiQuickAdd: 'ai:quick-add',
+  aiCancel: 'ai:cancel',
   aiSubtasks: 'ai:subtasks',
   aiSummary: 'ai:summary',
   aiModels: 'ai:models',
@@ -197,7 +198,10 @@ export interface TickFlowApi {
     set(patch: Partial<Settings>): Promise<Settings>
   }
   ai: {
-    parseQuickAdd(input: string): Promise<AiQuickAddResponse>
+    /** requestId 用于在响应迟到时判断是否已过期；也可用 `cancel(requestId)` 中止。 */
+    parseQuickAdd(input: string, requestId?: string): Promise<AiQuickAddResponse>
+    /** 中止某个进行中的 AI 请求，返回 false 表示它已经结束或不存在。 */
+    cancel(requestId: string): Promise<boolean>
     breakdownSubtasks(taskId: string): Promise<AiSubtasksResponse>
     dailySummary(): Promise<AiSummaryResponse>
     models(): Promise<AiModelsResult>

@@ -1,8 +1,11 @@
 import {
   AI_ANTHROPIC_VERSION,
+  AI_CANCELED_MESSAGE,
   AI_DEFAULT_TIMEOUT_MS,
+  AiCanceledError,
   describeAiError,
   describeAiFailure,
+  isAiCanceled,
   normalizeAiModels,
   type AiConfig,
   type AiModelInfo
@@ -29,6 +32,8 @@ export interface AiClientOptions {
   retryDelayMs?: number
   /** 每次重试前的回调，便于观察与测试。 */
   onRetry?: (info: { attempt: number; error: unknown; delayMs: number }) => void
+  /** 外部取消信号：用户点「取消」或按 Esc 时中止请求，与超时区分开、且不重试。 */
+  signal?: AbortSignal
 }
 
 /** 带尝试次数的请求错误：上层据此在提示里标注“已自动重试 N 次”。 */
@@ -64,6 +69,8 @@ async function withAiRetry<T>(
     try {
       return { value: await run(), attempts: attempt }
     } catch (error) {
+      // 用户取消不是故障：立刻结束，不重试也不追加“已自动重试”标注。
+      if (isAiCanceled(error)) throw new AiRequestError(AI_CANCELED_MESSAGE, attempt)
       const failure = describeAiFailure(error, config)
       if (!failure.retryable || attempt >= maxAttempts) {
         throw new AiRequestError(describeAiError(error), attempt)
@@ -144,7 +151,12 @@ async function requestAiTextOnce(
   options: AiClientOptions = {}
 ): Promise<string> {
   const fetchImpl = options.fetch ?? fetch
+  const external = options.signal
+  // 已经取消过就不再发请求，避免“点了取消还在跑”。
+  if (external?.aborted) throw new AiCanceledError()
   const controller = new AbortController()
+  const onExternalAbort = (): void => controller.abort()
+  external?.addEventListener('abort', onExternalAbort)
   const timeout = config.timeoutMs > 0 ? config.timeoutMs : AI_DEFAULT_TIMEOUT_MS
   const timer = setTimeout(() => controller.abort(), timeout)
 
@@ -196,12 +208,15 @@ async function requestAiTextOnce(
     }
     return text
   } catch (error) {
+    // 同一个 AbortError 有两种来源：用户取消与超时，提示完全不同。
+    if (external?.aborted) throw new AiCanceledError()
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('AI 请求超时')
     }
     throw error
   } finally {
     clearTimeout(timer)
+    external?.removeEventListener('abort', onExternalAbort)
   }
 }
 

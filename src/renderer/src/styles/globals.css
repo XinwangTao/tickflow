@@ -655,6 +655,24 @@ input[type="checkbox"] {
   color: var(--accent);
 }
 
+.quick-add-ai-cancel {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.quick-add-ai-cancel:hover {
+  color: var(--danger, #ff5c5c);
+  border-color: color-mix(in srgb, var(--danger, #ff5c5c) 55%, var(--line));
+}
+
 /* ---------- AI 解析结果草稿 ---------- */
 
 .quick-add-draft {

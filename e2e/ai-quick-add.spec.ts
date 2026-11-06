@@ -33,10 +33,9 @@ interface FakeGateway {
   close: () => Promise<void>
 }
 
-type GatewayHandler = (
-  request: RecordedRequest,
-  index: number
-) => { status: number; body: unknown }
+type GatewayReply = { status: number; body: unknown; delayMs?: number }
+
+type GatewayHandler = (request: RecordedRequest, index: number) => GatewayReply
 
 async function startFakeGateway(handler: GatewayHandler): Promise<FakeGateway> {
   const requests: RecordedRequest[] = []
@@ -65,8 +64,17 @@ async function startFakeGateway(handler: GatewayHandler): Promise<FakeGateway> {
       requests.push(recorded)
 
       const reply = handler(recorded, requests.length - 1)
-      res.writeHead(reply.status, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(reply.body))
+      // delayMs 用来模拟推理模型的长响应，让「取消」有机会在返回之前发生。
+      const send = (): void => {
+        try {
+          res.writeHead(reply.status, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(reply.body))
+        } catch {
+          // 请求已被客户端中止，连接可能已关闭，忽略写入失败。
+        }
+      }
+      if (reply.delayMs) setTimeout(send, reply.delayMs)
+      else send()
     })
   })
 
@@ -82,6 +90,7 @@ async function startFakeGateway(handler: GatewayHandler): Promise<FakeGateway> {
     requests,
     close: () =>
       new Promise<void>((resolve, reject) => {
+        server.closeAllConnections?.()
         server.close((error) => (error ? reject(error) : resolve()))
       })
   }
@@ -335,6 +344,50 @@ test.describe('AI 快速添加结果', () => {
       expect(gateway.requests[0].path).toBe('/v1/messages')
       expect(gateway.requests[0].model).toBe(AI_DEFAULT_MODEL)
       expect(gateway.requests[0].maxTokens).toBe(AI_SUBTASKS_MAX_TOKENS)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+
+  test('取消 AI 解析后不弹草稿，迟到的响应也不会写库', async () => {
+    const gateway = await startFakeGateway(() => ({
+      status: 200,
+      body: anthropicReply(
+        JSON.stringify({
+          title: '迟到的任务',
+          dueDate: null,
+          dueTime: null,
+          allDay: true,
+          priority: 0,
+          tags: [],
+          listName: null,
+          recurrence: null
+        })
+      ),
+      // 模拟推理模型的长响应：留出足够时间点「取消」。
+      delayMs: 2500
+    }))
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      const input = page.locator('.quick-add-input')
+      await input.fill('明天下午3点交周报')
+      await page.locator('.quick-add-ai').click()
+
+      // 请求还没返回时出现「取消」，点它中止这次解析。
+      await page.getByRole('button', { name: '取消 AI 解析' }).click()
+      const toast = page.locator('.toast')
+      await expect(toast).toContainText('已取消 AI 解析，输入内容已保留')
+
+      // 等过假网关的延迟：迟到的响应不能弹出草稿，也不能按规则建任务。
+      await page.waitForTimeout(3000)
+      await expect(page.getByRole('dialog', { name: 'AI 解析结果' })).toHaveCount(0)
+      expect(await allTaskTitles(page)).toEqual([])
+      await expect(input).toHaveValue('明天下午3点交周报')
+      // 取消不重试：只发出过一次请求。
+      expect(gateway.requests).toHaveLength(1)
     } finally {
       await launched.close()
       await gateway.close()

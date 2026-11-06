@@ -108,6 +108,14 @@ authorization: Bearer <aiToken，可选>
   移入垃圾箱并刷新列表；AI 失败回落到规则创建时同样可以撤销，提示里会同时保留失败原因。
 - 草稿未处理时按普通 `Enter` 会提示先添加或取消，不会绕过草稿重复建任务。
 - 请求期间按钮显示「解析中」，输入框仍可编辑，不会锁住界面。
+- 请求期间按钮右侧出现 **取消**，按 `Esc` 同样可以中止：renderer 通过 `ai:cancel` 让
+  main 进程中止那次 `fetch`，不必等满 15 秒超时。取消后提示「已取消 AI 解析，输入内容已保留」，
+  既不写库也不弹草稿；取消**不触发**自动重试。
+- 迟到的结果一律丢弃：每次 AI 请求都带一个自增 `requestId`，取消或重新发起新请求后，
+  旧请求的响应即使回来了也不会弹草稿；如果用户在等待期间改写了输入，结果同样被忽略并提示
+  「输入已变化，已忽略上一次 AI 解析结果」，避免把上一条任务的解析结果套到新输入上。
+- 解析进行中按普通 `Enter` 不再静默失败，而是提示「AI 正在解析，按 Esc 或点「取消」可中止」，
+  不会绕过请求重复建任务；切换视图导致快速添加框卸载时，也会顺手中止进行中的请求。
 - 结果会再次经过 `normalizeAiQuickAdd` 校验：非法日期/时间被丢弃，优先级夹到 0–3，
   标签去重。`listName` 只有在用户输入中明确出现该清单名（忽略大小写与空白）时才采纳，
   防止模型按任务内容猜一个清单；未采纳时任务留在当前清单。采纳但清单已不存在时，
@@ -167,12 +175,18 @@ renderer 只是多等这一小会儿，不会因此重复创建任务：
 | 请求超时 | 超过 `aiTimeoutMs`，由 `AbortController` 中止 | 否 | `AI 请求超时（15 秒），可在设置里调大超时或换更快的模型` |
 | 鉴权失败 | HTTP 401 / 403 | 否 | `AI 鉴权失败，请检查设置里的 Token（本机服务通常留空）` |
 | 模型或参数错误 | HTTP 400 / 404 / 422 | 否 | `模型或请求不可用，请在设置页用「获取模型列表」逐字核对模型 ID` |
+| 用户主动取消 | `ai:cancel` 中止 `fetch`，或 Esc / 取消按钮 | 否 | 提示「已取消 AI 解析，输入内容已保留」，不写库、不弹草稿 |
 | 只有 thinking、没有正文 | `stop_reason=max_tokens` 且正文为空 | 否 | 保留「AI 只返回了推理过程，正文为空（输出预算不足）」 |
 | 返回结构无法识别 | 取到 JSON 但字段不合规 | 否 | `AI 返回内容无法解析，已按本地规则处理` |
 
 超时**不重试**是刻意设计：超时已经用满了用户配置的等待时间，再重试一次会让按钮多转一倍，
 而连接被拒、5xx 这类错误通常毫秒级返回，重试成本可以忽略。总尝试次数上限 3，
 实现见 `src/main/ai-client.ts` 的 `withAiRetry`。
+
+取消与超时都表现为 `AbortError`，客户端用“外部 signal 是否已中止”区分：
+外部 signal（`ai:cancel`）中止 → `AiCanceledError`（文案「AI 请求已取消」），
+`withAiRetry` 直接结束、不重试、不追加「已自动重试 N 次」；只有内部超时计时器中止
+才提示「AI 请求超时」。失败分类里取消是独立的 `canceled` 类型，提示不会引导用户去调大超时。
 
 - 提示文案统一由 `src/shared/ai.ts` 的 `describeAiFailure` 生成：先说明原因（超时秒数、
   服务地址、HTTP 状态），再给出下一步（调大超时、启动 CC Switch、核对模型 ID、检查 Token），
@@ -208,14 +222,15 @@ renderer 只是多等这一小会儿，不会因此重复创建任务：
 | --- | --- |
 | `src/shared/ai.ts` | 类型、默认值、提示词、JSON 提取、归一化、规则降级、失败分类与提示文案 |
 | `src/shared/quick-add-draft.ts` | AI 快速添加草稿：清单匹配、标签拆分、日期/时间校验、优先级收敛、落库前转换 |
-| `src/main/ai-client.ts` | `/v1/messages` 与 `/v1/models` 请求、鉴权头、单次超时、瞬时故障自动重试、响应文本提取 |
-| `src/main/ai.ts` | 三个功能的编排与降级、失败提示与尝试次数、模型列表、连接测试 |
-| `src/main/ipc.ts` | `ai:quick-add` / `ai:subtasks` / `ai:summary` / `ai:models` / `ai:test` |
-| `src/renderer/src/components/QuickAdd.tsx` | AI 快速添加入口、可编辑结果草稿、添加后撤销 |
+| `src/main/ai-client.ts` | `/v1/messages` 与 `/v1/models` 请求、鉴权头、单次超时、外部取消信号、瞬时故障自动重试、响应文本提取 |
+| `src/main/ai.ts` | 三个功能的编排与降级、失败提示与尝试次数、`requestId → AbortController` 注册表、模型列表、连接测试 |
+| `src/main/ipc.ts` | `ai:quick-add` / `ai:cancel` / `ai:subtasks` / `ai:summary` / `ai:models` / `ai:test` |
+| `src/renderer/src/components/QuickAdd.tsx` | AI 快速添加入口、可编辑结果草稿、取消与过期结果丢弃、添加后撤销 |
 | `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口、批量添加后撤销 |
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片 |
 | `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试 |
 | `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：50+ 条规则用例 + AI 解析/归一化/合并用例 + 失败与请求契约 |
+| `tests/ai-cancel.test.ts` | 取消：取消与超时区分、不重试、已取消的 signal 不发请求、requestId 注册表与不泄漏、并行请求互不影响 |
 | `e2e/ai-quick-add.spec.ts` | 桌面端 AI 结果 E2E：可编辑草稿→添加→撤销、5xx 重试→规则降级→撤销、今日总结、子任务拆解批量撤销 |
 
 验证命令：
@@ -232,8 +247,10 @@ npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败�
                          # tests/quick-add-regression.test.ts 覆盖快速添加准确率回归集（见 6.1）；
                          # tests/quick-add-draft.test.ts 覆盖 AI 结果草稿：清单名匹配、默认日期、
                          # 清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、空标题保护；
-                         # tests/quick-add-ui.test.ts 覆盖「先展示草稿不写库 → 编辑后确认 → 撤销」与取消流程
-npm run test:ai          # 只跑 AI 相关测试：ai、快速添加回归集、规则解析、草稿与草稿 UI
+                         # tests/quick-add-ui.test.ts 覆盖「先展示草稿不写库 → 编辑后确认 → 撤销」与取消流程，
+                         # 以及解析中点取消/改输入后迟到结果被丢弃、Enter 提示与 Esc 中止；
+                         # tests/ai-cancel.test.ts 覆盖取消与超时的区分、取消不重试、requestId 注册表不泄漏
+npm run test:ai          # 只跑 AI 相关测试：ai、请求取消、快速添加回归集、规则解析、草稿与草稿 UI
 npm run test:e2e         # 构建后跑 Playwright：AI 结果 E2E + 桌面端视图冒烟（见 6.2）
 ```
 
@@ -280,6 +297,8 @@ curl -s http://127.0.0.1:15721/v1/messages \
 - **5xx 自动重试→规则降级→撤销**：假网关始终返回 500，断言实际收到 2 次请求、
   toast 同时含「AI 未能解析，已按规则添加…」「AI 服务繁忙」「已自动重试 1 次」，
   且没有弹出草稿；规则任务仍可通过 toast 撤销。
+- **取消解析**：假网关延迟 2.5 秒返回，请求途中点「取消」，断言 toast 提示已取消、输入内容保留、
+  迟到的响应不会弹出草稿也不会建任务，且只发出过一次请求（取消不重试）。
 - **今日总结**：断言 AI 的 `summary`、`highlights`、`suggestions` 渲染，且不显示
   「已回落到本地统计」说明。
 - **子任务拆解**：从详情面板触发，断言子任务写入、toast 显示新增数量、批量撤销后清空。
@@ -304,3 +323,5 @@ curl -s http://127.0.0.1:15721/v1/messages \
 - E2E 使用 `TICKFLOW_USER_DATA` 指向临时目录，并通过 `127.0.0.1` 随机端口假网关响应，
   不接触真实用户数据库、不访问外部网络（见 6.2）。
 - AI 生成的时间、清单和子任务都会经过本地校验后再写库，AI 不能直接修改数据库。
+- 取消只中止本机发起的那一次请求（按 renderer 生成的 `requestId` 定位），请求结束后注册表立即清空，
+  不会残留 controller 或跨请求误取消。

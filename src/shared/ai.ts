@@ -167,8 +167,31 @@ export function describeAiError(error: unknown): string {
   return String(error)
 }
 
+/** 用户主动取消（Esc / 「取消」按钮）时的统一文案，必须与超时区分开。 */
+export const AI_CANCELED_MESSAGE = 'AI 请求已取消'
+
+/**
+ * 请求被用户取消：既不是超时也不是网络故障，不重试、不弹失败提示。
+ * 放在 shared 里是因为 main 与 renderer 都要判断。
+ */
+export class AiCanceledError extends Error {
+  constructor(message: string = AI_CANCELED_MESSAGE) {
+    super(message)
+    this.name = 'AiCanceledError'
+  }
+}
+
+export function isAiCanceled(error: unknown): boolean {
+  if (error instanceof AiCanceledError) return true
+  if (error && typeof error === 'object' && (error as { name?: unknown }).name === 'AiCanceledError') {
+    return true
+  }
+  return describeAiError(error).includes(AI_CANCELED_MESSAGE)
+}
+
 export type AiFailureKind =
   | 'disabled'
+  | 'canceled'
   | 'timeout'
   | 'network'
   | 'busy'
@@ -230,6 +253,10 @@ export function describeAiFailure(
   if (/AI 已关闭|未配置模型|输入为空|任务标题为空/.test(raw)) {
     kind = 'disabled'
     friendly = raw || 'AI 已关闭或未配置模型'
+  } else if (isAiCanceled(error) || /已取消 AI 解析/.test(raw)) {
+    // 取消必须排在超时之前判断：两者都会表现为 AbortError，但取消不该提示“调大超时”。
+    kind = 'canceled'
+    friendly = '已取消 AI 解析'
   } else if (
     status !== null &&
     (status === 408 || status === 425 || status === 429 || status >= 500)

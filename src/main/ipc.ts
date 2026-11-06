@@ -26,8 +26,11 @@ import {
 } from './attachments'
 import {
   breakdownSubtasksWithAi,
+  cancelAiRequest,
   listAiModels,
   parseQuickAddWithAi,
+  registerAiRequest,
+  releaseAiRequest,
   summarizeTodayWithAi,
   testAiConnection
 } from './ai'
@@ -187,14 +190,22 @@ export function registerIpc(): void {
     settingsRepo.setSettings(getDb(), patch)
   )
 
-  ipcMain.handle(IPC.aiQuickAdd, (_event, input: string) => {
+  ipcMain.handle(IPC.aiQuickAdd, (_event, input: string, requestId?: string) => {
     const db = getDb()
-    return parseQuickAddWithAi(
+    const controller = requestId ? registerAiRequest(requestId) : null
+    const pending = parseQuickAddWithAi(
       input,
       listRepo.listLists(db).map((list) => list.name),
-      { config: aiConfigFromSettings(settingsRepo.getSettings(db)) }
+      {
+        config: aiConfigFromSettings(settingsRepo.getSettings(db)),
+        signal: controller?.signal
+      }
     )
+    if (!requestId || !controller) return pending
+    return pending.finally(() => releaseAiRequest(requestId))
   })
+  // renderer 点「取消」或按 Esc 时调用：中止 main 进程里对应的那次 fetch。
+  ipcMain.handle(IPC.aiCancel, (_event, requestId: string) => cancelAiRequest(requestId))
   ipcMain.handle(IPC.aiSubtasks, (_event, taskId: string) => {
     const db = getDb()
     const task = taskRepo.getTaskWithMeta(db, taskId)

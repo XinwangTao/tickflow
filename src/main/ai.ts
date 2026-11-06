@@ -12,6 +12,7 @@ import {
   describeAiFailure,
   filterNewSubtasks,
   isListNameMentioned,
+  isAiCanceled,
   mergeQuickAddWithRule,
   normalizeAiQuickAdd,
   normalizeAiSubtasks,
@@ -43,6 +44,48 @@ export interface AiRuntime {
   maxAttempts?: number
   retryDelayMs?: number
   onRetry?: AiClientOptions['onRetry']
+  /** 用户取消信号（来自 `ai:cancel`），取消后不再重试。 */
+  signal?: AbortSignal
+}
+
+/**
+ * 进行中的 AI 请求注册表：renderer 生成 requestId，main 用它把「取消」精确落到
+ * 那一次 fetch 上。key 用完即删，避免长时间运行时堆积。
+ */
+const inflightAiRequests = new Map<string, AbortController>()
+
+const AI_REQUEST_ID_PATTERN = /^[\w:-]{1,80}$/
+
+/** 登记一次 AI 请求，返回用于中止它的 controller；非法 id 返回 null。 */
+export function registerAiRequest(requestId: string): AbortController | null {
+  if (!AI_REQUEST_ID_PATTERN.test(requestId)) return null
+  const existing = inflightAiRequests.get(requestId)
+  if (existing) return existing
+  const controller = new AbortController()
+  inflightAiRequests.set(requestId, controller)
+  return controller
+}
+
+/** 请求结束（成功、失败或取消）后注销，保证注册表不泄漏。 */
+export function releaseAiRequest(requestId: string): void {
+  inflightAiRequests.delete(requestId)
+}
+
+/**
+ * 取消指定请求：返回 true 表示确实有一笔在跑并已中止。
+ * 已经结束或 id 未知时返回 false，renderer 据此无需额外提示。
+ */
+export function cancelAiRequest(requestId: string): boolean {
+  const controller = inflightAiRequests.get(requestId)
+  if (!controller) return false
+  inflightAiRequests.delete(requestId)
+  controller.abort()
+  return true
+}
+
+/** 当前挂起的请求数，用于测试确认没有泄漏。 */
+export function activeAiRequestCount(): number {
+  return inflightAiRequests.size
 }
 
 function disabledConfig(config: AiConfig): boolean {
@@ -54,12 +97,14 @@ function requestOptions(runtime: {
   maxAttempts?: number
   retryDelayMs?: number
   onRetry?: AiClientOptions['onRetry']
+  signal?: AbortSignal
 }): AiClientOptions {
   return {
     fetch: runtime.fetch,
     maxAttempts: runtime.maxAttempts,
     retryDelayMs: runtime.retryDelayMs,
-    onRetry: runtime.onRetry
+    onRetry: runtime.onRetry,
+    signal: runtime.signal
   }
 }
 
@@ -121,6 +166,11 @@ export async function parseQuickAddWithAi(
         : merged
     return { ok: true, source: 'ai', result: quickAdd, warning: null, attempts }
   } catch (error) {
+    if (isAiCanceled(error)) {
+      // 用户主动取消：renderer 会直接丢弃这次响应，这里仍返回一份可用的规则结果，
+      // 保证任何调用方都不会因为取消而拿到空数据。
+      return { ok: false, source: 'rule', result: fallback, warning: '已取消 AI 解析', attempts }
+    }
     return {
       ok: false,
       source: 'rule',

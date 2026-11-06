@@ -92,6 +92,7 @@ describe('QuickAdd AI 结果草稿', () => {
     useAppStore.setState({ lists: LISTS, settings: SETTINGS, tasks: [], toast: null })
     ;(window as unknown as { api: unknown }).api = {
       ai: {
+        cancel: vi.fn(async () => true),
         parseQuickAdd: vi.fn(async () => ({
           ok: true,
           source: 'ai',
@@ -179,5 +180,150 @@ describe('QuickAdd AI 结果草稿', () => {
     expect(screen.queryByLabelText('AI 任务标题')).toBeNull()
     expect(createTask).not.toHaveBeenCalled()
     expect(input.value).toBe('明天下午3点交周报')
+  })
+})
+
+interface Deferred<T> {
+  promise: Promise<T>
+  resolve: (value: T) => void
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
+const AI_OK_RESULT = {
+  title: '交周报',
+  priority: 3,
+  tags: ['工作'],
+  listName: null,
+  dueDate: '2026-11-06',
+  dueTime: '15:00',
+  allDay: false,
+  recurrence: null
+}
+
+describe('QuickAdd AI 请求取消与过期结果', () => {
+  const createTask = vi.fn(async (input: CreateTaskInput) => taskFrom(input, 'task-1'))
+
+  function mountWith(deferredResponse: Deferred<unknown>): {
+    parseQuickAdd: ReturnType<typeof vi.fn>
+    cancel: ReturnType<typeof vi.fn>
+  } {
+    const parseQuickAdd = vi.fn(
+      (_input: string, _requestId?: string) => deferredResponse.promise as Promise<never>
+    )
+    const cancel = vi.fn(async () => true)
+    useAppStore.setState({ lists: LISTS, settings: SETTINGS, tasks: [], toast: null })
+    ;(window as unknown as { api: unknown }).api = {
+      ai: { parseQuickAdd, cancel },
+      tasks: {
+        create: createTask,
+        remove: vi.fn(async () => undefined),
+        query: vi.fn(async () => []),
+        counts: vi.fn(async () => ({
+          inbox: 0,
+          today: 0,
+          next7: 0,
+          completed: 0,
+          abandoned: 0,
+          trash: 0,
+          lists: {}
+        }))
+      },
+      lists: { list: vi.fn(async () => LISTS) },
+      tags: { list: vi.fn(async () => []) },
+      filters: { list: vi.fn(async () => []) }
+    }
+    render(createElement(QuickAdd, { defaultListId: 'inbox' }))
+    return { parseQuickAdd, cancel }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ lists: LISTS, settings: SETTINGS, tasks: [], toast: null })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useAppStore.setState({ tasks: [], toast: null })
+  })
+
+  it('点「取消」会中止请求，迟到的 AI 结果不再弹出草稿', async () => {
+    const pending = deferred<unknown>()
+    const { parseQuickAdd, cancel } = mountWith(pending)
+
+    const input = screen.getByLabelText('快速添加任务') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '明天下午3点交周报' } })
+    fireEvent.click(screen.getByLabelText('AI 解析并添加'))
+
+    const cancelButton = await screen.findByLabelText('取消 AI 解析')
+    fireEvent.click(cancelButton)
+
+    // 取消要精确落到刚才那次请求的 id 上，main 才能中止对应的 fetch。
+    const requestId = parseQuickAdd.mock.calls[0][1] as string
+    expect(requestId).toMatch(/^quick-add-\d+$/)
+    expect(cancel).toHaveBeenCalledWith(requestId)
+    expect(screen.queryByLabelText('取消 AI 解析')).toBeNull()
+    expect(useAppStore.getState().toast?.message).toContain('已取消 AI 解析')
+    expect(useAppStore.getState().toast?.message).toContain('输入内容已保留')
+
+    // 请求在取消之后才返回：结果必须被丢弃，不写库也不再显示草稿。
+    pending.resolve({ ok: true, source: 'ai', warning: null, attempts: 1, result: AI_OK_RESULT })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(screen.queryByLabelText('AI 任务标题')).toBeNull()
+    expect(createTask).not.toHaveBeenCalled()
+    expect(input.value).toBe('明天下午3点交周报')
+  })
+
+  it('解析中修改了输入时，旧输入的 AI 结果被忽略', async () => {
+    const pending = deferred<unknown>()
+    mountWith(pending)
+
+    const input = screen.getByLabelText('快速添加任务') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '明天下午3点交周报' } })
+    fireEvent.click(screen.getByLabelText('AI 解析并添加'))
+
+    // 等待期间用户继续改写成另一条任务。
+    fireEvent.change(input, { target: { value: '每周一 开例会' } })
+
+    pending.resolve({ ok: true, source: 'ai', warning: null, attempts: 1, result: AI_OK_RESULT })
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.message).toContain('输入已变化，已忽略上一次 AI 解析结果')
+    )
+
+    expect(screen.queryByLabelText('AI 任务标题')).toBeNull()
+    expect(createTask).not.toHaveBeenCalled()
+    expect(input.value).toBe('每周一 开例会')
+  })
+
+  it('解析中按 Enter 不会静默失败，按 Esc 可中止', async () => {
+    const pending = deferred<unknown>()
+    const { cancel } = mountWith(pending)
+
+    const input = screen.getByLabelText('快速添加任务') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '明天下午3点交周报' } })
+    fireEvent.click(screen.getByLabelText('AI 解析并添加'))
+    await screen.findByLabelText('取消 AI 解析')
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.message).toContain('AI 正在解析')
+    )
+    expect(createTask).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(screen.queryByLabelText('取消 AI 解析')).toBeNull()
+
+    pending.resolve({ ok: true, source: 'ai', warning: null, attempts: 1, result: AI_OK_RESULT })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.queryByLabelText('AI 任务标题')).toBeNull()
+    expect(createTask).not.toHaveBeenCalled()
   })
 })

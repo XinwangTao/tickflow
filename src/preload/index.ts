@@ -126,7 +126,8 @@ const api: TickFlowApi = {
     set: (patch) => ipcRenderer.invoke(IPC.settingsSet, patch)
   },
   ai: {
-    parseQuickAdd: (input) => ipcRenderer.invoke(IPC.aiQuickAdd, input),
+    parseQuickAdd: (input, requestId) => ipcRenderer.invoke(IPC.aiQuickAdd, input, requestId),
+    cancel: (requestId) => ipcRenderer.invoke(IPC.aiCancel, requestId),
     breakdownSubtasks: (taskId) => ipcRenderer.invoke(IPC.aiSubtasks, taskId),
     dailySummary: () => ipcRenderer.invoke(IPC.aiSummary),
     models: () => ipcRenderer.invoke(IPC.aiModels),
