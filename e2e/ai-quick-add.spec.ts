@@ -120,7 +120,15 @@ interface LaunchedApp {
   close: () => Promise<void>
 }
 
-async function launchIsolatedApp(gatewayUrl: string): Promise<LaunchedApp> {
+interface IsolatedAiSettings {
+  aiEnabled?: boolean
+  aiTimeoutMs?: number
+}
+
+async function launchIsolatedApp(
+  gatewayUrl: string,
+  overrides: IsolatedAiSettings = {}
+): Promise<LaunchedApp> {
   const dataDir = mkdtempSync(join(tmpdir(), 'tickflow-e2e-'))
   const app = await electron.launch({
     args: ['.'],
@@ -139,7 +147,8 @@ async function launchIsolatedApp(gatewayUrl: string): Promise<LaunchedApp> {
       aiBaseUrl: gatewayUrl,
       aiModel: AI_DEFAULT_MODEL,
       aiToken: '',
-      aiTimeoutMs: 5000
+      aiTimeoutMs: 5000,
+      ...overrides
     }
   )
   await page.reload()
@@ -398,6 +407,268 @@ test.describe('AI 快速添加结果', () => {
       await expect(input).toHaveValue('明天下午3点交周报')
       // 取消不重试：只发出过一次请求。
       expect(gateway.requests).toHaveLength(1)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+})
+
+test.describe('AI 失败与边界路径', () => {
+  test('关闭 AI 后隐藏入口，普通回车仍按规则创建且不发请求', async () => {
+    const gateway = await startFakeGateway(() => ({
+      status: 200,
+      body: anthropicReply(JSON.stringify({ title: '不应被调用' }))
+    }))
+    const launched = await launchIsolatedApp(gateway.baseUrl, { aiEnabled: false })
+
+    try {
+      const { page } = launched
+      await expect(page.locator('.quick-add-ai')).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '取消 AI 解析' })).toHaveCount(0)
+      await expect(page.locator('.ai-summary-card')).toHaveCount(0)
+
+      await page.locator('.quick-add-input').fill('写周报 #重点 !高')
+      await page.locator('.quick-add-input').press('Enter')
+
+      await expect.poll(() => allTaskTitles(page)).toEqual(['写周报'])
+      // 关闭 AI 后连模型目录都不该访问，更不该发解析请求。
+      expect(gateway.requests).toHaveLength(0)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+
+  test('请求超时提示秒数且不自动重试，任务按规则创建后可撤销', async () => {
+    const gateway = await startFakeGateway(() => ({
+      status: 200,
+      body: anthropicReply(
+        JSON.stringify({
+          title: '迟到的结果',
+          dueDate: null,
+          dueTime: null,
+          allDay: true,
+          priority: 0,
+          tags: [],
+          listName: null,
+          recurrence: null
+        })
+      ),
+      // 超过下面 1000ms 的超时上限，强制走超时分支。
+      delayMs: 2500
+    }))
+    const launched = await launchIsolatedApp(gateway.baseUrl, { aiTimeoutMs: 1000 })
+
+    try {
+      const { page } = launched
+      await page.locator('.quick-add-input').fill('写周报')
+      await page.locator('.quick-add-ai').click()
+
+      const toast = page.locator('.toast')
+      await expect(toast).toContainText('AI 未能解析，已按规则添加「写周报」', {
+        timeout: 15_000
+      })
+      await expect(toast).toContainText('AI 请求超时（1 秒）')
+      await expect(toast).not.toContainText('已自动重试')
+      expect(await allTaskTitles(page)).toEqual(['写周报'])
+
+      // 超时已经用满等待预算：只发一次请求，不会在后台再试。
+      await page.waitForTimeout(500)
+      expect(gateway.requests).toHaveLength(1)
+
+      await toast.locator('.toast-action').click()
+      await expect.poll(() => allTaskTitles(page)).toEqual([])
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+
+  test('解析期间改写输入时，迟到的 AI 结果被丢弃', async () => {
+    const gateway = await startFakeGateway(() => ({
+      status: 200,
+      body: anthropicReply(
+        JSON.stringify({
+          title: '旧输入的任务',
+          dueDate: null,
+          dueTime: null,
+          allDay: true,
+          priority: 0,
+          tags: [],
+          listName: null,
+          recurrence: null
+        })
+      ),
+      delayMs: 1200
+    }))
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      const input = page.locator('.quick-add-input')
+      await input.fill('明天下午3点交周报')
+      await page.locator('.quick-add-ai').click()
+
+      // 等待期间改写输入：旧句子的解析结果不能再套到新输入上。
+      await input.fill('今晚写总结')
+
+      const toast = page.locator('.toast')
+      await expect(toast).toContainText('输入已变化，已忽略上一次 AI 解析结果', {
+        timeout: 10_000
+      })
+      await expect(page.getByRole('dialog', { name: 'AI 解析结果' })).toHaveCount(0)
+      expect(await allTaskTitles(page)).toEqual([])
+      await expect(input).toHaveValue('今晚写总结')
+      expect(gateway.requests).toHaveLength(1)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+
+  test('今日总结失败后从 toast 重试即可恢复 AI 结果', async () => {
+    let attempts = 0
+    const gateway = await startFakeGateway(() => {
+      attempts += 1
+      // 第一次 summary 含自动重试共 2 次请求，之后恢复，验证 toast 上的「重试」入口。
+      return attempts <= 2
+        ? { status: 500, body: { type: 'error', error: { message: 'mock summary down' } } }
+        : {
+            status: 200,
+            body: anthropicReply(
+              JSON.stringify({
+                summary: 'AI 恢复后的总结',
+                highlights: ['恢复重点'],
+                suggestions: ['恢复建议']
+              })
+            )
+          }
+    })
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      const card = page.locator('.ai-summary-card')
+      await card.getByRole('button', { name: '生成' }).click()
+
+      const toast = page.locator('.toast')
+      await expect(toast).toContainText('AI 总结不可用，已使用本地统计生成', {
+        timeout: 15_000
+      })
+      await expect(toast).toContainText('AI 服务繁忙')
+      await expect(card.locator('.ai-summary-note')).toContainText(
+        'AI 不可用，已使用本地统计生成'
+      )
+      expect(gateway.requests).toHaveLength(2)
+
+      await toast.locator('.toast-action').click()
+      await expect(card.locator('.ai-summary-text')).toHaveText('AI 恢复后的总结')
+      await expect(card.locator('.ai-summary-note')).toHaveCount(0)
+      expect(gateway.requests).toHaveLength(3)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+
+  test('子任务拆解失败后按规则一步添加，并可通过 toast 撤销', async () => {
+    const gateway = await startFakeGateway(() => ({
+      status: 500,
+      body: { type: 'error', error: { message: 'mock breakdown down' } }
+    }))
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      await page.locator('.quick-add-input').fill('准备季度复盘')
+      await page.locator('.quick-add-input').press('Enter')
+      await page.locator('.task-row', { hasText: '准备季度复盘' }).click()
+
+      const drawer = page.getByLabel('任务详情')
+      await expect(drawer).toBeVisible()
+      await drawer.getByLabel('任务备注').fill('整理数据；撰写结论')
+      // 备注是 500ms 防抖写库，等它真正落库后再触发拆解。
+      await expect
+        .poll(() =>
+          page.evaluate(async () => (await window.api.tasks.query({ view: 'all' }))[0]?.notes)
+        )
+        .toContain('整理数据')
+      await drawer.getByLabel('AI 拆解子任务').click()
+
+      const toast = page.locator('.toast')
+      await expect(toast).toContainText('AI 拆解不可用，已按规则添加 2 个子任务', {
+        timeout: 15_000
+      })
+      await expect(toast).toContainText('AI 服务繁忙')
+      // 规则结果是确定性的，保持一步添加，不进入二次确认草稿。
+      await expect(drawer.locator('.subtask-title')).toHaveText(['整理数据', '撰写结论'])
+      expect(gateway.requests).toHaveLength(2)
+
+      await toast.locator('.toast-action').click()
+      await expect(drawer.locator('.subtask-title')).toHaveCount(0)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+
+  test('设置页从 /v1/models 取模型，选中后逐字用于解析请求', async () => {
+    const catalogModel = 'ccs-claude-openai--ccs-claude-openai-2--kimi-k2.7-code'
+    const gateway = await startFakeGateway((request) => {
+      if (request.method === 'GET' && request.path === '/v1/models') {
+        return {
+          status: 200,
+          body: { data: [{ id: catalogModel, display_name: 'Kimi K2.7 Code' }] }
+        }
+      }
+      return {
+        status: 200,
+        body: anthropicReply(
+          JSON.stringify({
+            title: '用目录模型解析',
+            dueDate: null,
+            dueTime: null,
+            allDay: true,
+            priority: 0,
+            tags: [],
+            listName: null,
+            recurrence: null
+          })
+        )
+      }
+    })
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      await page.locator('.rail-item[title="设置"]').click()
+      const dialog = page.getByRole('dialog', { name: '设置' })
+      await expect(dialog).toBeVisible()
+
+      await dialog.getByRole('button', { name: '获取模型列表' }).click()
+      const catalog = dialog.getByLabel(/本机模型/)
+      await expect(catalog).toBeVisible()
+      // 当前默认模型不在目录中：明确提示，避免用户保存一个不存在的 id。
+      await expect(dialog.getByText(/当前模型不在本机 \/v1\/models 列表里/)).toBeVisible()
+
+      await catalog.selectOption(catalogModel)
+      await expect(dialog.getByText(/当前模型不在本机 \/v1\/models 列表里/)).toHaveCount(0)
+      await dialog.getByRole('button', { name: '保存 AI 配置' }).click()
+      await dialog.getByRole('button', { name: '关闭' }).click()
+      await expect(dialog).toHaveCount(0)
+
+      await page.locator('.quick-add-input').fill('明天交周报')
+      await page.locator('.quick-add-ai').click()
+      await expect(page.getByRole('dialog', { name: 'AI 解析结果' })).toBeVisible()
+
+      const models = gateway.requests.filter((request) => request.path === '/v1/models')
+      const messages = gateway.requests.filter((request) => request.path === '/v1/messages')
+      expect(models).toHaveLength(1)
+      expect(models[0].method).toBe('GET')
+      expect(messages).toHaveLength(1)
+      expect(messages[0].model).toBe(catalogModel)
+      expect(messages[0].authorization).toBeNull()
     } finally {
       await launched.close()
       await gateway.close()
