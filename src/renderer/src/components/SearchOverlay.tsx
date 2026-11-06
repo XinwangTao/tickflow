@@ -4,6 +4,18 @@ import { formatDueLabel } from '../lib/format'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
 
+const RECENT_KEY = 'tickflow.recentSearches'
+
+function loadRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY)
+    const parsed = raw ? (JSON.parse(raw) as unknown) : []
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 export function SearchOverlay(): React.ReactNode {
   const seed = useAppStore((state) => state.searchSeed)
   const setSearchOpen = useAppStore((state) => state.setSearchOpen)
@@ -14,6 +26,7 @@ export function SearchOverlay(): React.ReactNode {
   const [results, setResults] = useState<TaskWithMeta[]>([])
   const [active, setActive] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [recent, setRecent] = useState<string[]>(loadRecent)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -42,7 +55,29 @@ export function SearchOverlay(): React.ReactNode {
     return () => window.clearTimeout(timer)
   }, [query, showToast])
 
+  const remember = (term: string): void => {
+    const value = term.trim()
+    if (!value) return
+    const next = [value, ...recent.filter((item) => item !== value)].slice(0, 5)
+    setRecent(next)
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+    } catch {
+      // 本地存储不可用时忽略
+    }
+  }
+
+  const clearRecent = (): void => {
+    setRecent([])
+    try {
+      localStorage.removeItem(RECENT_KEY)
+    } catch {
+      // 忽略
+    }
+  }
+
   const choose = (task: TaskWithMeta): void => {
+    remember(query)
     openDetail(task.id)
     setSearchOpen(false)
   }
@@ -90,6 +125,27 @@ export function SearchOverlay(): React.ReactNode {
           {!query.trim() ? (
             <div className="search-note">
               输入关键词搜索标题、备注和标签；输入 <code>#工作</code> 只搜标签。
+            </div>
+          ) : null}
+          {!query.trim() && recent.length > 0 ? (
+            <div className="search-recent">
+              <div className="search-recent-head">
+                <span>最近搜索</span>
+                <button type="button" onClick={clearRecent}>
+                  清除
+                </button>
+              </div>
+              {recent.map((term) => (
+                <button
+                  type="button"
+                  className="search-recent-item"
+                  key={term}
+                  onClick={() => setQuery(term)}
+                >
+                  <Icon name="rotate" size={13} />
+                  {term}
+                </button>
+              ))}
             </div>
           ) : null}
           {results.map((task, index) => (
