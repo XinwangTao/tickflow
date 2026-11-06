@@ -1,5 +1,5 @@
 import { normalizeDateKey, normalizeTime } from './dates'
-import type { QuickAddResult } from './quick-add'
+import { normalizeReminderOffset, type QuickAddResult } from './quick-add'
 import type { Priority } from './types'
 
 /** 草稿只需要清单的定位信息，便于在测试里构造最小列表。 */
@@ -23,6 +23,8 @@ export interface QuickAddDraft {
   dueTime: string
   allDay: boolean
   recurrence: string | null
+  /** 提前提醒的分钟数；0 表示截止时提醒，null 表示不提醒。 */
+  reminderOffsetMin: number | null
 }
 
 function listKey(name: string): string {
@@ -51,15 +53,18 @@ export function createQuickAddDraft(
   const matched = wanted
     ? lists.find((list) => listKey(list.name) === wanted)
     : undefined
+  const dueDate = result.dueDate ?? defaultDueDate ?? ''
   return {
     title: result.title,
     priority: result.priority,
     tagsText: result.tags.join(' '),
     listId: (matched ?? defaultList(lists, defaultListId))?.id ?? null,
-    dueDate: result.dueDate ?? defaultDueDate ?? '',
+    dueDate,
     dueTime: result.dueTime ?? '',
     allDay: result.allDay,
-    recurrence: result.recurrence
+    recurrence: result.recurrence,
+    // 没有截止日期时提前量无处落点，直接清空，避免草稿里显示“提前提醒”却建不出提醒。
+    reminderOffsetMin: dueDate ? normalizeReminderOffset(result.reminderOffsetMin) : null
   }
 }
 
@@ -107,6 +112,7 @@ export function draftToQuickAddResult(
     dueDate,
     dueTime,
     allDay: dueTime ? false : draft.allDay,
-    recurrence
+    recurrence,
+    reminderOffsetMin: dueDate ? normalizeReminderOffset(draft.reminderOffsetMin) : null
   }
 }

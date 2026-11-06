@@ -104,9 +104,10 @@ authorization: Bearer <aiToken，可选>
 - 普通 `Enter`：始终使用本地 `parseQuickAdd` 规则，零延迟。
 - `Ctrl/Cmd + Enter` 或点击输入框右侧 **AI** 按钮：把整句话交给 AI 解析。
 - AI 输出字段：`title`、`dueDate`（YYYY-MM-DD）、`dueTime`（HH:mm）、`allDay`、
-  `priority`（0–3）、`tags`、`listName`、`recurrence`（RFC5545 RRULE）。
+  `priority`（0–3）、`tags`、`listName`、`recurrence`（RFC5545 RRULE）、
+  `reminderMinutes`（提前提醒的整数分钟，没有则为 null）。
 - AI 成功时**不会立即写库**，而是在快速添加框下方展开「AI 解析结果 · 可修改后添加」
-  草稿卡：标题、截止日期、时间、优先级、清单、标签、重复、全天都可以改，
+  草稿卡：标题、截止日期、时间、优先级、清单、标签、重复、提醒、全天都可以改，
   点「添加」或标题框回车才创建任务；点「取消」/`Esc` 放弃本次结果，输入内容仍保留。
   草稿会经过 `draftToQuickAddResult` 再校验一次，非法日期/时间只丢弃该字段。
 - 用户主动清空日期时，创建任务不会被当前视图的默认截止日期补回来
@@ -137,10 +138,19 @@ authorization: Bearer <aiToken，可选>
   （取开始时间）、`每周一三五` / `每周二、周四`（多日 RRULE）、`每月最后一天`、
   `3天后` / `2周后` / `3个月后`。`#工作，` 这类尾随标点、全角 `！高`，以及
   `#工作!高~工作` 连写都能正确拆分；非法日期（如 `2026-02-30`）保持为标题而不是写库。
+- **提前提醒**：`提前30分钟提醒`、`提前提醒我半小时`、`提前1小时通知我`、
+  `提前一天提醒` 会被规则识别为提前量（分钟），从标题里移除，并在任务创建后写入
+  `reminders` 表；`提前30分钟出发` 这类没有提醒动词的句子不会被误吞。
+  AI 输出 `reminderMinutes`（“提前30分钟”=30、“提前1小时”=60、“提前一天”=1440），
+  与规则互补：AI 漏掉时用规则补，AI 与规则都有时以 AI 为准；负数或超过 30 天丢弃。
+  提前量按截止日期/时间换算，全天任务按当天 09:00 计算；提醒时间已过或任务没有
+  截止日期时不创建“永不触发”的提醒，任务照常添加并在 toast 里说明原因。
+  提醒可以直接在 AI 草稿的「提醒」下拉框里改成 5/15/30 分钟、1/2 小时或 1/2 天，
+  清空截止日期会自动清空提醒。
 
 提示词会带上当前时间、星期与全部可用清单名，并明确要求「只有输入中明确提到清单时才填写
 `listName`，不要根据任务内容猜测」，同时要求原样保留 `#标签` / `!优先级` / `~清单`
-显式语法，尽量让 AI 输出可直接落库的结构。
+显式语法，并给出 `reminderMinutes` 的常见换算，尽量让 AI 输出可直接落库的结构。
 
 ### 3.2 AI 拆解子任务
 
@@ -253,22 +263,22 @@ main 返回的 `warning` / `message` 使用 `AI_CANCELED_QUICK_ADD_HINT` /
 | 文件 | 职责 |
 | --- | --- |
 | `src/shared/ai.ts` | 类型、默认值、提示词、JSON 提取、归一化、规则降级、失败分类与提示文案 |
-| `src/shared/quick-add-draft.ts` | AI 快速添加草稿：清单匹配、标签拆分、日期/时间校验、优先级收敛、落库前转换 |
+| `src/shared/quick-add-draft.ts` | AI 快速添加草稿：清单匹配、标签拆分、日期/时间校验、优先级收敛、提前提醒校验、落库前转换 |
 | `src/shared/subtask-draft.ts` | AI 拆解子任务草稿：生成可编辑行、勾选/去重/空标题过滤、确认前的最终收集 |
 | `src/main/ai-client.ts` | `/v1/messages` 与 `/v1/models` 请求、鉴权头、单次超时、外部取消信号、瞬时故障自动重试、响应文本提取 |
 | `src/main/ai.ts` | 三个功能的编排与降级、失败提示与尝试次数、`requestId → AbortController` 注册表、模型列表与取消、连接测试 |
 | `src/main/ipc.ts` | `ai:quick-add` / `ai:cancel` / `ai:subtasks` / `ai:summary` / `ai:models` / `ai:test` |
-| `src/renderer/src/components/QuickAdd.tsx` | AI 快速添加入口、可编辑结果草稿、取消与过期结果丢弃、添加后撤销 |
+| `src/renderer/src/components/QuickAdd.tsx` | AI 快速添加入口、可编辑结果草稿、取消与过期结果丢弃、添加后撤销、提前提醒创建与过期提示 |
 | `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口、可编辑草稿、批量添加后撤销、取消与切任务/关面板自动中止 |
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片：按需生成、已等待秒数、取消、失败回落到本地统计并可重试 |
 | `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试；模型目录即选即用、加载秒数、取消与失败重试 |
-| `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：50+ 条规则用例 + AI 解析/归一化/合并用例 + 失败与请求契约 |
+| `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：56 条规则用例 + 19 条 AI 解析/归一化/合并用例 + 失败与请求契约 |
 | `tests/ai-cancel.test.ts` | 取消：取消与超时区分、不重试、已取消的 signal 不发请求、requestId 注册表与不泄漏、并行请求互不影响、快速添加/今日总结/子任务拆解/模型目录四处取消都回传规则结果或提示并说明已取消 |
 | `tests/ai-settings-ui.test.ts` | 设置页模型目录：成功后展示下拉框、失败 toast 重试后恢复、加载中取消并丢弃迟到目录、关闭设置页自动中止请求 |
-| `tests/quick-add-draft.test.ts` | AI 快速添加草稿：清单名匹配、默认日期、清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、空标题保护 |
+| `tests/quick-add-draft.test.ts` | AI 快速添加草稿：清单名匹配、默认日期、清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、提前提醒保留与清空、空标题保护 |
 | `tests/subtask-draft.test.ts` | AI 拆解草稿：可编辑行生成、全选默认、勾选收集、空标题/重复标题过滤、10 条上限 |
 | `tests/subtask-draft-ui.test.ts` | 拆解草稿 UI：先展示不写库 → 改标题/优先级/取消勾选 → 添加 → 撤销；取消草稿、全不选禁用、确认时按最新列表去重、规则降级一步添加、取消进行中的请求与切换任务自动中止 |
-| `tests/quick-add-ui.test.ts` | 快速添加草稿 UI：先展示不写库 → 编辑后确认 → 撤销、取消流程、解析中取消/改输入丢弃迟到结果、Enter 提示与 Esc 中止 |
+| `tests/quick-add-ui.test.ts` | 快速添加草稿 UI：先展示不写库 → 编辑后确认 → 撤销、取消流程、解析中取消/改输入丢弃迟到结果、Enter 提示与 Esc 中止、提前提醒预览/编辑/创建与过期跳过 |
 | `tests/ai-summary-ui.test.ts` | 今日总结卡片 UI：成功渲染 summary/重点/建议、取消后丢弃迟到结果、失败回落到本地统计并从 toast 重试切换回 AI 文案、关闭 AI 不渲染也不发请求 |
 | `e2e/ai-quick-add.spec.ts` | 桌面端 AI 结果 E2E（15 例）：可编辑草稿→添加→撤销、5xx 重试→规则降级→撤销、今日总结、子任务拆解可编辑草稿→批量撤销、取消解析、今日总结取消、关闭详情面板中止拆解、改写输入丢弃旧结果、超时不重试、关闭 AI、总结失败后重试恢复、拆解失败规则降级、设置页模型目录即选即用、模型目录加载取消、模型目录失败后 toast 重试 |
 
@@ -278,14 +288,15 @@ main 返回的 `warning` / `message` 使用 `AI_CANCELED_QUICK_ADD_HINT` /
 npm run typecheck
 npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败、非法 JSON、模型目录、开关关闭、
                          # 清单猜测过滤、显式 #标签/!优先级/~清单 合并、AI 漏掉日期/时间/重复
-                         # 时按规则补齐、各功能 max_tokens 预算、只有 thinking 时的降级提示、
+                         # 或提前提醒时按规则补齐、各功能 max_tokens 预算、只有 thinking 时的降级提示、
                          # 今日总结的本地日期归日与“今日完成”统计、子任务拆解去重与已有
                          # 子任务过滤；失败分类与提示文案（超时秒数、服务地址、401/404/429/5xx）、
                          # 瞬时故障重试一次后成功、5xx 重试后仍失败、超时/404 不重试、
                          # maxAttempts=1 关闭重试、attempts 计数回报等路径；
                          # tests/quick-add-regression.test.ts 覆盖快速添加准确率回归集（见 6.1）；
                          # tests/quick-add-draft.test.ts 覆盖 AI 结果草稿：清单名匹配、默认日期、
-                         # 清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、空标题保护；
+                         # 清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、
+                         # 提前提醒保留/清空、空标题保护；
                          # tests/subtask-draft.test.ts 覆盖拆解草稿行生成、勾选收集、空标题/重复标题过滤；
                          # tests/subtask-draft-ui.test.ts 覆盖「先展示拆解草稿不写库 → 改标题/优先级/
                          # 取消勾选 → 确认添加 → 撤销」、取消草稿、全不选禁用与规则降级一步添加；
@@ -314,13 +325,13 @@ curl -s http://127.0.0.1:15721/v1/messages \
 `tests/quick-add-regression.test.ts` 把“用户输入 → 最终落库字段”固化成可重复执行的回归集，
 所有用例固定在同一时刻 `2026-11-05 周四 09:00`，避免相对日期随时钟漂移。
 
-- **规则用例（50+ 条）**：覆盖相对日期、星期、跨年、月日、时间区间、重复、显式标签/
-  优先级/清单、纯标题与非法日期。每条都精确断言 `title`、`priority`、`tags`、`listName`、
-  `dueDate`、`dueTime`、`allDay`、`recurrence` 全部字段，未写出的字段按默认值比较，
-  不会出现“只校验标题”的宽松通过。
-- **AI 合并用例（16 条）**：用假 fetch 返回贴近真实模型的输出，覆盖 Markdown 代码块与
-  前后解释、模型只返回标题、漏日期/时间/重复、没提清单却猜清单、显式提到清单、
-  非法日期/时间/优先级、标题残留显式标记、字符串优先级、OpenAI `choices` 响应、
+- **规则用例（56 条）**：覆盖相对日期、星期、跨年、月日、时间区间、重复、提前提醒、
+  显式标签/优先级/清单、纯标题与非法日期。每条都精确断言 `title`、`priority`、`tags`、
+  `listName`、`dueDate`、`dueTime`、`allDay`、`recurrence`、`reminderOffsetMin` 全部字段，
+  未写出的字段按默认值比较，不会出现“只校验标题”的宽松通过。
+- **AI 合并用例（19 条）**：用假 fetch 返回贴近真实模型的输出，覆盖 Markdown 代码块与
+  前后解释、模型只返回标题、漏日期/时间/重复/提前提醒、没提清单却猜清单、显式提到清单、
+  非法日期/时间/优先级/提前量、标题残留显式标记、字符串优先级、OpenAI `choices` 响应、
   AI 日期优先于规则等场景，断言合并后的最终结果。
 - **失败与重试**：非法 JSON、JSON 缺 title、只有 thinking 被 `max_tokens` 截断、401 不重试、
   500 重试一次后成功、连接失败重试后仍失败、超时提示秒数且不重试、空输入与关闭 AI
@@ -402,7 +413,7 @@ curl -s http://127.0.0.1:15721/v1/messages \
 ## 8. 离线语音输入（快速添加）
 
 入口：快速添加栏输入框右侧的麦克风按钮。语音只负责把话转成文字并追加到输入框，
-日期、时间、标签、优先级与重复仍走原有「规则解析 + AI 解析」流程，不新增落库路径。
+日期、时间、标签、优先级、重复与提前提醒仍走原有「规则解析 + AI 解析」流程，不新增落库路径。
 
 ### 8.1 录音与识别链路
 

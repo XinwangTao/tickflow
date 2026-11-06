@@ -88,6 +88,13 @@ function taskFrom(input: CreateTaskInput, id: string): TaskWithMeta {
 describe('QuickAdd AI 结果草稿', () => {
   const createTask = vi.fn(async (input: CreateTaskInput) => taskFrom(input, 'task-1'))
   const removeTask = vi.fn(async () => undefined)
+  const createReminder = vi.fn(async () => ({
+    id: 'reminder-1',
+    taskId: 'task-1',
+    triggerAt: '2026-11-06T00:00:00.000Z',
+    sentAt: null,
+    createdAt: '2026-11-06T00:00:00.000Z'
+  }))
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -128,7 +135,12 @@ describe('QuickAdd AI 结果草稿', () => {
       },
       lists: { list: vi.fn(async () => LISTS) },
       tags: { list: vi.fn(async () => []) },
-      filters: { list: vi.fn(async () => []) }
+      filters: { list: vi.fn(async () => []) },
+      reminders: {
+        create: createReminder,
+        list: vi.fn(async () => []),
+        remove: vi.fn(async () => undefined)
+      }
     }
   })
 
@@ -239,7 +251,12 @@ describe('QuickAdd AI 请求取消与过期结果', () => {
       },
       lists: { list: vi.fn(async () => LISTS) },
       tags: { list: vi.fn(async () => []) },
-      filters: { list: vi.fn(async () => []) }
+      filters: { list: vi.fn(async () => []) },
+      reminders: {
+        create: vi.fn(async () => ({})),
+        list: vi.fn(async () => []),
+        remove: vi.fn(async () => undefined)
+      }
     }
     render(createElement(QuickAdd, { defaultListId: 'inbox' }))
     return { parseQuickAdd, cancel }
@@ -327,5 +344,142 @@ describe('QuickAdd AI 请求取消与过期结果', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(screen.queryByLabelText('AI 任务标题')).toBeNull()
     expect(createTask).not.toHaveBeenCalled()
+  })
+})
+
+describe('QuickAdd 提前提醒', () => {
+  const createTask = vi.fn(async (input: CreateTaskInput) => taskFrom(input, 'task-1'))
+  const createReminder = vi.fn(async () => ({
+    id: 'reminder-1',
+    taskId: 'task-1',
+    triggerAt: '2026-12-01T06:00:00.000Z',
+    sentAt: null,
+    createdAt: '2026-11-06T00:00:00.000Z'
+  }))
+
+  function mountWithAi(result: Record<string, unknown>): void {
+    useAppStore.setState({ lists: LISTS, settings: SETTINGS, tasks: [], toast: null })
+    ;(window as unknown as { api: unknown }).api = {
+      ai: {
+        cancel: vi.fn(async () => true),
+        parseQuickAdd: vi.fn(async () => ({
+          ok: true,
+          source: 'ai',
+          warning: null,
+          attempts: 1,
+          result
+        }))
+      },
+      tasks: {
+        create: createTask,
+        remove: vi.fn(async () => undefined),
+        query: vi.fn(async () => []),
+        counts: vi.fn(async () => ({
+          inbox: 0,
+          today: 0,
+          next7: 0,
+          completed: 0,
+          abandoned: 0,
+          trash: 0,
+          lists: {}
+        }))
+      },
+      lists: { list: vi.fn(async () => LISTS) },
+      tags: { list: vi.fn(async () => []) },
+      filters: { list: vi.fn(async () => []) },
+      reminders: {
+        create: createReminder,
+        list: vi.fn(async () => []),
+        remove: vi.fn(async () => undefined)
+      }
+    }
+    render(createElement(QuickAdd, { defaultListId: 'inbox' }))
+  }
+
+  const AI_REMINDER_RESULT = {
+    title: '交周报',
+    priority: 0,
+    tags: [],
+    listName: null,
+    dueDate: '2026-12-01',
+    dueTime: '15:00',
+    allDay: false,
+    recurrence: null,
+    reminderOffsetMin: 30
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ lists: LISTS, settings: SETTINGS, tasks: [], toast: null })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useAppStore.setState({ tasks: [], toast: null })
+  })
+
+  it('规则输入会在预览里展示提前提醒', () => {
+    mountWithAi(AI_REMINDER_RESULT)
+    const input = screen.getByLabelText('快速添加任务') as HTMLInputElement
+    fireEvent.focus(input)
+    fireEvent.change(input, {
+      target: { value: '明天下午3点 提前30分钟提醒 交周报' }
+    })
+    expect(screen.getByText('提前 30 分钟提醒')).toBeTruthy()
+  })
+
+  it('AI 草稿可以改提前量并创建提醒', async () => {
+    mountWithAi(AI_REMINDER_RESULT)
+    const input = screen.getByLabelText('快速添加任务') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '明天下午3点 提前30分钟提醒 交周报' } })
+    fireEvent.click(screen.getByLabelText('AI 解析并添加'))
+
+    const reminderSelect = (await screen.findByLabelText('AI 提前提醒')) as HTMLSelectElement
+    expect(reminderSelect.value).toBe('30')
+
+    fireEvent.change(reminderSelect, { target: { value: '60' } })
+    fireEvent.click(screen.getByRole('button', { name: '添加' }))
+
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(createReminder).toHaveBeenCalledWith(
+        'task-1',
+        new Date(2026, 11, 1, 14, 0).toISOString()
+      )
+    )
+    expect(useAppStore.getState().toast?.message).toContain('AI 已添加「交周报」')
+  })
+
+  it('清空截止日期会清空提醒且下拉框不可用', async () => {
+    mountWithAi(AI_REMINDER_RESULT)
+    const input = screen.getByLabelText('快速添加任务') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '明天下午3点 提前30分钟提醒 交周报' } })
+    fireEvent.click(screen.getByLabelText('AI 解析并添加'))
+
+    const dateInput = (await screen.findByLabelText('AI 截止日期')) as HTMLInputElement
+    fireEvent.change(dateInput, { target: { value: '' } })
+
+    const reminderSelect = screen.getByLabelText('AI 提前提醒') as HTMLSelectElement
+    expect(reminderSelect.disabled).toBe(true)
+    expect(reminderSelect.value).toBe('')
+
+    fireEvent.click(screen.getByRole('button', { name: '添加' }))
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    expect(createReminder).not.toHaveBeenCalled()
+  })
+
+  it('提醒时间已过时不创建提醒，但任务仍然添加', async () => {
+    mountWithAi({ ...AI_REMINDER_RESULT, dueDate: '2026-01-01' })
+    const input = screen.getByLabelText('快速添加任务') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '提前30分钟提醒 交周报' } })
+    fireEvent.click(screen.getByLabelText('AI 解析并添加'))
+    await screen.findByLabelText('AI 任务标题')
+
+    fireEvent.click(screen.getByRole('button', { name: '添加' }))
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    expect(createReminder).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.message).toContain('提醒时间已过')
+    )
   })
 })

@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { parseQuickAdd, type QuickAddResult } from '@shared/quick-add'
+import {
+  describeReminderOffset,
+  parseQuickAdd,
+  REMINDER_OFFSET_CHOICES,
+  reminderTriggerAt,
+  type QuickAddResult
+} from '@shared/quick-add'
 import {
   createQuickAddDraft,
   draftToQuickAddResult,
@@ -190,7 +196,8 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     parsed.priority > 0 ||
     parsed.tags.length > 0 ||
     Boolean(parsed.listName) ||
-    Boolean(parsed.recurrence)
+    Boolean(parsed.recurrence) ||
+    parsed.reminderOffsetMin != null
 
   const resolveList = (name: string | null): (typeof lists)[number] | undefined => {
     if (!name) return undefined
@@ -222,10 +229,30 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     })
   }
 
+  /**
+   * 提前提醒落到 reminders 表。提醒时间已过或任务没有截止日期时不硬建一条永不触发的记录，
+   * 而是把原因回传给调用方，拼进“已添加”提示里。
+   */
+  const scheduleReminder = async (
+    task: TaskWithMeta,
+    result: QuickAddResult
+  ): Promise<string | null> => {
+    if (result.reminderOffsetMin == null) return null
+    const triggerAt = reminderTriggerAt(result)
+    if (!triggerAt) return '未设置截止日期，提醒未创建'
+    if (new Date(triggerAt).getTime() <= Date.now()) return '提醒时间已过，提醒未创建'
+    try {
+      await window.api.reminders?.create(task.id, triggerAt)
+      return null
+    } catch (error) {
+      return `提醒创建失败：${String(error)}`
+    }
+  }
+
   const createFromResult = async (
     result: QuickAddResult,
     options: { listId?: string | null; applyDefaultDueDate?: boolean } = {}
-  ): Promise<TaskWithMeta | null> => {
+  ): Promise<{ task: TaskWithMeta; reminderNote: string | null } | null> => {
     const matched = options.listId
       ? lists.find((list) => list.id === options.listId)
       : resolveList(result.listName)
@@ -248,7 +275,7 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
         ? result.dueDate
         : (result.dueDate ?? defaultDueDate ?? null)
 
-    return createTask({
+    const task = await createTask({
       listId: target.id,
       title: result.title,
       priority: result.priority,
@@ -258,6 +285,9 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       recurrence: result.recurrence,
       tagNames: result.tags
     })
+    if (!task) return null
+    const reminderNote = await scheduleReminder(task, { ...result, dueDate })
+    return { task, reminderNote }
   }
 
   const submit = async (useAi: boolean): Promise<void> => {
@@ -332,15 +362,18 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     if (!created) return
     setValue('')
     inputRef.current?.focus()
+    const reminderSuffix = created.reminderNote ? `（${created.reminderNote}）` : ''
     if (aiUsed) {
       notifyAdded(
-        created,
+        created.task,
         aiWarning
-          ? `AI 未能解析，已按规则添加「${created.title}」：${aiWarning}`
-          : `AI 已添加「${created.title}」`,
+          ? `AI 未能解析，已按规则添加「${created.task.title}」：${aiWarning}${reminderSuffix}`
+          : `AI 已添加「${created.task.title}」${reminderSuffix}`,
         aiWarning ? 'info' : 'success',
         aiWarning ? 7000 : 6000
       )
+    } else if (created.reminderNote) {
+      showToast(`已添加「${created.task.title}」${reminderSuffix}`, 'info')
     }
   }
 
@@ -383,7 +416,12 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       setAiDraft(null)
       setValue('')
       inputRef.current?.focus()
-      notifyAdded(created, `AI 已添加「${created.title}」`, 'success')
+      const reminderSuffix = created.reminderNote ? `（${created.reminderNote}）` : ''
+      notifyAdded(
+        created.task,
+        `AI 已添加「${created.task.title}」${reminderSuffix}`,
+        'success'
+      )
     } finally {
       setDraftBusy(false)
     }
@@ -397,6 +435,17 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     recurrenceChoices.push({
       value: aiDraft.recurrence,
       label: describeRecurrence(aiDraft.recurrence)
+    })
+  }
+
+  const reminderChoices = REMINDER_OFFSET_CHOICES.slice()
+  if (
+    aiDraft?.reminderOffsetMin != null &&
+    !reminderChoices.some((choice) => choice.value === aiDraft.reminderOffsetMin)
+  ) {
+    reminderChoices.push({
+      value: aiDraft.reminderOffsetMin,
+      label: describeReminderOffset(aiDraft.reminderOffsetMin)
     })
   }
 
@@ -723,7 +772,9 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
                 onChange={(event) =>
                   updateDraft({
                     dueDate: event.target.value,
-                    dueTime: event.target.value ? aiDraft.dueTime : ''
+                    dueTime: event.target.value ? aiDraft.dueTime : '',
+                    // 没有截止日期就无法换算提醒时刻，清空日期时一并清空提前量。
+                    reminderOffsetMin: event.target.value ? aiDraft.reminderOffsetMin : null
                   })
                 }
               />
@@ -797,6 +848,31 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
                 ))}
               </select>
             </label>
+            <label className="quick-add-field">
+              <span>提醒</span>
+              <select
+                value={aiDraft.reminderOffsetMin ?? ''}
+                aria-label="AI 提前提醒"
+                title={
+                  aiDraft.dueDate
+                    ? '按截止日期/时间提前提醒；全天任务按 09:00 计算'
+                    : '请先填写截止日期'
+                }
+                disabled={!aiDraft.dueDate}
+                onChange={(event) =>
+                  updateDraft({
+                    reminderOffsetMin:
+                      event.target.value === '' ? null : Number(event.target.value)
+                  })
+                }
+              >
+                {reminderChoices.map((choice) => (
+                  <option value={choice.value ?? ''} key={choice.value ?? 'none'}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="quick-add-all-day">
               <input
                 type="checkbox"
@@ -846,6 +922,12 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
               {describeRecurrence(parsed.recurrence)}
             </span>
           ) : null}
+          {parsed.reminderOffsetMin != null ? (
+            <span className="preview-chip">
+              <Icon name="bell" size={12} />
+              {describeReminderOffset(parsed.reminderOffsetMin)}
+            </span>
+          ) : null}
           {parsed.priority > 0 ? (
             <span className="preview-chip" style={{ color: PRIORITY_COLORS[parsed.priority] }}>
               <Icon name="flag" size={12} />
@@ -868,7 +950,7 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
 
       {focused && !aiDraft ? (
         <div className="quick-add-hint">
-          支持：明天下午 3 点 · 每周一 · #标签 · !高 · ~清单 · 点麦克风语音输入
+          支持：明天下午 3 点 · 每周一 · 提前30分钟提醒 · #标签 · !高 · ~清单 · 点麦克风语音输入
           {settings.aiEnabled ? ' · Ctrl+Enter 用 AI 理解整句话' : ''}
         </div>
       ) : null}

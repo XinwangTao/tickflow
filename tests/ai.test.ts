@@ -123,6 +123,16 @@ describe('buildQuickAddPrompt', () => {
     expect(prompt).toContain('!优先级')
     expect(prompt).toContain('~清单')
   })
+
+  it('约定 reminderMinutes 并给出常见换算示例', () => {
+    const prompt = buildQuickAddPrompt('明天下午3点 提前30分钟提醒 交周报', {
+      now: NOW,
+      lists: ['收集箱']
+    })
+    expect(prompt).toContain('reminderMinutes')
+    expect(prompt).toContain('“提前30分钟”→30')
+    expect(prompt).toContain('“提前一天”→1440')
+  })
 })
 
 describe('mergeQuickAddWithRule', () => {
@@ -137,7 +147,8 @@ describe('mergeQuickAddWithRule', () => {
         dueDate: '2026-11-06',
         dueTime: '16:00',
         allDay: false,
-        recurrence: null
+        recurrence: null,
+        reminderOffsetMin: null
       },
       rule
     )
@@ -161,7 +172,8 @@ describe('mergeQuickAddWithRule', () => {
         dueDate: null,
         dueTime: null,
         allDay: true,
-        recurrence: null
+        recurrence: null,
+        reminderOffsetMin: null
       },
       rule
     )
@@ -182,7 +194,8 @@ describe('mergeQuickAddWithRule', () => {
         dueDate: '2026-11-06',
         dueTime: null,
         allDay: true,
-        recurrence: null
+        recurrence: null,
+        reminderOffsetMin: null
       },
       ruleQuickAdd('明天下午3点 交周报', NOW)
     )
@@ -201,9 +214,32 @@ describe('mergeQuickAddWithRule', () => {
       dueDate: '2026-11-07',
       dueTime: '12:30',
       allDay: false,
-      recurrence: null
+      recurrence: null,
+      reminderOffsetMin: null
     }
     expect(mergeQuickAddWithRule(ai, ruleQuickAdd('后天中午和张总吃饭', NOW))).toEqual(ai)
+  })
+
+  it('提前提醒优先采用 AI，AI 漏掉时用规则补齐；没有日期则清空', () => {
+    const rule = ruleQuickAdd('明天下午3点 提前30分钟提醒 交周报', NOW)
+    const ai = normalizeAiQuickAdd({
+      title: '交周报',
+      dueDate: '2026-11-06',
+      dueTime: '15:00',
+      reminderMinutes: 60
+    })
+    expect(ai).not.toBeNull()
+    expect(mergeQuickAddWithRule(ai!, rule).reminderOffsetMin).toBe(60)
+
+    const missing = normalizeAiQuickAdd({
+      title: '交周报',
+      dueDate: '2026-11-06',
+      dueTime: '15:00'
+    })
+    expect(mergeQuickAddWithRule(missing!, rule).reminderOffsetMin).toBe(30)
+
+    const noDate = normalizeAiQuickAdd({ title: '交周报', reminderMinutes: 30 })
+    expect(mergeQuickAddWithRule(noDate!, ruleQuickAdd('交周报', NOW)).reminderOffsetMin).toBeNull()
   })
 })
 
@@ -226,7 +262,8 @@ describe('normalizeAiQuickAdd', () => {
       priority: 3,
       tags: ['工作', '重要'],
       listName: '工作',
-      recurrence: 'FREQ=WEEKLY;BYDAY=MO'
+      recurrence: 'FREQ=WEEKLY;BYDAY=MO',
+      reminderOffsetMin: null
     })
   })
 
@@ -241,6 +278,21 @@ describe('normalizeAiQuickAdd', () => {
     const result = normalizeAiQuickAdd({ title: '写周报', dueDate: '2026-02-30' })
     expect(result?.dueDate).toBeNull()
     expect(normalizeAiQuickAdd({ title: '  ' })).toBeNull()
+  })
+
+  it('收敛 reminderMinutes，非法或越界时视为不提醒', () => {
+    expect(normalizeAiQuickAdd({ title: '交周报', reminderMinutes: 30 })?.reminderOffsetMin).toBe(
+      30
+    )
+    expect(
+      normalizeAiQuickAdd({ title: '交周报', reminderOffsetMin: '15' })?.reminderOffsetMin
+    ).toBe(15)
+    expect(
+      normalizeAiQuickAdd({ title: '交周报', reminderMinutes: -1 })?.reminderOffsetMin
+    ).toBeNull()
+    expect(
+      normalizeAiQuickAdd({ title: '交周报', reminderMinutes: 999999 })?.reminderOffsetMin
+    ).toBeNull()
   })
 })
 

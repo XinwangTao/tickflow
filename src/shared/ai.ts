@@ -1,6 +1,6 @@
 import type { Priority, Settings, TaskStatus, TaskWithMeta } from './types'
 import type { QuickAddResult } from './quick-add'
-import { parseQuickAdd } from './quick-add'
+import { normalizeReminderOffset, parseQuickAdd } from './quick-add'
 import { normalizeDateKey, normalizeTime, toDateKey } from './dates'
 
 /** CC Switch 默认监听本机 Anthropic 兼容网关。 */
@@ -443,7 +443,10 @@ export function normalizeAiQuickAdd(raw: unknown): QuickAddResult | null {
     dueDate,
     dueTime,
     allDay: dueTime ? false : record.allDay === false ? false : true,
-    recurrence
+    recurrence,
+    reminderOffsetMin: normalizeReminderOffset(
+      record.reminderMinutes ?? record.reminderOffsetMin
+    )
   }
 }
 
@@ -503,7 +506,11 @@ export function mergeQuickAddWithRule(
     dueDate,
     dueTime,
     recurrence: ai.recurrence ?? rule.recurrence,
-    allDay: dueTime ? false : ai.dueDate || !rule.dueDate ? ai.allDay : rule.allDay
+    allDay: dueTime ? false : ai.dueDate || !rule.dueDate ? ai.allDay : rule.allDay,
+    // 没有截止日期时提前量无法落到具体时刻，留空避免创建“永不触发”的提醒。
+    reminderOffsetMin: dueDate
+      ? (ai.reminderOffsetMin ?? rule.reminderOffsetMin)
+      : null
   }
 }
 
@@ -662,9 +669,9 @@ export function buildQuickAddPrompt(
     `可用清单：${listText}`,
     `用户输入：${input}`,
     '请把输入解析成一个任务，只返回 JSON，不要 Markdown 代码块或解释。',
-    '字段：title（必填，去掉日期/标签/优先级等修饰后的任务标题）、dueDate（YYYY-MM-DD 或 null）、dueTime（HH:mm 或 null）、allDay（布尔）、priority（0=无 1=低 2=中 3=高）、tags（字符串数组，不含 #）、listName（仅当用户输入中明确出现某个可用清单名时填写；否则必须为 null，不要根据任务内容猜测）、recurrence（RFC5545 RRULE；没有则 null。“每3天/每隔两天”→FREQ=DAILY;INTERVAL=3；“每两周”→FREQ=WEEKLY;INTERVAL=2；“周一到周五”→FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR；“每周一三五”→BYDAY=MO,WE,FR；“每月5号”→FREQ=MONTHLY;BYMONTHDAY=5）。',
+    '字段：title（必填，去掉日期/标签/优先级等修饰后的任务标题）、dueDate（YYYY-MM-DD 或 null）、dueTime（HH:mm 或 null）、allDay（布尔）、priority（0=无 1=低 2=中 3=高）、tags（字符串数组，不含 #）、listName（仅当用户输入中明确出现某个可用清单名时填写；否则必须为 null，不要根据任务内容猜测）、recurrence（RFC5545 RRULE；没有则 null。“每3天/每隔两天”→FREQ=DAILY;INTERVAL=3；“每两周”→FREQ=WEEKLY;INTERVAL=2；“周一到周五”→FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR；“每周一三五”→BYDAY=MO,WE,FR；“每月5号”→FREQ=MONTHLY;BYMONTHDAY=5）、reminderMinutes（提前提醒的整数分钟；没有则 null。“提前30分钟”→30，“提前1小时”→60，“提前一天”→1440，“提前提醒半小时”→30）。',
     '用户输入中的 #标签、!优先级（如 !高）、~清单 是显式语法，必须原样保留到 tags / priority / listName，且不要留在 title 里。',
-    '相对日期以“当前时间”为基准；没有日期或时间时 dueDate/dueTime 返回 null。'
+    '相对日期以“当前时间”为基准；没有日期或时间时 dueDate/dueTime 返回 null。只说“提前提醒”但没给截止日期时 reminderMinutes 仍可填写，客户端会提示无法创建提醒。'
   ].join('\n')
 }
 

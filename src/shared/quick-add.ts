@@ -10,6 +10,65 @@ export interface QuickAddResult {
   dueTime: string | null
   allDay: boolean
   recurrence: string | null
+  /** 提前提醒的分钟数；0 表示在截止时刻提醒，null 表示不提醒。 */
+  reminderOffsetMin: number | null
+}
+
+/** 提醒最多提前 30 天，避免“提前一年”这类输入把提醒排到很久以后。 */
+export const REMINDER_MAX_OFFSET_MIN = 30 * 24 * 60
+
+/** 全天任务没有具体时间，默认按 09:00 作为截止时刻计算提前量。 */
+export const DEFAULT_ALL_DAY_REMINDER_TIME = '09:00'
+
+/** 快速添加草稿里的常用提前量；不在列表里的值会动态补进下拉框。 */
+export const REMINDER_OFFSET_CHOICES: Array<{ value: number | null; label: string }> = [
+  { value: null, label: '不提醒' },
+  { value: 0, label: '截止时提醒' },
+  { value: 5, label: '提前 5 分钟' },
+  { value: 15, label: '提前 15 分钟' },
+  { value: 30, label: '提前 30 分钟' },
+  { value: 60, label: '提前 1 小时' },
+  { value: 120, label: '提前 2 小时' },
+  { value: 1440, label: '提前 1 天' },
+  { value: 2880, label: '提前 2 天' }
+]
+
+/** 收敛提前量：只接受 0–30 天的整数分钟，其余一律视为不提醒。 */
+export function normalizeReminderOffset(value: unknown): number | null {
+  const numeric =
+    typeof value === 'string' && value.trim() ? Number(value) : value
+  if (typeof numeric !== 'number' || !Number.isFinite(numeric)) return null
+  const minutes = Math.round(numeric)
+  if (minutes < 0 || minutes > REMINDER_MAX_OFFSET_MIN) return null
+  return minutes
+}
+
+/** 给预览 chip 与草稿下拉框用的中文描述。 */
+export function describeReminderOffset(minutes: number | null): string {
+  if (minutes == null) return ''
+  if (minutes === 0) return '截止时提醒'
+  if (minutes % 1440 === 0) return `提前 ${minutes / 1440} 天提醒`
+  if (minutes % 60 === 0) return `提前 ${minutes / 60} 小时提醒`
+  return `提前 ${minutes} 分钟提醒`
+}
+
+/**
+ * 计算提醒触发时刻（本地时间 → UTC ISO）。
+ * 没有截止日期或提前量非法时返回 null；全天任务按 09:00 计算。
+ * 是否已经过去由调用方判断，避免这里依赖“当前时间”导致纯函数不可测。
+ */
+export function reminderTriggerAt(
+  result: Pick<QuickAddResult, 'dueDate' | 'dueTime' | 'reminderOffsetMin'>,
+  allDayTime: string = DEFAULT_ALL_DAY_REMINDER_TIME
+): string | null {
+  const offset = normalizeReminderOffset(result.reminderOffsetMin)
+  if (offset === null || !result.dueDate) return null
+  const [year, month, day] = result.dueDate.split('-').map(Number)
+  const [hours, minutes] = (result.dueTime ?? allDayTime).split(':').map(Number)
+  if (![year, month, day, hours, minutes].every(Number.isFinite)) return null
+  const due = new Date(year, month - 1, day, hours, minutes, 0, 0)
+  if (Number.isNaN(due.getTime())) return null
+  return new Date(due.getTime() - offset * 60000).toISOString()
 }
 
 const WEEKDAY_MAP: Record<string, number> = {
@@ -115,6 +174,47 @@ function parseCnCount(raw: string): number | null {
     return null
   }
   return digits[raw] ?? null
+}
+
+const REMINDER_NUMBER = '([0-9]+|[一二两三四五六七八九十半]+)'
+const REMINDER_UNIT = '(分钟|分|小时|钟头|天|日|周|星期|礼拜)'
+
+function reminderUnitMinutes(unit: string): number {
+  if (unit === '分钟' || unit === '分') return 1
+  if (unit === '小时' || unit === '钟头') return 60
+  if (unit === '周' || unit === '星期' || unit === '礼拜') return 7 * 24 * 60
+  return 24 * 60
+}
+
+function reminderDurationMinutes(raw: string, unit: string): number | null {
+  // “提前半小时”里的“半”不能走 parseCnCount。
+  const value = raw === '半' ? 0.5 : parseCnCount(raw.replace(/^两/, '二'))
+  if (!value || value <= 0) return null
+  return normalizeReminderOffset(Math.round(value * reminderUnitMinutes(unit)))
+}
+
+interface ReminderParse {
+  minutes: number
+  matched: string
+}
+
+/**
+ * 解析“提前提醒”。只认带明确提醒动词的写法，避免把“提前30分钟出发”
+ * 这类普通时间描述误当成提醒并从标题里删掉：
+ *   提前提醒30分钟 / 提前提醒我半小时 / 提前30分钟提醒 / 提前1小时通知我
+ */
+export function parseReminderOffset(text: string): ReminderParse | null {
+  const patterns = [
+    new RegExp(`提前\\s*提醒\\s*我?\\s*(?:一下)?\\s*${REMINDER_NUMBER}\\s*个?\\s*${REMINDER_UNIT}`),
+    new RegExp(`提前\\s*${REMINDER_NUMBER}\\s*个?\\s*${REMINDER_UNIT}\\s*(?:之前)?\\s*(?:提醒我?|通知我?)(?:一下)?`)
+  ]
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (!match) continue
+    const minutes = reminderDurationMinutes(match[1], match[2])
+    if (minutes !== null) return { minutes, matched: match[0] }
+  }
+  return null
 }
 
 function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
@@ -494,6 +594,11 @@ export function parseQuickAdd(input: string, now: Date = new Date()): QuickAddRe
 
   const base = startOfDay(now)
 
+  // “提前30分钟提醒”整段消费掉，不留在标题里；没有截止日期时仍保留提前量，
+  // 由创建逻辑提示“未设置截止日期，提醒未创建”。
+  const reminder = parseReminderOffset(rest)
+  if (reminder) rest = rest.replace(reminder.matched, ' ')
+
   const recurrence = parseRecurrence(rest, base)
   if (recurrence) rest = rest.replace(recurrence.matched, ' ')
 
@@ -521,6 +626,7 @@ export function parseQuickAdd(input: string, now: Date = new Date()): QuickAddRe
     dueDate: date ? toDateKey(date) : null,
     dueTime: timeParse.time,
     allDay: timeParse.time ? false : true,
-    recurrence: recurrence ? recurrence.rrule : null
+    recurrence: recurrence ? recurrence.rrule : null,
+    reminderOffsetMin: reminder ? reminder.minutes : null
   }
 }

@@ -42,7 +42,8 @@ function full(expected: Expected): QuickAddResult {
     dueDate: expected.dueDate ?? null,
     dueTime: expected.dueTime ?? null,
     allDay: expected.allDay ?? true,
-    recurrence: expected.recurrence ?? null
+    recurrence: expected.recurrence ?? null,
+    reminderOffsetMin: expected.reminderOffsetMin ?? null
   }
 }
 
@@ -93,6 +94,13 @@ const RULE_CASES: RuleCase[] = [
   { input: '每年3月5日 体检', expected: { title: '体检', dueDate: '2027-03-05', recurrence: 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=5' } },
   { input: '每个工作日 打卡', expected: { title: '打卡', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' } },
   { input: '每周 写周报', expected: { title: '写周报', dueDate: '2026-11-05', recurrence: 'FREQ=WEEKLY' } },
+
+  // 提前提醒：分钟/小时/天/中文数字，以及没有日期时的保留
+  { input: '明天下午3点 提前30分钟提醒 交周报', expected: { title: '交周报', dueDate: '2026-11-06', dueTime: '15:00', allDay: false, reminderOffsetMin: 30 } },
+  { input: '每周一 提前1小时提醒 晨会', expected: { title: '晨会', dueDate: '2026-11-09', recurrence: 'FREQ=WEEKLY;BYDAY=MO', reminderOffsetMin: 60 } },
+  { input: '提前提醒我半小时 交水电费', expected: { title: '交水电费', reminderOffsetMin: 30 } },
+  { input: '提前一天通知我 交房租', expected: { title: '交房租', reminderOffsetMin: 1440 } },
+  { input: '提前30分钟出发', expected: { title: '提前30分钟出发' } },
 
   // 显式语法：标签/优先级/清单，含中文标点与无空格连写
   { input: '明天下午3点 交周报 #工作 !高', expected: { title: '交周报', dueDate: '2026-11-06', dueTime: '15:00', allDay: false, priority: 3, tags: ['工作'] } },
@@ -298,6 +306,58 @@ const AI_CASES: AiCase[] = [
       priority: 3,
       tags: ['工作', '重要'],
       listName: '工作'
+    }
+  },
+  {
+    name: '模型给出 reminderMinutes 时落成提前提醒',
+    input: '明天下午3点 提前45分钟提醒 交周报',
+    model: {
+      title: '交周报',
+      dueDate: '2026-11-06',
+      dueTime: '15:00',
+      allDay: false,
+      reminderMinutes: 45
+    },
+    expected: {
+      title: '交周报',
+      dueDate: '2026-11-06',
+      dueTime: '15:00',
+      allDay: false,
+      reminderOffsetMin: 45
+    }
+  },
+  {
+    name: '模型漏掉提前提醒时由规则补齐',
+    input: '明天下午3点 提前30分钟提醒 交周报',
+    model: {
+      title: '交周报',
+      dueDate: '2026-11-06',
+      dueTime: '15:00',
+      allDay: false
+    },
+    expected: {
+      title: '交周报',
+      dueDate: '2026-11-06',
+      dueTime: '15:00',
+      allDay: false,
+      reminderOffsetMin: 30
+    }
+  },
+  {
+    name: '非法 reminderMinutes 被丢弃且不创建提醒',
+    input: '明天下午3点 交周报',
+    model: {
+      title: '交周报',
+      dueDate: '2026-11-06',
+      dueTime: '15:00',
+      allDay: false,
+      reminderMinutes: 999999
+    },
+    expected: {
+      title: '交周报',
+      dueDate: '2026-11-06',
+      dueTime: '15:00',
+      allDay: false
     }
   },
   {

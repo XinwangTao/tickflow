@@ -21,7 +21,8 @@ const AI_RESULT: QuickAddResult = {
   dueDate: '2026-11-06',
   dueTime: '15:00',
   allDay: false,
-  recurrence: 'FREQ=WEEKLY'
+  recurrence: 'FREQ=WEEKLY',
+  reminderOffsetMin: null
 }
 
 describe('createQuickAddDraft', () => {
@@ -35,7 +36,8 @@ describe('createQuickAddDraft', () => {
       dueDate: '2026-11-06',
       dueTime: '15:00',
       allDay: false,
-      recurrence: 'FREQ=WEEKLY'
+      recurrence: 'FREQ=WEEKLY',
+      reminderOffsetMin: null
     })
   })
 
@@ -67,6 +69,18 @@ describe('createQuickAddDraft', () => {
     expect(draft.dueDate).toBe('2026-11-05')
     expect(draft.dueTime).toBe('')
   })
+
+  it('保留提前提醒；没有截止日期时清空提前量', () => {
+    const draft = createQuickAddDraft({ ...AI_RESULT, reminderOffsetMin: 30 }, LISTS, 'inbox')
+    expect(draft.reminderOffsetMin).toBe(30)
+
+    const noDate = createQuickAddDraft(
+      { ...AI_RESULT, dueDate: null, dueTime: null, reminderOffsetMin: 30 },
+      LISTS,
+      'inbox'
+    )
+    expect(noDate.reminderOffsetMin).toBeNull()
+  })
 })
 
 describe('draftToQuickAddResult', () => {
@@ -78,7 +92,8 @@ describe('draftToQuickAddResult', () => {
     dueDate: '2026-11-06',
     dueTime: '15:00',
     allDay: true,
-    recurrence: 'freq=weekly'
+    recurrence: 'freq=weekly',
+    reminderOffsetMin: null
   }
 
   it('校验并规范化用户改过的字段', () => {
@@ -90,7 +105,8 @@ describe('draftToQuickAddResult', () => {
       dueDate: '2026-11-06',
       dueTime: '15:00',
       allDay: false,
-      recurrence: 'FREQ=WEEKLY'
+      recurrence: 'FREQ=WEEKLY',
+      reminderOffsetMin: null
     })
   })
 
@@ -99,6 +115,24 @@ describe('draftToQuickAddResult', () => {
     expect(result?.dueDate).toBeNull()
     expect(result?.dueTime).toBeNull()
     expect(result?.allDay).toBe(true)
+  })
+
+  it('保留合法提前量；清空日期或提前量非法时不创建提醒', () => {
+    expect(
+      draftToQuickAddResult({ ...baseDraft, reminderOffsetMin: 15 }, LISTS)?.reminderOffsetMin
+    ).toBe(15)
+    expect(
+      draftToQuickAddResult(
+        { ...baseDraft, dueDate: '', reminderOffsetMin: 15 },
+        LISTS
+      )?.reminderOffsetMin
+    ).toBeNull()
+    expect(
+      draftToQuickAddResult(
+        { ...baseDraft, reminderOffsetMin: -5 },
+        LISTS
+      )?.reminderOffsetMin
+    ).toBeNull()
   })
 
   it('非法日期或时间只丢弃该字段，不整体失败', () => {

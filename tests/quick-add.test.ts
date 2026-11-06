@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { parseQuickAdd } from '../src/shared/quick-add'
+import {
+  describeReminderOffset,
+  normalizeReminderOffset,
+  parseQuickAdd,
+  REMINDER_MAX_OFFSET_MIN,
+  reminderTriggerAt
+} from '../src/shared/quick-add'
 
 const NOW = new Date(2026, 10, 5, 9, 0, 0) // 2026-11-05 周四 09:00
 
@@ -109,5 +115,70 @@ describe('parseQuickAdd', () => {
     expect(result.dueDate).toBe('2026-11-06')
     expect(result.dueTime).toBe('15:00')
     expect(result.title).toContain('浇')
+  })
+})
+
+describe('提前提醒解析', () => {
+  it('解析“提前30分钟提醒”并从标题里移除', () => {
+    const result = parseQuickAdd('明天下午3点 提前30分钟提醒 交周报', NOW)
+    expect(result.title).toBe('交周报')
+    expect(result.dueDate).toBe('2026-11-06')
+    expect(result.dueTime).toBe('15:00')
+    expect(result.reminderOffsetMin).toBe(30)
+  })
+
+  it('支持重复任务、中文数字、小时与天', () => {
+    const weekly = parseQuickAdd('每周一 提前1小时提醒 晨会', NOW)
+    expect(weekly.recurrence).toBe('FREQ=WEEKLY;BYDAY=MO')
+    expect(weekly.reminderOffsetMin).toBe(60)
+    expect(weekly.title).toBe('晨会')
+
+    expect(parseQuickAdd('提前提醒我半小时 交水电费', NOW).reminderOffsetMin).toBe(30)
+    expect(parseQuickAdd('提前一天通知我 交房租', NOW).reminderOffsetMin).toBe(1440)
+    expect(parseQuickAdd('提前提醒 30 分钟 复盘', NOW).reminderOffsetMin).toBe(30)
+  })
+
+  it('没有明确提醒动词的“提前30分钟出发”保持原样', () => {
+    const result = parseQuickAdd('提前30分钟出发', NOW)
+    expect(result.title).toBe('提前30分钟出发')
+    expect(result.reminderOffsetMin).toBeNull()
+  })
+
+  it('没有截止日期时仍保留提前量，交给创建逻辑提示', () => {
+    const result = parseQuickAdd('提前30分钟提醒 开会', NOW)
+    expect(result.reminderOffsetMin).toBe(30)
+    expect(result.dueDate).toBeNull()
+    expect(reminderTriggerAt(result)).toBeNull()
+  })
+
+  it('按截止时间或全天 09:00 计算触发时刻', () => {
+    expect(
+      reminderTriggerAt({
+        dueDate: '2026-11-06',
+        dueTime: '15:00',
+        reminderOffsetMin: 30
+      })
+    ).toBe(new Date(2026, 10, 6, 14, 30).toISOString())
+
+    expect(
+      reminderTriggerAt({
+        dueDate: '2026-11-07',
+        dueTime: null,
+        reminderOffsetMin: 1440
+      })
+    ).toBe(new Date(2026, 10, 6, 9, 0).toISOString())
+  })
+
+  it('收敛并描述提前量', () => {
+    expect(normalizeReminderOffset(30)).toBe(30)
+    expect(normalizeReminderOffset('15')).toBe(15)
+    expect(normalizeReminderOffset(-1)).toBeNull()
+    expect(normalizeReminderOffset(REMINDER_MAX_OFFSET_MIN + 1)).toBeNull()
+    expect(normalizeReminderOffset('abc')).toBeNull()
+    expect(describeReminderOffset(0)).toBe('截止时提醒')
+    expect(describeReminderOffset(30)).toBe('提前 30 分钟提醒')
+    expect(describeReminderOffset(60)).toBe('提前 1 小时提醒')
+    expect(describeReminderOffset(1440)).toBe('提前 1 天提醒')
+    expect(describeReminderOffset(90)).toBe('提前 90 分钟提醒')
   })
 })
