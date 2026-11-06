@@ -75,3 +75,4 @@ npm run apk
 - 像素级清单：`docs/product/tickflow-pixel-checklist.md`
 - 主流程图：`docs/archify/tickflow_workflow.html`（旁路 JSON 同名）
 - 真机/R2 验收：`docs/device-r2-acceptance.md`
+- 真机 TODO（本阶段禁用手机实测）：`docs/TODO-device.md`
