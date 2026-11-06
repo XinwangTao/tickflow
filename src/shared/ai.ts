@@ -1,6 +1,11 @@
 import type { Priority, Settings, TaskStatus, TaskWithMeta } from './types'
 import type { QuickAddResult } from './quick-add'
-import { normalizeReminderOffset, parseQuickAdd } from './quick-add'
+import {
+  normalizeRecurrenceRule,
+  normalizeReminderOffset,
+  parseQuickAdd,
+  parseRecurrenceRule
+} from './quick-add'
 import { normalizeDateKey, normalizeTime, toDateKey } from './dates'
 
 /** CC Switch 默认监听本机 Anthropic 兼容网关。 */
@@ -421,7 +426,7 @@ export function parseAiJson(text: string): unknown {
  * 这里不替 AI 补日期：只有 dueTime 时保持 dueDate 为 null，
  * 由 mergeQuickAddWithRule 用规则解析结果补齐，避免把“明天 15:00”补成今天。
  */
-export function normalizeAiQuickAdd(raw: unknown): QuickAddResult | null {
+export function normalizeAiQuickAdd(raw: unknown, now: Date = new Date()): QuickAddResult | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const record = raw as Record<string, unknown>
   const title = typeof record.title === 'string' ? record.title.trim() : ''
@@ -429,10 +434,13 @@ export function normalizeAiQuickAdd(raw: unknown): QuickAddResult | null {
 
   const dueTime = normalizeTime(record.dueTime)
   const dueDate = normalizeDateKey(record.dueDate)
+  // 模型偶尔会用中文写 recurrence（“每周一三五”）或给出 INTERVAL=0 这类非法值：
+  // 先统一成合法 RRULE，中文短语再走同一套本地规则翻译，仍失败则留空由规则补齐。
   const recurrence =
-    typeof record.recurrence === 'string' && /^FREQ=/i.test(record.recurrence.trim())
-      ? record.recurrence.trim().toUpperCase()
-      : null
+    normalizeRecurrenceRule(record.recurrence) ??
+    (typeof record.recurrence === 'string'
+      ? parseRecurrenceRule(record.recurrence, now)
+      : null)
   const listName = typeof record.listName === 'string' ? record.listName.trim() : ''
 
   return {
@@ -669,7 +677,7 @@ export function buildQuickAddPrompt(
     `可用清单：${listText}`,
     `用户输入：${input}`,
     '请把输入解析成一个任务，只返回 JSON，不要 Markdown 代码块或解释。',
-    '字段：title（必填，去掉日期/标签/优先级等修饰后的任务标题）、dueDate（YYYY-MM-DD 或 null）、dueTime（HH:mm 或 null）、allDay（布尔）、priority（0=无 1=低 2=中 3=高）、tags（字符串数组，不含 #）、listName（仅当用户输入中明确出现某个可用清单名时填写；否则必须为 null，不要根据任务内容猜测）、recurrence（RFC5545 RRULE；没有则 null。“每3天/每隔两天”→FREQ=DAILY;INTERVAL=3；“每两周”→FREQ=WEEKLY;INTERVAL=2；“周一到周五”→FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR；“每周一三五”→BYDAY=MO,WE,FR；“每月5号”→FREQ=MONTHLY;BYMONTHDAY=5）、reminderMinutes（提前提醒的整数分钟；没有则 null。“提前30分钟”→30，“提前1小时”→60，“提前一天”→1440，“提前提醒半小时”→30）。',
+    '字段：title（必填，去掉日期/标签/优先级等修饰后的任务标题）、dueDate（YYYY-MM-DD 或 null）、dueTime（HH:mm 或 null）、allDay（布尔）、priority（0=无 1=低 2=中 3=高）、tags（字符串数组，不含 #）、listName（仅当用户输入中明确出现某个可用清单名时填写；否则必须为 null，不要根据任务内容猜测）、recurrence（RFC5545 RRULE；没有则 null。“每3天/每隔两天”→FREQ=DAILY;INTERVAL=3；“每两周”→FREQ=WEEKLY;INTERVAL=2；“周一到周五”→FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR；“每周一三五”→BYDAY=MO,WE,FR；“每月5号”→FREQ=MONTHLY;BYMONTHDAY=5；“每月第一个周一”→FREQ=MONTHLY;BYDAY=MO;BYSETPOS=1；“每月最后一个周五”→FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1；“每季度”→FREQ=MONTHLY;INTERVAL=3）、reminderMinutes（提前提醒的整数分钟；没有则 null。“提前30分钟”→30，“提前1小时”→60，“提前一天”→1440，“提前提醒半小时”→30）。',
     '用户输入中的 #标签、!优先级（如 !高）、~清单 是显式语法，必须原样保留到 tags / priority / listName，且不要留在 title 里。',
     '相对日期以“当前时间”为基准；没有日期或时间时 dueDate/dueTime 返回 null。只说“提前提醒”但没给截止日期时 reminderMinutes 仍可填写，客户端会提示无法创建提醒。'
   ].join('\n')

@@ -153,6 +153,18 @@ describe('draftToQuickAddResult', () => {
     expect(draftToQuickAddResult({ ...baseDraft, listId: 'gone' }, LISTS)?.listName).toBeNull()
   })
 
+  it('重复规则非法时只丢弃该字段，不整体失败', () => {
+    expect(
+      draftToQuickAddResult({ ...baseDraft, recurrence: 'FREQ=HOURLY' }, LISTS)?.recurrence
+    ).toBeNull()
+    expect(
+      draftToQuickAddResult(
+        { ...baseDraft, recurrence: 'FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1' },
+        LISTS
+      )?.recurrence
+    ).toBe('FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1')
+  })
+
   it('优先级越界会被夹到 0–3', () => {
     expect(
       draftToQuickAddResult({ ...baseDraft, priority: 9 as QuickAddDraft['priority'] }, LISTS)

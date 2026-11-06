@@ -159,7 +159,7 @@ export async function parseQuickAddWithAi(
       requestOptions(runtime)
     )
     attempts = result.attempts
-    const parsed = normalizeAiQuickAdd(parseAiJson(result.text))
+    const parsed = normalizeAiQuickAdd(parseAiJson(result.text), now)
     if (!parsed) throw new Error('AI 返回结构无法识别')
     // 显式 #标签 / !优先级 / ~清单 以规则为准；AI 漏掉的日期、时间、重复用规则补齐。
     const merged = mergeQuickAddWithRule(parsed, fallback, now)

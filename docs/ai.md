@@ -125,7 +125,10 @@ authorization: Bearer <aiToken，可选>
 - 解析进行中按普通 `Enter` 不再静默失败，而是提示「AI 正在解析，按 Esc 或点「取消」可中止」，
   不会绕过请求重复建任务；切换视图导致快速添加框卸载时，也会顺手中止进行中的请求。
 - 结果会再次经过 `normalizeAiQuickAdd` 校验：非法日期/时间被丢弃，优先级夹到 0–3，
-  标签去重。`listName` 只有在用户输入中明确出现该清单名（忽略大小写与空白）时才采纳，
+  标签去重。`recurrence` 会经过 `normalizeRecurrenceRule` 收敛：大小写、全角分号与
+  `BYDAY` 顺序会被统一，`INTERVAL=0`、未知 `FREQ`、越界 `BYMONTHDAY` 等非法片段被丢弃；
+  只剩非法规则时回落到本地规则。模型用中文写重复（如「每月最后一个周五」）也会用同一套
+  规则翻译成 RRULE。`listName` 只有在用户输入中明确出现该清单名（忽略大小写与空白）时才采纳，
   防止模型按任务内容猜一个清单；未采纳时任务留在当前清单。采纳但清单已不存在时，
   回落到当前默认清单并提示。
 - AI 结果会与本地 `parseQuickAdd` 结果合并：输入里的 `#标签`、`!高/中/低`、`~清单`
@@ -136,8 +139,14 @@ authorization: Bearer <aiToken，可选>
 - 本地规则解析同时补强了这些高频写法（AI 不可用时同样生效）：
   `下个月15号` / `本月20号`、`2027年1月1日`、`下个星期天`、`10点到11点`
   （取开始时间）、`每周一三五` / `每周二、周四`（多日 RRULE）、`每月最后一天`、
-  `3天后` / `2周后` / `3个月后`。`#工作，` 这类尾随标点、全角 `！高`，以及
-  `#工作!高~工作` 连写都能正确拆分；非法日期（如 `2026-02-30`）保持为标题而不是写库。
+  `每月第一个周一` / `每月第2个周四` / `每月最后一个周五`（BYSETPOS）、
+  `每季度` / `每半年`（MONTHLY + INTERVAL）、`3天后` / `2周后` / `3个月后`。
+  `#工作，` 这类尾随标点、全角 `！高`，以及 `#工作!高~工作` 连写都能正确拆分；
+  非法日期（如 `2026-02-30`）保持为标题而不是写库。
+- 重复规则在界面和草稿下拉框里按语义展示：`FREQ=DAILY;INTERVAL=3` 显示「每3天」、
+  `FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE` 显示「每2周的周一、周三」、
+  `FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1` 显示「每月最后一个周五」，
+  不再笼统显示成「每天 / 每周」。
 - **提前提醒**：`提前30分钟提醒`、`提前提醒我半小时`、`提前1小时通知我`、
   `提前一天提醒` 会被规则识别为提前量（分钟），从标题里移除，并在任务创建后写入
   `reminders` 表；`提前30分钟出发` 这类没有提醒动词的句子不会被误吞。
@@ -264,6 +273,7 @@ main 返回的 `warning` / `message` 使用 `AI_CANCELED_QUICK_ADD_HINT` /
 | --- | --- |
 | `src/shared/ai.ts` | 类型、默认值、提示词、JSON 提取、归一化、规则降级、失败分类与提示文案 |
 | `src/shared/quick-add-draft.ts` | AI 快速添加草稿：清单匹配、标签拆分、日期/时间校验、优先级收敛、提前提醒校验、落库前转换 |
+| `src/shared/quick-add.ts` | 本地快速添加规则、RRULE 生成与 `normalizeRecurrenceRule` 收敛、中文重复短语翻译 |
 | `src/shared/subtask-draft.ts` | AI 拆解子任务草稿：生成可编辑行、勾选/去重/空标题过滤、确认前的最终收集 |
 | `src/main/ai-client.ts` | `/v1/messages` 与 `/v1/models` 请求、鉴权头、单次超时、外部取消信号、瞬时故障自动重试、响应文本提取 |
 | `src/main/ai.ts` | 三个功能的编排与降级、失败提示与尝试次数、`requestId → AbortController` 注册表、模型列表与取消、连接测试 |
@@ -272,7 +282,8 @@ main 返回的 `warning` / `message` 使用 `AI_CANCELED_QUICK_ADD_HINT` /
 | `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口、可编辑草稿、批量添加后撤销、取消与切任务/关面板自动中止 |
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片：按需生成、已等待秒数、取消、失败回落到本地统计并可重试 |
 | `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试；模型目录即选即用、加载秒数、取消与失败重试 |
-| `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：56 条规则用例 + 19 条 AI 解析/归一化/合并用例 + 失败与请求契约 |
+| `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：56 条规则用例 + 23 条 AI 解析/归一化/合并用例 + 失败与请求契约 |
+| `tests/recurrence.test.ts` | 重复规则：RRULE 大小写/分号/BYDAY 顺序收敛、非法 INTERVAL/COUNT/FREQ 丢弃、BYSETPOS 保留、中文重复短语翻译、界面语义文案（每3天/每2周的周一/每月最后一个周五） |
 | `tests/ai-cancel.test.ts` | 取消：取消与超时区分、不重试、已取消的 signal 不发请求、requestId 注册表与不泄漏、并行请求互不影响、快速添加/今日总结/子任务拆解/模型目录四处取消都回传规则结果或提示并说明已取消 |
 | `tests/ai-settings-ui.test.ts` | 设置页模型目录：成功后展示下拉框、失败 toast 重试后恢复、加载中取消并丢弃迟到目录、关闭设置页自动中止请求 |
 | `tests/quick-add-draft.test.ts` | AI 快速添加草稿：清单名匹配、默认日期、清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、提前提醒保留与清空、空标题保护 |
@@ -307,7 +318,7 @@ npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败�
                          # 已取消的 signal 不再发请求；
                          # tests/ai-summary-ui.test.ts 覆盖今日总结卡片的取消、迟到结果丢弃、失败后 toast 重试；
                          # tests/ai-settings-ui.test.ts 覆盖设置页模型目录的加载取消、失败重试、关闭设置页中止请求
-npm run test:ai          # 只跑 AI 相关测试：ai、请求取消、今日总结卡片、设置页模型目录、快速添加回归集、规则解析、草稿、拆解草稿与草稿 UI
+npm run test:ai          # 只跑 AI 相关测试：ai、请求取消、今日总结卡片、设置页模型目录、快速添加回归集、规则解析、重复规则、草稿、拆解草稿与草稿 UI
 npm run test:e2e         # 构建后跑 Playwright：AI 结果 E2E + 桌面端视图冒烟（见 6.2）
 ```
 
@@ -329,10 +340,11 @@ curl -s http://127.0.0.1:15721/v1/messages \
   显式标签/优先级/清单、纯标题与非法日期。每条都精确断言 `title`、`priority`、`tags`、
   `listName`、`dueDate`、`dueTime`、`allDay`、`recurrence`、`reminderOffsetMin` 全部字段，
   未写出的字段按默认值比较，不会出现“只校验标题”的宽松通过。
-- **AI 合并用例（19 条）**：用假 fetch 返回贴近真实模型的输出，覆盖 Markdown 代码块与
+- **AI 合并用例（23 条）**：用假 fetch 返回贴近真实模型的输出，覆盖 Markdown 代码块与
   前后解释、模型只返回标题、漏日期/时间/重复/提前提醒、没提清单却猜清单、显式提到清单、
   非法日期/时间/优先级/提前量、标题残留显式标记、字符串优先级、OpenAI `choices` 响应、
-  AI 日期优先于规则等场景，断言合并后的最终结果。
+  AI 日期优先于规则、非法/中文 recurrence 的收敛与回落、每月第 N 个星期补齐等场景，
+  断言合并后的最终结果。
 - **失败与重试**：非法 JSON、JSON 缺 title、只有 thinking 被 `max_tokens` 截断、401 不重试、
   500 重试一次后成功、连接失败重试后仍失败、超时提示秒数且不重试、空输入与关闭 AI
   不发请求，同时校验 `attempts` 计数。

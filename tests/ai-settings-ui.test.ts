@@ -103,6 +103,10 @@ describe('设置页模型目录的失败重试与取消', () => {
     useAppStore.setState({ toast: null })
   })
 
+  // 设置页体量较大，全量测试并行时首次挂载可能超过默认 5 秒；这里放宽等待上限，
+  // 避免冷启动/低配机器把真失败掩盖成超时，也避免正常用例被资源竞争误判。
+  const UI_TEST_TIMEOUT = 15_000
+
   it('获取成功后展示本机模型下拉框，并回报一次请求', async () => {
     models.mockResolvedValueOnce(MODELS_OK)
     render(createElement(SettingsDialog))
@@ -115,7 +119,7 @@ describe('设置页模型目录的失败重试与取消', () => {
     expect(models.mock.calls[0][0]).toMatch(/^models-\d+$/)
     expect(useAppStore.getState().toast?.kind).toBe('success')
     expect(useAppStore.getState().toast?.message).toContain('已获取 1 个本机模型')
-  })
+  }, UI_TEST_TIMEOUT)
 
   it('失败 toast 带重试入口，重试成功后目录出现且 requestId 不同', async () => {
     models.mockResolvedValueOnce(MODELS_FAILED).mockResolvedValueOnce(MODELS_OK)
@@ -136,7 +140,7 @@ describe('设置页模型目录的失败重试与取消', () => {
     expect(await screen.findByLabelText(/本机模型/)).toBeInTheDocument()
     expect(models).toHaveBeenCalledTimes(2)
     expect(models.mock.calls[0][0]).not.toBe(models.mock.calls[1][0])
-  })
+  }, UI_TEST_TIMEOUT)
 
   it('加载中可以取消，迟到的目录不再展示', async () => {
     const pending = deferred<AiModelsResult>()
@@ -161,7 +165,7 @@ describe('设置页模型目录的失败重试与取消', () => {
 
     expect(screen.queryByLabelText(/本机模型/)).toBeNull()
     expect(useAppStore.getState().toast?.message).toContain(AI_CANCELED_MODELS_HINT)
-  })
+  }, UI_TEST_TIMEOUT)
 
   it('关闭设置页会中止进行中的目录请求', async () => {
     const pending = deferred<AiModelsResult>()
@@ -179,7 +183,7 @@ describe('设置页模型目录的失败重试与取消', () => {
     pending.resolve(MODELS_OK)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(useAppStore.getState().toast).toBeNull()
-  })
+  }, UI_TEST_TIMEOUT)
 
   it('检查语音环境会保存路径并把缺失项直接说清楚', async () => {
     render(createElement(SettingsDialog))
@@ -194,5 +198,5 @@ describe('设置页模型目录的失败重试与取消', () => {
       expect.objectContaining({ asrPython: '', asrModel: '' })
     )
     expect(useAppStore.getState().toast?.kind).toBe('error')
-  })
+  }, UI_TEST_TIMEOUT)
 })

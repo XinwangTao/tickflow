@@ -1,5 +1,9 @@
 import { normalizeDateKey, normalizeTime } from './dates'
-import { normalizeReminderOffset, type QuickAddResult } from './quick-add'
+import {
+  normalizeRecurrenceRule,
+  normalizeReminderOffset,
+  type QuickAddResult
+} from './quick-add'
 import type { Priority } from './types'
 
 /** 草稿只需要清单的定位信息，便于在测试里构造最小列表。 */
@@ -100,10 +104,7 @@ export function draftToQuickAddResult(
   if (!title) return null
   const dueDate = normalizeDateKey(draft.dueDate)
   const dueTime = dueDate ? normalizeTime(draft.dueTime) : null
-  const recurrence =
-    draft.recurrence && /^FREQ=/i.test(draft.recurrence.trim())
-      ? draft.recurrence.trim().toUpperCase()
-      : null
+  const recurrence = normalizeRecurrenceRule(draft.recurrence)
   return {
     title,
     priority: clampPriority(draft.priority),

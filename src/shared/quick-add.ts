@@ -83,6 +83,149 @@ const WEEKDAY_MAP: Record<string, number> = {
 }
 
 const WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+const WEEKDAY_CODES_MONDAY_FIRST = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
+const RRULE_FREQUENCIES = new Set(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'])
+
+function parseRruleInt(value: string, min: number, max: number, allowZero = false): number | null {
+  if (!/^-?\d+$/.test(value)) return null
+  const numeric = Number(value)
+  if (!Number.isInteger(numeric) || numeric < min || numeric > max) return null
+  if (!allowZero && numeric === 0) return null
+  return numeric
+}
+
+function normalizeRruleIntList(
+  value: string,
+  min: number,
+  max: number,
+  allowZero = false
+): string | null {
+  const numbers: number[] = []
+  for (const raw of value.split(',')) {
+    const numeric = parseRruleInt(raw.trim(), min, max, allowZero)
+    if (numeric !== null && !numbers.includes(numeric)) numbers.push(numeric)
+  }
+  return numbers.length ? numbers.join(',') : null
+}
+
+function normalizeRruleByDay(value: string): string | null {
+  const codes: string[] = []
+  for (const raw of value.split(',')) {
+    const item = raw.trim().toUpperCase()
+    // 兼容 “MO” 与 “1MO/-1FR” 两种 RFC5545 BYDAY 写法。
+    const match = item.match(/^([+-]?[1-5])?(SU|MO|TU|WE|TH|FR|SA)$/)
+    if (!match) continue
+    const ordinal = match[1] && match[1] !== '+1' ? match[1].replace('+', '') : ''
+    const code = `${ordinal}${match[2]}`
+    if (!codes.includes(code)) codes.push(code)
+  }
+  if (codes.length === 0) return null
+  // 普通星期码按周一→周日排序，界面展示稳定；带序号时保留模型给出的顺序。
+  if (codes.every((code) => !/\d/.test(code))) {
+    codes.sort(
+      (a, b) =>
+        WEEKDAY_CODES_MONDAY_FIRST.indexOf(a) - WEEKDAY_CODES_MONDAY_FIRST.indexOf(b)
+    )
+  }
+  return codes.join(',')
+}
+
+/**
+ * 校验并收敛 RRULE。AI 经常返回 `INTERVAL=0`、未知 FREQ 或中文星期，
+ * 直接落库会让重复任务永远算不出下一次；这里只保留能确定解释的字段，
+ * 无法识别时返回 null，由调用方回落到规则解析。
+ */
+export function normalizeRecurrenceRule(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  let text = raw
+    .trim()
+    .replace(/^RRULE\s*:\s*/i, '')
+    .replace(/[；，]/g, ';')
+    .replace(/\s+/g, '')
+    .toUpperCase()
+  if (!text) return null
+
+  const parts = new Map<string, string>()
+  for (const segment of text.split(';')) {
+    const separator = segment.indexOf('=')
+    if (separator <= 0) continue
+    const key = segment.slice(0, separator)
+    const value = segment.slice(separator + 1)
+    if (key && value) parts.set(key, value)
+  }
+
+  const freq = parts.get('FREQ')
+  if (!freq || !RRULE_FREQUENCIES.has(freq)) return null
+
+  const output: string[] = [`FREQ=${freq}`]
+  const interval = parts.get('INTERVAL')
+  if (interval) {
+    const numeric = parseRruleInt(interval, 1, 999)
+    if (numeric !== null) output.push(`INTERVAL=${numeric}`)
+  }
+  const count = parts.get('COUNT')
+  if (count) {
+    const numeric = parseRruleInt(count, 1, 9999)
+    if (numeric !== null) output.push(`COUNT=${numeric}`)
+  }
+  const until = parts.get('UNTIL')
+  if (until && /^\d{8}(T\d{6}Z?)?$/.test(until)) output.push(`UNTIL=${until}`)
+
+  const byDay = parts.get('BYDAY')
+  if (byDay) {
+    const normalized = normalizeRruleByDay(byDay)
+    if (normalized) output.push(`BYDAY=${normalized}`)
+  }
+  const byMonth = parts.get('BYMONTH')
+  if (byMonth) {
+    const normalized = normalizeRruleIntList(byMonth, 1, 12)
+    if (normalized) output.push(`BYMONTH=${normalized}`)
+  }
+  const byMonthDay = parts.get('BYMONTHDAY')
+  if (byMonthDay) {
+    const normalized = normalizeRruleIntList(byMonthDay, -31, 31)
+    if (normalized) output.push(`BYMONTHDAY=${normalized}`)
+  }
+  const bySetPos = parts.get('BYSETPOS')
+  if (bySetPos) {
+    const normalized = normalizeRruleIntList(bySetPos, -366, 366)
+    if (normalized) output.push(`BYSETPOS=${normalized}`)
+  }
+  const byHour = parts.get('BYHOUR')
+  if (byHour) {
+    const normalized = normalizeRruleIntList(byHour, 0, 23, true)
+    if (normalized) output.push(`BYHOUR=${normalized}`)
+  }
+  const byMinute = parts.get('BYMINUTE')
+  if (byMinute) {
+    const normalized = normalizeRruleIntList(byMinute, 0, 59, true)
+    if (normalized) output.push(`BYMINUTE=${normalized}`)
+  }
+  const bySecond = parts.get('BYSECOND')
+  if (bySecond) {
+    const normalized = normalizeRruleIntList(bySecond, 0, 59, true)
+    if (normalized) output.push(`BYSECOND=${normalized}`)
+  }
+  const byWeekNo = parts.get('BYWEEKNO')
+  if (byWeekNo) {
+    const normalized = normalizeRruleIntList(byWeekNo, -53, 53)
+    if (normalized) output.push(`BYWEEKNO=${normalized}`)
+  }
+  const byYearDay = parts.get('BYYEARDAY')
+  if (byYearDay) {
+    const normalized = normalizeRruleIntList(byYearDay, -366, 366)
+    if (normalized) output.push(`BYYEARDAY=${normalized}`)
+  }
+  const weekStart = parts.get('WKST')
+  if (weekStart && WEEKDAY_CODES.includes(weekStart)) output.push(`WKST=${weekStart}`)
+
+  return output.join(';')
+}
+
+/** 把中文重复短语转成 RRULE；供 AI 返回中文 recurrence 时兜底。 */
+export function parseRecurrenceRule(text: string, base: Date = new Date()): string | null {
+  return parseRecurrence(text, startOfDay(base))?.rrule ?? null
+}
 
 function pad2(value: number): string {
   return String(value).padStart(2, '0')
@@ -142,6 +285,34 @@ function nextMonthlyDate(base: Date, day: number): Date {
     if (date && date.getTime() >= base.getTime()) return date
   }
   return addMonths(base.getFullYear(), base.getMonth(), 1, 1) ?? base
+}
+
+/** 当月第 N 个星期 X（nth 为负表示倒数第 N 个）；该月不存在时返回 null。 */
+function nthWeekdayOfMonth(
+  year: number,
+  monthIndex: number,
+  weekday: number,
+  nth: number
+): Date | null {
+  if (nth > 0) {
+    const first = new Date(year, monthIndex, 1)
+    const offset = (weekday - first.getDay() + 7) % 7
+    return makeDate(year, monthIndex, 1 + offset + (nth - 1) * 7)
+  }
+  const last = new Date(year, monthIndex + 1, 0)
+  const offset = (last.getDay() - weekday + 7) % 7
+  return makeDate(year, monthIndex, last.getDate() - offset)
+}
+
+/** 下一次“每月第 N 个星期 X”；本月已过就顺延到下个月。 */
+function nextMonthlyWeekday(base: Date, weekday: number, nth: number): Date | null {
+  for (let offset = 0; offset < 13; offset += 1) {
+    const month = addMonths(base.getFullYear(), base.getMonth(), offset, 1)
+    if (!month) continue
+    const date = nthWeekdayOfMonth(month.getFullYear(), month.getMonth(), weekday, nth)
+    if (date && date.getTime() >= base.getTime()) return date
+  }
+  return null
 }
 
 interface RecurrenceParse {
@@ -242,6 +413,43 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
     }
   }
 
+  // “每月最后一个周五”“每月最后1个周五”：BYSETPOS=-1。
+  match = text.match(
+    /每月\s*(?:的)?\s*最后\s*(?:一)?\s*(?:个)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])/
+  )
+  if (match) {
+    const weekday = WEEKDAY_MAP[match[1]]
+    if (Number.isInteger(weekday)) {
+      const first = nextMonthlyWeekday(base, weekday, -1)
+      if (first) {
+        return {
+          rrule: `FREQ=MONTHLY;BYDAY=${WEEKDAY_CODES[weekday]};BYSETPOS=-1`,
+          matched: match[0],
+          first
+        }
+      }
+    }
+  }
+
+  // “每月第一个周一”“每月第2个周四”：BYSETPOS=N。
+  match = text.match(
+    /每月\s*(?:的)?\s*第\s*([一二三四五1-5])\s*(?:个)?\s*(?:周|星期|礼拜)\s*([一二三四五六日天])/
+  )
+  if (match) {
+    const nth = parseCnCount(match[1])
+    const weekday = WEEKDAY_MAP[match[2]]
+    if (nth && nth > 0 && Number.isInteger(weekday)) {
+      const first = nextMonthlyWeekday(base, weekday, nth)
+      if (first) {
+        return {
+          rrule: `FREQ=MONTHLY;BYDAY=${WEEKDAY_CODES[weekday]};BYSETPOS=${nth}`,
+          matched: match[0],
+          first
+        }
+      }
+    }
+  }
+
   match = text.match(/每月\s*(\d{1,2})\s*[日号]/)
   if (match) {
     const day = Number(match[1])
@@ -271,6 +479,25 @@ function parseRecurrence(text: string, base: Date): RecurrenceParse | null {
         matched: match[0],
         first: new Date(first)
       }
+    }
+  }
+
+  // “每季度”“每半年”：RRULE 没有 QUARTERLY，统一用 MONTHLY+INTERVAL 表达。
+  match = text.match(/每\s*(?:个)?\s*季度/)
+  if (match) {
+    return {
+      rrule: 'FREQ=MONTHLY;INTERVAL=3',
+      matched: match[0],
+      first: base
+    }
+  }
+
+  match = text.match(/每\s*(?:个)?\s*半年/)
+  if (match) {
+    return {
+      rrule: 'FREQ=MONTHLY;INTERVAL=6',
+      matched: match[0],
+      first: base
     }
   }
 

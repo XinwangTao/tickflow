@@ -371,6 +371,41 @@ const AI_CASES: AiCase[] = [
     }
   },
   {
+    name: '模型返回非法 INTERVAL 时清理为合法 RRULE',
+    input: '每3天 浇花',
+    model: { title: '浇花', recurrence: 'FREQ=DAILY;INTERVAL=0' },
+    expected: { title: '浇花', dueDate: '2026-11-05', recurrence: 'FREQ=DAILY' }
+  },
+  {
+    name: '模型返回未知 FREQ 时回落到规则解析',
+    input: '每3天 浇花',
+    model: { title: '浇花', recurrence: 'FREQ=HOURLY' },
+    expected: {
+      title: '浇花',
+      dueDate: '2026-11-05',
+      recurrence: 'FREQ=DAILY;INTERVAL=3'
+    }
+  },
+  {
+    name: '模型用中文写 recurrence 时翻译成 RRULE',
+    input: '交周报',
+    model: { title: '交周报', recurrence: '每月最后一个周五' },
+    expected: {
+      title: '交周报',
+      recurrence: 'FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1'
+    }
+  },
+  {
+    name: '模型只返回标题时补齐每月第 N 个星期与下一次日期',
+    input: '每月第一个周一 例会',
+    model: { title: '例会' },
+    expected: {
+      title: '例会',
+      dueDate: '2026-12-07',
+      recurrence: 'FREQ=MONTHLY;BYDAY=MO;BYSETPOS=1'
+    }
+  },
+  {
     name: '模型明确给出的日期/时间优先于规则',
     input: '明天下午3点 交周报',
     model: {

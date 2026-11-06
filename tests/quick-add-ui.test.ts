@@ -95,6 +95,23 @@ describe('QuickAdd AI 结果草稿', () => {
     sentAt: null,
     createdAt: '2026-11-06T00:00:00.000Z'
   }))
+  const aiResult = {
+    title: '交周报',
+    priority: 3 as const,
+    tags: ['工作', '重点'],
+    listName: '工作',
+    dueDate: '2026-11-06',
+    dueTime: '15:00',
+    allDay: false,
+    recurrence: 'FREQ=WEEKLY' as string | null
+  }
+  const parseQuickAdd = vi.fn(async (_input: string, _requestId?: string) => ({
+    ok: true,
+    source: 'ai',
+    warning: null,
+    attempts: 1,
+    result: aiResult
+  }))
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -102,22 +119,7 @@ describe('QuickAdd AI 结果草稿', () => {
     ;(window as unknown as { api: unknown }).api = {
       ai: {
         cancel: vi.fn(async () => true),
-        parseQuickAdd: vi.fn(async () => ({
-          ok: true,
-          source: 'ai',
-          warning: null,
-          attempts: 1,
-          result: {
-            title: '交周报',
-            priority: 3,
-            tags: ['工作', '重点'],
-            listName: '工作',
-            dueDate: '2026-11-06',
-            dueTime: '15:00',
-            allDay: false,
-            recurrence: 'FREQ=WEEKLY'
-          }
-        }))
+        parseQuickAdd
       },
       tasks: {
         create: createTask,
@@ -194,6 +196,36 @@ describe('QuickAdd AI 结果草稿', () => {
     expect(screen.queryByLabelText('AI 任务标题')).toBeNull()
     expect(createTask).not.toHaveBeenCalled()
     expect(input.value).toBe('明天下午3点交周报')
+  })
+
+  it('AI 返回的间隔重复在草稿里显示为「每3天」，并能原样写库', async () => {
+    parseQuickAdd.mockResolvedValueOnce({
+      ok: true,
+      source: 'ai',
+      warning: null,
+      attempts: 1,
+      result: {
+        ...aiResult,
+        title: '浇花',
+        dueDate: '2026-11-08',
+        recurrence: 'FREQ=DAILY;INTERVAL=3'
+      }
+    })
+    render(createElement(QuickAdd, { defaultListId: 'inbox' }))
+    const input = screen.getByLabelText('快速添加任务') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '每3天 浇花' } })
+    fireEvent.click(screen.getByLabelText('AI 解析并添加'))
+
+    const recurrence = (await screen.findByLabelText('AI 重复')) as HTMLSelectElement
+    expect(recurrence.value).toBe('FREQ=DAILY;INTERVAL=3')
+    expect(screen.getByRole('option', { name: '每3天' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '添加' }))
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    expect(createTask.mock.calls[0][0]).toMatchObject({
+      title: '浇花',
+      recurrence: 'FREQ=DAILY;INTERVAL=3'
+    })
   })
 })
 

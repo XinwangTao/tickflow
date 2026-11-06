@@ -18,25 +18,68 @@ export function describeRecurrence(rule: string): string {
     if (key && value) parts[key] = value
   }
 
-  if (parts.FREQ === 'DAILY') return '每天'
+  const interval = Number(parts.INTERVAL)
+  const every = Number.isInteger(interval) && interval > 1 ? interval : 1
+
+  const dayNames = (value: string): string[] =>
+    value
+      .split(',')
+      .map((code) => DAY_NAMES[code.trim()] ?? code.trim())
+      .filter(Boolean)
+  const weekdays = (days: string[]): string => days.map((day) => `周${day}`).join('、')
+  const ordinal = (value: number): string => {
+    if (value === -1) return '最后一个'
+    if (value < 0) return `倒数第${Math.abs(value)}个`
+    return `第${value}个`
+  }
+
+  if (parts.FREQ === 'DAILY') return every > 1 ? `每${every}天` : '每天'
+
   if (parts.FREQ === 'WEEKLY') {
-    if (parts.BYDAY) {
-      const codes = parts.BYDAY.split(',')
-      if (codes.length === 5 && ['MO', 'TU', 'WE', 'TH', 'FR'].every((code) => codes.includes(code))) {
-        return '工作日'
-      }
-      return `每周${codes.map((code) => DAY_NAMES[code] ?? code).join('、')}`
+    const base = every > 1 ? `每${every}周` : '每周'
+    if (!parts.BYDAY) return base
+    const days = dayNames(parts.BYDAY)
+    if (days.length === 0) return base
+    if (every === 1 && days.length === 5 && ['一', '二', '三', '四', '五'].every((day) => days.includes(day))) {
+      return '工作日'
     }
-    return '每周'
+    return every === 1 ? `每周${days.join('、')}` : `${base}的${weekdays(days)}`
   }
+
   if (parts.FREQ === 'MONTHLY') {
-    return parts.BYMONTHDAY ? `每月${parts.BYMONTHDAY}日` : '每月'
+    const base = every > 1 ? `每${every}个月` : '每月'
+    if (parts.BYDAY && parts.BYSETPOS) {
+      const days = dayNames(parts.BYDAY)
+      const positions = parts.BYSETPOS.split(',')
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value !== 0)
+      if (days.length && positions.length) {
+        return `${base}${positions.map(ordinal).join('、')}${weekdays(days)}`
+      }
+    }
+    if (parts.BYMONTHDAY) {
+      const days = parts.BYMONTHDAY.split(',')
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value !== 0)
+        .map((value) => {
+          if (value === -1) return '最后一天'
+          if (value < 0) return `倒数第${Math.abs(value)}天`
+          return `${value}日`
+        })
+      if (days.length) return `${base}${days.join('、')}`
+    }
+    return base
   }
+
   if (parts.FREQ === 'YEARLY') {
-    return parts.BYMONTH && parts.BYMONTHDAY
-      ? `每年${parts.BYMONTH}月${parts.BYMONTHDAY}日`
-      : '每年'
+    const base = every > 1 ? `每${every}年` : '每年'
+    if (parts.BYMONTH && parts.BYMONTHDAY) {
+      return `${base}${parts.BYMONTH}月${parts.BYMONTHDAY}日`
+    }
+    if (parts.BYMONTH) return `${base}${parts.BYMONTH}月`
+    return base
   }
+
   return rule
 }
 

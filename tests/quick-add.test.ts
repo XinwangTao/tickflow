@@ -102,6 +102,33 @@ describe('parseQuickAdd', () => {
     )
   })
 
+  it('解析每月第 N 个星期与最后一个个星期', () => {
+    const firstMonday = parseQuickAdd('每月第一个周一 例会', NOW)
+    expect(firstMonday.recurrence).toBe('FREQ=MONTHLY;BYDAY=MO;BYSETPOS=1')
+    expect(firstMonday.title).toBe('例会')
+    // 11 月的第一个周一（11-02）已过，顺延到 12-07
+    expect(firstMonday.dueDate).toBe('2026-12-07')
+
+    const secondThursday = parseQuickAdd('每月第2个周四 复盘', NOW)
+    expect(secondThursday.recurrence).toBe('FREQ=MONTHLY;BYDAY=TH;BYSETPOS=2')
+    expect(secondThursday.dueDate).toBe('2026-11-12')
+
+    const lastFriday = parseQuickAdd('每月最后一个周五 收尾', NOW)
+    expect(lastFriday.recurrence).toBe('FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1')
+    expect(lastFriday.dueDate).toBe('2026-11-27')
+    expect(lastFriday.title).toBe('收尾')
+  })
+
+  it('解析每季度与每半年', () => {
+    expect(parseQuickAdd('每季度 复盘', NOW).recurrence).toBe(
+      'FREQ=MONTHLY;INTERVAL=3'
+    )
+    expect(parseQuickAdd('每季度 复盘', NOW).title).toBe('复盘')
+    expect(parseQuickAdd('每半年 体检', NOW).recurrence).toBe(
+      'FREQ=MONTHLY;INTERVAL=6'
+    )
+  })
+
   it('区间不吞掉普通星期列表', () => {
     expect(parseQuickAdd('每周一三五 晨会', NOW).recurrence).toBe(
       'FREQ=WEEKLY;BYDAY=MO,WE,FR'
