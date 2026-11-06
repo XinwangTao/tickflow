@@ -3997,3 +3997,61 @@ kbd {
   color: var(--muted);
   font-size: 11px;
 }
+
+.task-menu-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 6px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.task-menu-action:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.search-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px 4px;
+}
+
+.search-recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.search-recent-head button {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.search-recent-head button:hover {
+  color: var(--text);
+}
+
+.search-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: left;
+}
+
+.search-recent-item:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
