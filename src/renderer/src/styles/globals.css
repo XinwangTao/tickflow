@@ -658,6 +658,12 @@ input[type="checkbox"] {
   background: var(--accent-soft);
 }
 
+.quick-add-mic.starting {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+  border-style: dashed;
+}
+
 .quick-add-mic:disabled { opacity: 0.55; cursor: default; }
 
 @keyframes quick-add-mic-pulse {

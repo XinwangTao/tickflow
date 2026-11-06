@@ -11,6 +11,11 @@ export const VOICE_MAX_RECORD_MS = 60_000
 export const VOICE_MIN_RECORD_MS = 600
 /** renderer 等待转写的上限；超时后中止 main 里的子进程，按钮立即恢复。 */
 export const VOICE_TRANSCRIBE_TIMEOUT_MS = 75_000
+/**
+ * 等待系统麦克风授权/设备启动的上限。部分系统会把权限弹窗挂在后台不返回，
+ * 没有上限时按钮会一直停在“没反应”的状态，只能重启应用。
+ */
+export const VOICE_PERMISSION_TIMEOUT_MS = 15_000
 /** IPC 传输的录音上限，留出 webm 容器开销。 */
 export const VOICE_MAX_AUDIO_BYTES = 24 * 1024 * 1024
 
@@ -20,6 +25,9 @@ export const VOICE_EMPTY_HINT = '没有录到声音，请检查麦克风'
 export const VOICE_MAX_REACHED_HINT = '已达到 60 秒录音上限，正在识别'
 export const VOICE_CANCELED_HINT = '已取消语音识别'
 export const VOICE_TIMEOUT_HINT = '语音识别超时（75 秒），请缩短录音后重试'
+export const VOICE_PERMISSION_TIMEOUT_HINT =
+  '等待麦克风权限超时，请检查系统权限弹窗后重试'
+export const VOICE_START_CANCELED_HINT = '已取消录音启动'
 
 export interface VoiceTranscribeResult {
   text?: string
@@ -70,6 +78,19 @@ export function micErrorMessage(error: unknown): string {
     default:
       return raw ? `打不开麦克风：${raw}` : '打不开麦克风，请检查系统权限'
   }
+}
+
+/** 权限被拒或系统策略禁止时，重试同一个调用只会再失败一次，不给「重试」按钮。 */
+export function micErrorRetryable(error: unknown): boolean {
+  const name =
+    error && typeof error === 'object' && 'name' in error
+      ? String((error as { name?: unknown }).name ?? '')
+      : ''
+  return (
+    name !== 'NotAllowedError' &&
+    name !== 'PermissionDeniedError' &&
+    name !== 'SecurityError'
+  )
 }
 
 /** 按兼容性顺序尝试的容器格式；拿到第一个支持的即可。 */

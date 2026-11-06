@@ -14,6 +14,7 @@ import {
 import {
   appendTranscript,
   micErrorMessage,
+  micErrorRetryable,
   pickRecorderMime,
   recordingTooShort,
   VOICE_CANCELED_HINT,
@@ -21,6 +22,9 @@ import {
   VOICE_MAX_AUDIO_BYTES,
   VOICE_MAX_RECORD_MS,
   VOICE_MAX_REACHED_HINT,
+  VOICE_PERMISSION_TIMEOUT_HINT,
+  VOICE_PERMISSION_TIMEOUT_MS,
+  VOICE_START_CANCELED_HINT,
   VOICE_TIMEOUT_HINT,
   VOICE_TOO_SHORT_HINT,
   VOICE_TRANSCRIBE_TIMEOUT_MS,
@@ -67,6 +71,9 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   const [aiDraft, setAiDraft] = useState<QuickAddDraft | null>(null)
   const [recording, setRecording] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
+  // 已点击麦克风、正在等 getUserMedia（系统授权弹窗 / 设备启动）时也要有状态：
+  // 否则按钮看起来毫无反应，用户会连点，进而申请出多条并行录音流。
+  const [starting, setStarting] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [transcribeSeconds, setTranscribeSeconds] = useState(0)
   const recorderRef = useRef<MediaRecorder | null>(null)
@@ -76,6 +83,12 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   const recordingStartedAt = useRef(0)
   const discardRecording = useRef(false)
   const voiceRequestSeq = useRef(0)
+  // getUserMedia 无法真正中止：用自增 token 忽略迟到的流，并主动停掉它的 track。
+  const micStartSeq = useRef(0)
+  const micStartTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // onstop 在组件卸载后也可能被调用；只有卸载时才跳过 state 更新，
+  // 正常取消（太短/麦克风中断）仍要把按钮恢复成「语音输入」。
+  const unmounted = useRef(false)
   const activeTranscribe = useRef<{
     id: string
     timer: ReturnType<typeof setTimeout>
@@ -111,7 +124,14 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   // 卸载时停止麦克风并中止转写：onstop 会看到 discard 标记，不会在组件消失后写 state。
   useEffect(() => {
     return () => {
+      unmounted.current = true
       discardRecording.current = true
+      // 组件已经卸载：迟到的 getUserMedia 结果必须自己停掉，否则麦克风会一直亮着。
+      micStartSeq.current += 1
+      if (micStartTimer.current) {
+        clearTimeout(micStartTimer.current)
+        micStartTimer.current = null
+      }
       const recorder = recorderRef.current
       recorderRef.current = null
       try {
@@ -474,7 +494,10 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   }
 
   const transcribeChunks = async (chunks: Blob[]): Promise<void> => {
+    // 同一时刻只允许一次转写：失败 toast 上的「重试」被连点时不会并行启动两次识别。
+    if (activeTranscribe.current) return
     const requestId = `voice-${(voiceRequestSeq.current += 1)}`
+    const retry = (): void => void transcribeChunks(chunks)
     const timer = setTimeout(() => {
       if (activeTranscribe.current?.id !== requestId) return
       activeTranscribe.current = null
@@ -488,7 +511,7 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       showToast(VOICE_TIMEOUT_HINT, 'error', {
         duration: 7000,
         actionLabel: '重试',
-        action: () => void transcribeChunks(chunks)
+        action: retry
       })
     }, VOICE_TRANSCRIBE_TIMEOUT_MS)
     activeTranscribe.current = { id: requestId, timer }
@@ -505,10 +528,19 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
         inputRef.current?.focus()
         return
       }
-      showToast(result?.error || '没听清，再说一次？', 'error')
+      // 没听清/识别失败时保留录音，toast 上的「重试」复用这段音频，不用重新录。
+      showToast(result?.error || '没听清，再说一次？', 'error', {
+        duration: 7000,
+        actionLabel: '重试',
+        action: retry
+      })
     } catch (error) {
       if (activeTranscribe.current?.id !== requestId) return
-      showToast(micErrorMessage(error), 'error')
+      showToast(micErrorMessage(error), 'error', {
+        duration: 7000,
+        actionLabel: '重试',
+        action: retry
+      })
     } finally {
       if (activeTranscribe.current?.id === requestId) {
         clearTimeout(timer)
@@ -528,8 +560,11 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     stopStream()
     const discarded = discardRecording.current
     discardRecording.current = false
-    setRecording(false)
-    setRecordingSeconds(0)
+    if (!unmounted.current) {
+      setRecording(false)
+      setRecordingSeconds(0)
+    }
+    // 取消/卸载导致的停止不再继续转写；卸载时也跳过 state 更新。
     if (discarded) return
     if (!chunks.length) {
       showToast(VOICE_EMPTY_HINT, 'error')
@@ -567,7 +602,25 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
     }
   }
 
+  const clearMicStartTimer = (): void => {
+    if (!micStartTimer.current) return
+    clearTimeout(micStartTimer.current)
+    micStartTimer.current = null
+  }
+
+  // 取消“等授权”：getUserMedia 本身无法中止，递增 token 让迟到的 stream 自己停掉。
+  const cancelMicStart = (): void => {
+    micStartSeq.current += 1
+    clearMicStartTimer()
+    setStarting(false)
+    showToast(VOICE_START_CANCELED_HINT, 'info')
+  }
+
   const toggleRecording = async (): Promise<void> => {
+    if (starting) {
+      cancelMicStart()
+      return
+    }
     if (transcribing) {
       cancelTranscription()
       return
@@ -585,9 +638,50 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       showToast(VOICE_UNSUPPORTED_HINT, 'error')
       return
     }
+    const token = (micStartSeq.current += 1)
+    setStarting(true)
+    micStartTimer.current = setTimeout(() => {
+      if (micStartSeq.current !== token) return
+      micStartTimer.current = null
+      micStartSeq.current += 1
+      setStarting(false)
+      showToast(VOICE_PERMISSION_TIMEOUT_HINT, 'error', {
+        duration: 7000,
+        actionLabel: '重试',
+        action: () => void toggleRecording()
+      })
+    }, VOICE_PERMISSION_TIMEOUT_MS)
+
+    let stream: MediaStream
     try {
-      const stream = await mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
+      stream = await mediaDevices.getUserMedia({ audio: true })
+    } catch (error) {
+      // 用户已经取消/超时/卸载：不再提示第二次。
+      if (micStartSeq.current !== token) return
+      clearMicStartTimer()
+      setStarting(false)
+      showToast(
+        micErrorMessage(error),
+        'error',
+        micErrorRetryable(error)
+          ? {
+              duration: 7000,
+              actionLabel: '重试',
+              action: () => void toggleRecording()
+            }
+          : undefined
+      )
+      return
+    }
+    // 授权弹窗挂起期间用户点了取消或切走了视图：主动停掉这条迟到的流。
+    if (micStartSeq.current !== token) {
+      stream.getTracks().forEach((track) => track.stop())
+      return
+    }
+    clearMicStartTimer()
+    setStarting(false)
+    streamRef.current = stream
+    try {
       for (const track of stream.getTracks()) {
         track.addEventListener?.('ended', () => {
           const recorder = recorderRef.current
@@ -675,28 +769,41 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
           type="button"
           className={`quick-add-mic ${recording ? 'recording' : ''} ${
             transcribing ? 'transcribing' : ''
-          }`}
+          } ${starting ? 'starting' : ''}`}
           title={
-            transcribing
-              ? `取消语音识别（已等待 ${transcribeSeconds}s）`
-              : recording
-                ? `停止录音并识别 · 最长 ${VOICE_MAX_RECORD_MS / 1000} 秒`
-                : '语音输入：点一下开始，说完再点一下结束'
+            starting
+              ? '正在等待麦克风权限，点击取消'
+              : transcribing
+                ? `取消语音识别（已等待 ${transcribeSeconds}s）`
+                : recording
+                  ? `停止录音并识别 · 最长 ${VOICE_MAX_RECORD_MS / 1000} 秒`
+                  : '语音输入：点一下开始，说完再点一下结束'
           }
           aria-label={
-            transcribing ? '取消语音识别' : recording ? '停止录音' : '语音输入'
+            starting
+              ? '取消获取麦克风权限'
+              : transcribing
+                ? '取消语音识别'
+                : recording
+                  ? '停止录音'
+                  : '语音输入'
           }
           aria-pressed={recording}
           onClick={() => void toggleRecording()}
         >
-          <Icon name={transcribing ? 'close' : recording ? 'stop' : 'mic'} size={14} />
-          {transcribing
-            ? transcribeSeconds > 0
-              ? `识别中 ${transcribeSeconds}s`
-              : '识别中'
-            : recording
-              ? `录音中 ${recordingSeconds}s`
-              : ''}
+          <Icon
+            name={starting ? 'timer' : transcribing ? 'close' : recording ? 'stop' : 'mic'}
+            size={14}
+          />
+          {starting
+            ? '授权中'
+            : transcribing
+              ? transcribeSeconds > 0
+                ? `识别中 ${transcribeSeconds}s`
+                : '识别中'
+              : recording
+                ? `录音中 ${recordingSeconds}s`
+                : ''}
         </button>
         {settings.aiEnabled ? (
           <>

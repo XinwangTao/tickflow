@@ -6,14 +6,20 @@ import { useAppStore } from '../src/renderer/src/store/useAppStore'
 import { AI_DEFAULT_BASE_URL, AI_DEFAULT_MODEL, AI_DEFAULT_TIMEOUT_MS } from '../src/shared/ai'
 import type { ListWithCount, Settings } from '../src/shared/types'
 import {
+  VOICE_PERMISSION_TIMEOUT_HINT,
+  VOICE_START_CANCELED_HINT,
   VOICE_TOO_SHORT_HINT,
   VOICE_UNSUPPORTED_HINT
 } from '../src/shared/voice'
 
-// 把 75 秒的转写超时缩短到 40ms，测试不用真的等一分多钟。
+// 把 75 秒的转写超时与 15 秒的授权等待都缩短到 40ms，测试不用真的等。
 vi.mock('@shared/voice', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/shared/voice')>()
-  return { ...actual, VOICE_TRANSCRIBE_TIMEOUT_MS: 40 }
+  return {
+    ...actual,
+    VOICE_TRANSCRIBE_TIMEOUT_MS: 40,
+    VOICE_PERMISSION_TIMEOUT_MS: 40
+  }
 })
 
 const LISTS: ListWithCount[] = [
@@ -173,6 +179,34 @@ function setupMedia(options: { reject?: Error } = {}): {
   return { getUserMedia, tracks }
 }
 
+function makeDeferredMedia(): {
+  pending: { promise: Promise<MediaStream>; resolve: (value: MediaStream) => void }
+  stream: MediaStream
+  track: FakeTrack
+} {
+  const listeners: Array<() => void> = []
+  const track: FakeTrack = {
+    stop: vi.fn(),
+    addEventListener: vi.fn((event: string, callback: () => void) => {
+      if (event === 'ended') listeners.push(callback)
+    }),
+    fireEnded: () => {
+      for (const callback of listeners) callback()
+    }
+  }
+  const stream = {
+    getTracks: () => [track],
+    getAudioTracks: () => [track]
+  } as unknown as MediaStream
+  const pending = deferred<MediaStream>()
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia: vi.fn(() => pending.promise) }
+  })
+  vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
+  return { pending, stream, track }
+}
+
 function mount(): HTMLInputElement {
   render(createElement(QuickAdd, { defaultListId: 'inbox' }))
   return screen.getByLabelText('快速添加任务') as HTMLInputElement
@@ -227,7 +261,7 @@ describe('快速添加栏语音输入', () => {
     expect(transcribe.mock.calls[0][1]).toMatch(/^voice-\d+$/)
   })
 
-  it('麦克风权限被拒绝时给出可读提示，不调用识别', async () => {
+  it('麦克风权限被拒绝时给出可读提示，且不提供无意义的重试', async () => {
     setupMedia({
       reject: Object.assign(new Error('denied'), { name: 'NotAllowedError' })
     })
@@ -236,7 +270,57 @@ describe('快速添加栏语音输入', () => {
     fireEvent.click(screen.getByLabelText('语音输入'))
 
     await waitFor(() => expect(toastMessage()).toContain('麦克风权限被拒绝'))
+    expect(useAppStore.getState().toast?.action).toBeUndefined()
     expect(screen.getByLabelText('语音输入')).toBeInTheDocument()
+    expect(transcribe).not.toHaveBeenCalled()
+  })
+
+  it('等待授权时按钮显示可取消状态，取消后迟到的麦克风流会被停掉', async () => {
+    const { pending, stream, track } = makeDeferredMedia()
+    mount()
+
+    fireEvent.click(screen.getByLabelText('语音输入'))
+
+    expect(screen.getByLabelText('取消获取麦克风权限')).toBeInTheDocument()
+    expect(screen.getByText('授权中')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('取消获取麦克风权限'))
+
+    expect(toastMessage()).toContain(VOICE_START_CANCELED_HINT)
+    expect(screen.getByLabelText('语音输入')).toBeInTheDocument()
+
+    pending.resolve(stream)
+    await waitFor(() => expect(track.stop).toHaveBeenCalled())
+    expect(FakeMediaRecorder.instances).toHaveLength(0)
+    expect(transcribe).not.toHaveBeenCalled()
+  })
+
+  it('授权等待超时后恢复按钮并给重试入口，迟到的麦克风流会被停掉', async () => {
+    const { pending, stream, track } = makeDeferredMedia()
+    mount()
+
+    fireEvent.click(screen.getByLabelText('语音输入'))
+
+    await waitFor(() => expect(toastMessage()).toContain(VOICE_PERMISSION_TIMEOUT_HINT), {
+      timeout: 2000
+    })
+    expect(useAppStore.getState().toast?.actionLabel).toBe('重试')
+    expect(screen.getByLabelText('语音输入')).toBeInTheDocument()
+
+    pending.resolve(stream)
+    await waitFor(() => expect(track.stop).toHaveBeenCalled())
+    expect(transcribe).not.toHaveBeenCalled()
+  })
+
+  it('授权等待期间卸载，迟到的麦克风流会被停掉', async () => {
+    const { pending, stream, track } = makeDeferredMedia()
+    mount()
+
+    fireEvent.click(screen.getByLabelText('语音输入'))
+    cleanup()
+
+    pending.resolve(stream)
+    await waitFor(() => expect(track.stop).toHaveBeenCalled())
     expect(transcribe).not.toHaveBeenCalled()
   })
 
@@ -268,8 +352,32 @@ describe('快速添加栏语音输入', () => {
     await waitFor(() =>
       expect(toastMessage()).toContain('没有找到离线语音识别环境')
     )
+    expect(useAppStore.getState().toast?.actionLabel).toBe('重试')
     expect(input.value).toBe('买牛奶')
     expect(screen.getByLabelText('语音输入')).toBeInTheDocument()
+  })
+
+  it('识别失败后点重试会复用同一段录音，成功时追加文字', async () => {
+    setupMedia()
+    transcribe
+      .mockResolvedValueOnce({ error: '转写失败，请重试' })
+      .mockResolvedValueOnce({ text: '下午三点交周报' })
+    const input = mount()
+
+    await startRecording()
+    now += 1200
+    fireEvent.click(screen.getByLabelText('停止录音'))
+
+    await waitFor(() => expect(transcribe).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(toastMessage()).toContain('转写失败'))
+
+    await act(async () => {
+      await useAppStore.getState().toast?.action?.()
+    })
+
+    await waitFor(() => expect(transcribe).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(input.value).toBe('下午三点交周报'))
+    expect(transcribe.mock.calls[0][1]).not.toBe(transcribe.mock.calls[1][1])
   })
 
   it('识别中可取消，迟到的结果不会覆盖输入', async () => {

@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   appendTranscript,
   micErrorMessage,
+  micErrorRetryable,
   pickRecorderMime,
   recordingTooShort,
   VOICE_MAX_RECORD_MS,
   VOICE_MAX_AUDIO_BYTES,
   VOICE_MIN_RECORD_MS,
+  VOICE_PERMISSION_TIMEOUT_MS,
   VOICE_TRANSCRIBE_TIMEOUT_MS,
   voiceElapsedSeconds
 } from '../src/shared/voice'
@@ -27,6 +29,18 @@ describe('语音输入辅助函数', () => {
     expect(micErrorMessage(new Error('device busy'))).toBe('打不开麦克风：device busy')
     expect(micErrorMessage('boom')).toBe('打不开麦克风：boom')
     expect(micErrorMessage(null)).toBe('打不开麦克风，请检查系统权限')
+  })
+
+  it('权限与安全策略错误不给重试，其余录音错误可重试', () => {
+    const named = (name: string): Error => Object.assign(new Error('raw'), { name })
+    expect(micErrorRetryable(named('NotAllowedError'))).toBe(false)
+    expect(micErrorRetryable(named('PermissionDeniedError'))).toBe(false)
+    expect(micErrorRetryable(named('SecurityError'))).toBe(false)
+    expect(micErrorRetryable(named('NotFoundError'))).toBe(true)
+    expect(micErrorRetryable(named('NotReadableError'))).toBe(true)
+    expect(micErrorRetryable(named('AbortError'))).toBe(true)
+    expect(micErrorRetryable(new Error('device busy'))).toBe(true)
+    expect(micErrorRetryable(null)).toBe(true)
   })
 
   it('按兼容性顺序挑选录音格式，全部不支持时交给浏览器默认值', () => {
@@ -65,6 +79,7 @@ describe('语音输入辅助函数', () => {
   it('时长与体积上限保持一致，给 UI 和主进程共用', () => {
     expect(VOICE_MAX_RECORD_MS).toBe(60_000)
     expect(VOICE_TRANSCRIBE_TIMEOUT_MS).toBeGreaterThan(VOICE_MAX_RECORD_MS)
+    expect(VOICE_PERMISSION_TIMEOUT_MS).toBeLessThan(VOICE_MAX_RECORD_MS)
     expect(VOICE_MAX_AUDIO_BYTES).toBeGreaterThan(VOICE_MAX_RECORD_MS)
     expect(VOICE_MIN_RECORD_MS).toBeLessThan(VOICE_MAX_RECORD_MS)
   })
