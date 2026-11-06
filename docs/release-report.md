@@ -1,7 +1,7 @@
 # 刻度清单 TickFlow — 发布验收报告
 
 - 版本：0.1.0
-- 日期：2026-11-06
+- 日期：2026-11-07
 - 范围：Windows 桌面端 + Android（Capacitor）+ Cloudflare R2 快照同步
 
 ## 验证结果
@@ -23,7 +23,7 @@
 
 | 产物 | 大小 | SHA-256 |
 |---|---|---|
-| `release/刻度清单 Setup 0.1.0.exe` | 121,689,764 B | `48fef999c205762343b73834353ba63f61e30461251294f16d8334e60c31915d` |
+| `release/刻度清单 Setup 0.1.0.exe` | 121,590,233 B | `125764652d1d457dbb0f7036c7c1b0bfcb5e6e97ba6bca2de10d183700075c3a` |
 | `mobile/android/app/build/outputs/apk/debug/app-debug.apk` | 5,273,455 B | `aa21b481f9f57f8130536350b13df1568ce7c87a80c749f6f97a867e9648b658` |
 | `mobile/android/app/build/outputs/apk/release/app-release.apk` | 3,797,709 B | `0cce780270a46c039ba6a5bdfaf15d056c2998e80838862220d192ad77dee042` |
 

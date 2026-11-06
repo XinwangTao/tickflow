@@ -39,7 +39,7 @@
 
 ### 验证
 
-- TypeScript 类型检查通过；Vitest 36 个文件 / 508 项、Playwright E2E 25 条
+- TypeScript 类型检查通过；Vitest 36 个文件 / 508 项、Playwright E2E 32 条
 - 桌面安装包与 Android debug/release APK 构建成功；release APK 已签名
 - PKJ110 / Android 17 真机：安装、冷启动、CRUD、习惯/番茄/统计、返回键、20+3 轮稳定性、离线冷启动、release 安装通过
 - 真实 R2 桶 B1–B11：双端双向、软删除、LWW、1000 任务快照、错误 Secret 403；当前 3 份快照 / 93.3 KB
