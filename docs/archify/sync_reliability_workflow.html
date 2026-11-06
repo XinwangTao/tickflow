@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>刻度清单 TickFlow — 同步可靠性</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --line: #2a2f3a;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --main: #5a6377;
+    --view: #2f5f8f;
+    --fail: #b4545f;
+    --manual: #c9a227;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header { padding: 22px 30px 6px; }
+  h1 { font-size: 20px; margin: 0 0 6px; font-weight: 650; letter-spacing: .2px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; padding: 10px 30px 4px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .swatch.main { background: #1b2029; border: 1.5px solid #3a4252; }
+  .swatch.view { background: #15202e; border: 1.5px solid var(--view); }
+  .swatch.failure { background: #2a1a1d; border: 1.5px solid var(--fail); }
+  .swatch.manual { background: transparent; border: 1.5px dashed var(--manual); }
+  .canvas-wrap { padding: 8px 20px 0; }
+  svg { display: block; width: 100%; height: auto; }
+  .node rect { fill: #1b2029; stroke: #3a4252; stroke-width: 1.5; }
+  .node.view rect { fill: #15202e; stroke: var(--view); }
+  .node.failure rect { fill: #2a1a1d; stroke: var(--fail); }
+  .node text.title { font-size: 14px; font-weight: 600; fill: #e6e8ee; }
+  .node text.detail { font-size: 11px; fill: #8b93a7; }
+  .edge { fill: none; stroke: var(--main); stroke-width: 1.7; }
+  .edge.failure { stroke: var(--fail); stroke-dasharray: 6 5; }
+  .edge.manual { stroke: var(--manual); stroke-dasharray: 3 5; }
+  .edge-label {
+    font-size: 11px;
+    fill: #aab2c5;
+    paint-order: stroke;
+    stroke: var(--bg);
+    stroke-width: 4px;
+    stroke-linejoin: round;
+  }
+  footer { padding: 10px 30px 26px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+  code { color: #c8d0e0; background: #171a21; border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f7f8fa; --panel: #ffffff; --line: #e3e6ec; --text: #1c2028; --muted: #667085; }
+    .node rect { fill: #ffffff; stroke: #cdd3de; }
+    .node.view rect { fill: #f0f7ff; stroke: var(--view); }
+    .node.failure rect { fill: #fff2f3; stroke: var(--fail); }
+    .node text.title { fill: #1c2028; }
+    .node text.detail { fill: #667085; }
+    .edge-label { fill: #475467; stroke: var(--bg); }
+    .swatch.main { background: #ffffff; }
+    .swatch.view { background: #f0f7ff; }
+    .swatch.failure { background: #fff2f3; }
+    code { background: #ffffff; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="meta" id="meta"></div>
+</header>
+<div class="legend" id="legend"></div>
+<div class="canvas-wrap">
+  <svg id="graph" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="流程图"></svg>
+</div>
+<footer id="footer"></footer>
+<noscript>此图需要启用 JavaScript 才能渲染；数据同时保存在 tickflow_workflow.json。</noscript>
+<script id="graph-data" type="application/json">
+{
+  "name": "sync_reliability_workflow",
+  "title": "刻度清单 TickFlow — 同步可靠性（变更后自动同步 + 失败重试）",
+  "level": "L1",
+  "version": "0.1",
+  "updated": "2026-11-07",
+  "layout": {
+    "width": 1300,
+    "height": 560,
+    "nodeWidth": 200,
+    "nodeHeight": 76
+  },
+  "legend": [
+    {
+      "type": "main",
+      "label": "主流程节点"
+    },
+    {
+      "type": "view",
+      "label": "视图 / 分支"
+    },
+    {
+      "type": "failure",
+      "label": "失败出口"
+    },
+    {
+      "type": "manual",
+      "label": "人工入口（虚线）"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "S1",
+      "label": "本地写入",
+      "type": "main",
+      "x": 60,
+      "y": 90,
+      "detail": [
+        "任务 / 清单 / 标签",
+        "写入后标记 dirty"
+      ]
+    },
+    {
+      "id": "S2",
+      "label": "防抖聚合",
+      "type": "main",
+      "x": 320,
+      "y": 90,
+      "detail": [
+        "3 秒无新写入再触发",
+        "多次变更合并为一次"
+      ]
+    },
+    {
+      "id": "S3",
+      "label": "自动同步闸门",
+      "type": "view",
+      "x": 580,
+      "y": 90,
+      "detail": [
+        "r2AutoSync 开启",
+        "且 R2 配置完整"
+      ]
+    },
+    {
+      "id": "S4",
+      "label": "单飞同步执行",
+      "type": "main",
+      "x": 840,
+      "y": 90,
+      "detail": [
+        "同步中再触发只排一次尾随",
+        "手动 / 启动同步立即执行"
+      ]
+    },
+    {
+      "id": "S5",
+      "label": "成功出口",
+      "type": "view",
+      "x": 840,
+      "y": 300,
+      "detail": [
+        "写 r2LastSync",
+        "推送成功状态 + toast"
+      ]
+    },
+    {
+      "id": "S6",
+      "label": "失败退避重试",
+      "type": "failure",
+      "x": 580,
+      "y": 300,
+      "detail": [
+        "5s / 15s / 45s，最多 3 次",
+        "新写入重置计数"
+      ]
+    },
+    {
+      "id": "S7",
+      "label": "错误可见",
+      "type": "failure",
+      "x": 320,
+      "y": 300,
+      "detail": [
+        "设置页显示失败原因",
+        "不无限自动重试"
+      ]
+    },
+    {
+      "id": "S8",
+      "label": "手动 / 启动同步",
+      "type": "manual",
+      "x": 1060,
+      "y": 470,
+      "detail": [
+        "设置页「立即同步」",
+        "重置重试计数"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "S1",
+      "to": "S2",
+      "label": "每次写入"
+    },
+    {
+      "from": "S2",
+      "to": "S3",
+      "label": "防抖到期"
+    },
+    {
+      "from": "S3",
+      "to": "S4",
+      "label": "已开启且配置完整"
+    },
+    {
+      "from": "S3",
+      "to": "S7",
+      "label": "关闭 / 未配置",
+      "kind": "manual",
+      "points": [
+        [
+          580,
+          128
+        ],
+        [
+          540,
+          128
+        ],
+        [
+          540,
+          230
+        ],
+        [
+          420,
+          230
+        ],
+        [
+          420,
+          300
+        ]
+      ]
+    },
+    {
+      "from": "S4",
+      "to": "S5",
+      "label": "成功",
+      "points": [
+        [
+          940,
+          166
+        ],
+        [
+          940,
+          300
+        ]
+      ]
+    },
+    {
+      "from": "S4",
+      "to": "S6",
+      "label": "失败",
+      "points": [
+        [
+          840,
+          166
+        ],
+        [
+          840,
+          230
+        ],
+        [
+          680,
+          230
+        ],
+        [
+          680,
+          300
+        ]
+      ]
+    },
+    {
+      "from": "S6",
+      "to": "S4",
+      "label": "退避后重试（≤3）",
+      "points": [
+        [
+          580,
+          338
+        ],
+        [
+          560,
+          338
+        ],
+        [
+          560,
+          200
+        ],
+        [
+          900,
+          200
+        ],
+        [
+          900,
+          166
+        ]
+      ]
+    },
+    {
+      "from": "S6",
+      "to": "S7",
+      "label": "达上限",
+      "points": [
+        [
+          680,
+          376
+        ],
+        [
+          680,
+          430
+        ],
+        [
+          420,
+          430
+        ],
+        [
+          420,
+          376
+        ]
+      ]
+    },
+    {
+      "from": "S8",
+      "to": "S4",
+      "label": "立即执行",
+      "kind": "manual",
+      "points": [
+        [
+          1160,
+          470
+        ],
+        [
+          1160,
+          128
+        ],
+        [
+          1040,
+          128
+        ]
+      ]
+    },
+    {
+      "from": "S7",
+      "to": "S8",
+      "label": "用户点重试",
+      "kind": "manual",
+      "points": [
+        [
+          520,
+          338
+        ],
+        [
+          540,
+          338
+        ],
+        [
+          540,
+          508
+        ],
+        [
+          1060,
+          508
+        ]
+      ]
+    }
+  ]
+}
+</script>
+<script>
+(function () {
+  "use strict";
+  var data = JSON.parse(document.getElementById("graph-data").textContent);
+  var NS = "http://www.w3.org/2000/svg";
+  var W = data.layout.nodeWidth;
+  var H = data.layout.nodeHeight;
+  var svg = document.getElementById("graph");
+  svg.setAttribute("viewBox", "0 0 " + data.layout.width + " " + data.layout.height);
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+  function el(name, attrs, text) {
+    var n = document.createElementNS(NS, name);
+    if (attrs) Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+    if (text !== undefined && text !== null) n.textContent = text;
+    return n;
+  }
+
+  // markers
+  var defs = el("defs");
+  [["arrow", "#5a6377"], ["arrowFail", "#b4545f"], ["arrowManual", "#c9a227"]].forEach(function (m) {
+    var marker = el("marker", {
+      id: m[0], viewBox: "0 0 10 10", refX: "9", refY: "5",
+      markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse"
+    });
+    marker.appendChild(el("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: m[1] }));
+    defs.appendChild(marker);
+  });
+  svg.appendChild(defs);
+
+  document.getElementById("title").textContent = data.title;
+  document.getElementById("meta").textContent =
+    data.level + " · v" + data.version + " · " + data.updated +
+    " · " + data.nodes.length + " 节点 / " + data.edges.length + " 边";
+
+  var legend = document.getElementById("legend");
+  data.legend.forEach(function (item) {
+    var span = document.createElement("span");
+    var sw = document.createElement("i");
+    sw.className = "swatch " + item.type;
+    span.appendChild(sw);
+    span.appendChild(document.createTextNode(item.label));
+    legend.appendChild(span);
+  });
+
+  var byId = {};
+  data.nodes.forEach(function (n) { byId[n.id] = n; });
+
+  function defaultPoints(a, b) {
+    var ax = a.x + W / 2, ay = a.y + H / 2;
+    var bx = b.x + W / 2, by = b.y + H / 2;
+    if (Math.abs(bx - ax) >= Math.abs(by - ay)) {
+      return bx > ax
+        ? [[a.x + W, ay], [b.x, by]]
+        : [[a.x, ay], [b.x + W, by]];
+    }
+    return by > ay
+      ? [[ax, a.y + H], [bx, b.y]]
+      : [[ax, a.y], [bx, b.y + H]];
+  }
+
+  function roundedPath(pts, r) {
+    if (pts.length < 2) return "";
+    var d = "M " + pts[0][0] + " " + pts[0][1];
+    for (var i = 1; i < pts.length - 1; i++) {
+      var p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+      var v1x = p1[0] - p0[0], v1y = p1[1] - p0[1];
+      var v2x = p2[0] - p1[0], v2y = p2[1] - p1[1];
+      var l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
+      if (!l1 || !l2) { d += " L " + p1[0] + " " + p1[1]; continue; }
+      var rr = Math.min(r, l1 / 2, l2 / 2);
+      var q1x = p1[0] - v1x / l1 * rr, q1y = p1[1] - v1y / l1 * rr;
+      var q2x = p1[0] + v2x / l2 * rr, q2y = p1[1] + v2y / l2 * rr;
+      d += " L " + q1x + " " + q1y + " Q " + p1[0] + " " + p1[1] + " " + q2x + " " + q2y;
+    }
+    var last = pts[pts.length - 1];
+    d += " L " + last[0] + " " + last[1];
+    return d;
+  }
+
+  // edges first (under nodes)
+  var labels = [];
+  data.edges.forEach(function (e) {
+    var a = byId[e.from], b = byId[e.to];
+    if (!a || !b) return;
+    var pts = e.points && e.points.length ? e.points : defaultPoints(a, b);
+    var path = el("path", { d: roundedPath(pts, 12), "class": "edge " + (e.kind || "") });
+    var marker = e.kind === "failure" ? "arrowFail" : (e.kind === "manual" ? "arrowManual" : "arrow");
+    path.setAttribute("marker-end", "url(#" + marker + ")");
+    svg.appendChild(path);
+    labels.push({ edge: e, path: path });
+  });
+
+  // nodes
+  data.nodes.forEach(function (n) {
+    var g = el("g", { "class": "node " + n.type });
+    g.appendChild(el("rect", { x: n.x, y: n.y, width: W, height: H, rx: 10 }));
+    g.appendChild(el("text", { x: n.x + 14, y: n.y + 27, "class": "title" }, n.label));
+    (n.detail || []).forEach(function (line, i) {
+      g.appendChild(el("text", { x: n.x + 14, y: n.y + 49 + i * 15, "class": "detail" }, line));
+    });
+    svg.appendChild(g);
+  });
+
+  // labels on top
+  labels.forEach(function (item) {
+    var e = item.edge, path = item.path;
+    var len = 0;
+    try { len = path.getTotalLength(); } catch (err) { return; }
+    if (!len) return;
+    var p = path.getPointAtLength(len / 2);
+    svg.appendChild(el("text", {
+      x: p.x, y: p.y - 7, "class": "edge-label", "text-anchor": "middle"
+    }, e.label));
+  });
+
+  document.getElementById("footer").textContent =
+    "主节点 5 个，视图 1 个，失败出口 2 个，人工入口 1 个；范围只含清单 / 任务 / 任务标签，LWW 与 tombstone 规则不变。待确认：① 防抖 3 秒；② 失败退避 5s/15s/45s 最多 3 次；③ 状态只显示在设置页与 toast。图与 sync_reliability_workflow.json 同源。";
+})();
+</script>
+</body>
+</html>
