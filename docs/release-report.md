@@ -23,7 +23,7 @@
 
 | 产物 | 大小 | SHA-256 |
 |---|---|---|
-| `release/刻度清单 Setup 0.1.0.exe` | 121,674,082 B | `592e79cb13b1d2262f0172b982cdab0b7755a3849161ccd80df0ec0f59abcad6` |
+| `release/刻度清单 Setup 0.1.0.exe` | 121,673,960 B | `777d24d3afcacfe26cbbd1d5b300d87d9596965cc01803dde315d4e2e414279e` |
 | `mobile/android/app/build/outputs/apk/debug/app-debug.apk` | 5,273,455 B | `aa21b481f9f57f8130536350b13df1568ce7c87a80c749f6f97a867e9648b658` |
 | `mobile/android/app/build/outputs/apk/release/app-release.apk` | 3,797,709 B | `0cce780270a46c039ba6a5bdfaf15d056c2998e80838862220d192ad77dee042` |
 
