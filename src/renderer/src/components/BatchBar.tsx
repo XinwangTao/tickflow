@@ -6,12 +6,17 @@ export function BatchBar(): React.ReactNode {
   const selectionMode = useAppStore((state) => state.selectionMode)
   const selectedIds = useAppStore((state) => state.selectedIds)
   const tasks = useAppStore((state) => state.tasks)
+  const tags = useAppStore((state) => state.tags)
   const lists = useAppStore((state) => state.lists)
   const batchComplete = useAppStore((state) => state.batchComplete)
   const batchDelete = useAppStore((state) => state.batchDelete)
   const batchMove = useAppStore((state) => state.batchMove)
   const batchPriority = useAppStore((state) => state.batchPriority)
   const batchDueDate = useAppStore((state) => state.batchDueDate)
+  const batchPin = useAppStore((state) => state.batchPin)
+  const batchAbandon = useAppStore((state) => state.batchAbandon)
+  const batchAddTag = useAppStore((state) => state.batchAddTag)
+  const batchRemoveTag = useAppStore((state) => state.batchRemoveTag)
   const selectAll = useAppStore((state) => state.selectAll)
   const clearSelection = useAppStore((state) => state.clearSelection)
 
@@ -79,6 +84,42 @@ export function BatchBar(): React.ReactNode {
       <select
         className="input batch-select"
         defaultValue=""
+        disabled={disabled || tags.length === 0}
+        onChange={(event) => {
+          const tagName = event.target.value
+          event.target.value = ''
+          if (tagName) void batchAddTag(tagName)
+        }}
+        aria-label="批量添加标签"
+      >
+        <option value="">标签…</option>
+        {tags.map((tag) => (
+          <option value={tag.name} key={tag.id}>
+            #{tag.name}
+          </option>
+        ))}
+      </select>
+      <select
+        className="input batch-select"
+        defaultValue=""
+        disabled={disabled || tags.length === 0}
+        onChange={(event) => {
+          const tagName = event.target.value
+          event.target.value = ''
+          if (tagName) void batchRemoveTag(tagName)
+        }}
+        aria-label="批量移除标签"
+      >
+        <option value="">移除标签…</option>
+        {tags.map((tag) => (
+          <option value={tag.name} key={tag.id}>
+            #{tag.name}
+          </option>
+        ))}
+      </select>
+      <select
+        className="input batch-select"
+        defaultValue=""
         disabled={disabled}
         onChange={(event) => {
           const listId = event.target.value
@@ -94,6 +135,33 @@ export function BatchBar(): React.ReactNode {
           </option>
         ))}
       </select>
+      <button
+        type="button"
+        className="btn"
+        disabled={disabled}
+        onClick={() => void batchAbandon()}
+      >
+        <Icon name="close" size={14} />
+        放弃
+      </button>
+      <button
+        type="button"
+        className="btn"
+        disabled={disabled}
+        onClick={() => {
+          const selected = new Set(selectedIds)
+          const allPinned =
+            selected.size > 0 &&
+            tasks.filter((task) => selected.has(task.id)).every((task) => task.pinned)
+          void batchPin(!allPinned)
+        }}
+      >
+        <Icon name="star" size={14} />
+        {selectedIds.length > 0 &&
+        tasks.filter((task) => selectedIds.includes(task.id)).every((task) => task.pinned)
+          ? '取消置顶'
+          : '置顶'}
+      </button>
       <button
         type="button"
         className="btn btn-danger"

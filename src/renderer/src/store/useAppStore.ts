@@ -65,6 +65,7 @@ interface AppState {
   counts: Counts
   settings: Settings
   view: ViewKey
+  pomodoroTaskId: string | null
   tasks: TaskWithMeta[]
   loading: boolean
   listMode: ListMode
@@ -84,6 +85,8 @@ interface AppState {
 
   bootstrap: () => Promise<void>
   selectView: (view: ViewKey) => Promise<void>
+  startPomodoro: (taskId: string) => Promise<void>
+  clearPomodoroTask: () => void
   refresh: () => Promise<void>
   setListMode: (mode: ListMode) => void
   setSortBy: (sort: SortBy) => void
@@ -110,12 +113,17 @@ interface AppState {
   restoreTask: (id: string) => Promise<void>
   purgeTask: (id: string) => Promise<void>
   emptyTrash: () => Promise<void>
+  clearCompleted: () => Promise<void>
   reorderTasks: (listId: string, orderedIds: string[]) => Promise<void>
   batchComplete: () => Promise<void>
   batchDelete: () => Promise<void>
   batchMove: (listId: string) => Promise<void>
   batchPriority: (priority: Priority) => Promise<void>
   batchDueDate: (dueDate: string | null) => Promise<void>
+  batchPin: (pinned: boolean) => Promise<void>
+  batchAbandon: () => Promise<void>
+  batchAddTag: (tagName: string) => Promise<void>
+  batchRemoveTag: (tagName: string) => Promise<void>
   openDetail: (id: string | null) => void
   setSearchOpen: (open: boolean, seed?: string) => void
   setSettingsOpen: (open: boolean) => void
@@ -177,6 +185,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   counts: EMPTY_COUNTS,
   settings: DEFAULT_SETTINGS,
   view: 'today',
+  pomodoroTaskId: null,
   tasks: [],
   loading: false,
   listMode: 'list',
@@ -268,6 +277,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().showToast(errorMessage(error), 'error')
     }
   },
+
+  startPomodoro: async (taskId) => {
+    set({ pomodoroTaskId: taskId })
+    await get().selectView('pomodoro')
+  },
+
+  clearPomodoroTask: () => set({ pomodoroTaskId: null }),
 
   setListMode: (mode) => set({ listMode: mode }),
   setSortBy: (sort) => set({ sortBy: sort }),
@@ -519,6 +535,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  clearCompleted: async () => {
+    const targets = get().tasks.filter(
+      (task) => task.status === 'completed' && !task.deletedAt
+    )
+    if (targets.length === 0) return
+    try {
+      for (const task of targets) {
+        await window.api.tasks.remove(task.id)
+      }
+      await get().refresh()
+      get().showToast(`已清除 ${targets.length} 个已完成任务`, 'info', {
+        actionLabel: '撤销',
+        duration: 6000,
+        action: async () => {
+          for (const task of targets) {
+            await window.api.tasks.restore(task.id)
+          }
+          await get().refresh()
+        }
+      })
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
   reorderTasks: async (listId, orderedIds) => {
     try {
       await window.api.tasks.reorder(listId, orderedIds)
@@ -656,6 +697,129 @@ export const useAppStore = create<AppState>((set, get) => ({
               dueDate: original.dueDate,
               allDay: original.allDay
             })
+          }
+          await get().refresh()
+        }
+      })
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  batchPin: async (pinned) => {
+    const selected = new Set(get().selectedIds)
+    const targets = get().tasks.filter((task) => selected.has(task.id))
+    if (targets.length === 0) return
+    const originals = targets.map((task) => ({ id: task.id, pinned: task.pinned }))
+    try {
+      for (const task of targets) {
+        await window.api.tasks.update(task.id, { pinned })
+      }
+      set({ selectionMode: false, selectedIds: [] })
+      await get().refresh()
+      get().showToast(`${pinned ? '已置顶' : '已取消置顶'} ${targets.length} 个任务`, 'success', {
+        actionLabel: '撤销',
+        duration: 6000,
+        action: async () => {
+          for (const original of originals) {
+            await window.api.tasks.update(original.id, { pinned: original.pinned })
+          }
+          await get().refresh()
+        }
+      })
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  batchAbandon: async () => {
+    const selected = new Set(get().selectedIds)
+    const targets = get().tasks.filter(
+      (task) => selected.has(task.id) && task.status === 'open'
+    )
+    if (targets.length === 0) return
+    try {
+      for (const task of targets) {
+        await window.api.tasks.setStatus(task.id, 'abandoned')
+      }
+      set({ selectionMode: false, selectedIds: [] })
+      await get().refresh()
+      get().showToast(`已放弃 ${targets.length} 个任务`, 'info', {
+        actionLabel: '撤销',
+        duration: 6000,
+        action: async () => {
+          for (const task of targets) {
+            await window.api.tasks.setStatus(task.id, 'open')
+          }
+          await get().refresh()
+        }
+      })
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  batchAddTag: async (tagName) => {
+    const name = tagName.trim()
+    if (!name) return
+    const selected = new Set(get().selectedIds)
+    const targets = get().tasks.filter((task) => selected.has(task.id))
+    if (targets.length === 0) return
+    const originals = targets.map((task) => ({
+      id: task.id,
+      tagNames: task.tags.map((tag) => tag.name)
+    }))
+    try {
+      for (const task of targets) {
+        if (originals.find((item) => item.id === task.id)?.tagNames.includes(name)) continue
+        await window.api.tasks.update(task.id, {
+          tagNames: [...task.tags.map((tag) => tag.name), name]
+        })
+      }
+      set({ selectionMode: false, selectedIds: [] })
+      await get().refresh()
+      get().showToast(`已为 ${targets.length} 个任务添加标签 #${name}`, 'success', {
+        actionLabel: '撤销',
+        duration: 6000,
+        action: async () => {
+          for (const original of originals) {
+            await window.api.tasks.update(original.id, { tagNames: original.tagNames })
+          }
+          await get().refresh()
+        }
+      })
+    } catch (error) {
+      get().showToast(errorMessage(error), 'error')
+    }
+  },
+
+  batchRemoveTag: async (tagName) => {
+    const name = tagName.trim()
+    if (!name) return
+    const selected = new Set(get().selectedIds)
+    const targets = get().tasks.filter((task) => selected.has(task.id))
+    if (targets.length === 0) return
+    const originals = targets.map((task) => ({
+      id: task.id,
+      tagNames: task.tags.map((tag) => tag.name)
+    }))
+    try {
+      for (const task of targets) {
+        const next = task.tags
+          .map((tag) => tag.name)
+          .filter((tag) => tag !== name)
+        if (next.length !== task.tags.length) {
+          await window.api.tasks.update(task.id, { tagNames: next })
+        }
+      }
+      set({ selectionMode: false, selectedIds: [] })
+      await get().refresh()
+      get().showToast(`已移除标签 #${name}`, 'success', {
+        actionLabel: '撤销',
+        duration: 6000,
+        action: async () => {
+          for (const original of originals) {
+            await window.api.tasks.update(original.id, { tagNames: original.tagNames })
           }
           await get().refresh()
         }

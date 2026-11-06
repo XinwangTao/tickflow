@@ -4,7 +4,8 @@ const SHORTCUTS: Array<{ keys: string[]; label: string }> = [
   { keys: ['Ctrl', 'N'], label: '在当前视图新建任务' },
   { keys: ['Ctrl', 'K'], label: '搜索任务、备注、标签' },
   { keys: ['Ctrl', 'Shift', 'N'], label: '全局唤起窗口并聚焦快速添加' },
-  { keys: ['Esc'], label: '关闭当前弹层 / 详情 / 搜索' },
+  { keys: ['Ctrl', 'A'], label: '多选模式下全选任务' },
+  { keys: ['Esc'], label: '关闭弹层 / 详情 / 搜索，或退出多选' },
   { keys: ['?'], label: '打开本帮助' },
   { keys: ['双击'], label: '行内编辑任务标题或清单名称' }
 ]

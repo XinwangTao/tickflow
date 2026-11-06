@@ -130,7 +130,10 @@ export default function App(): React.ReactNode {
             target.tagName === 'SELECT' ||
             target.isContentEditable)
       )
-      if (mod && event.key.toLowerCase() === 'n') {
+      if (mod && event.key.toLowerCase() === 'a' && state.selectionMode && !editing) {
+        event.preventDefault()
+        state.selectAll(state.tasks.map((task) => task.id))
+      } else if (mod && event.key.toLowerCase() === 'n') {
         event.preventDefault()
         state.focusQuickAdd()
       } else if (mod && event.key.toLowerCase() === 'k') {
@@ -140,7 +143,8 @@ export default function App(): React.ReactNode {
         event.preventDefault()
         setShortcutHelpOpen(true)
       } else if (event.key === 'Escape') {
-        if (state.searchOpen) state.setSearchOpen(false)
+        if (state.selectionMode) state.clearSelection()
+        else if (state.searchOpen) state.setSearchOpen(false)
         else if (state.settingsOpen) state.setSettingsOpen(false)
         else if (state.newListOpen) state.setNewListOpen(false)
         else if (state.detailId) state.openDetail(null)

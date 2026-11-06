@@ -20,6 +20,8 @@ function clock(totalSeconds: number): string {
 
 export function PomodoroView(): React.ReactNode {
   const showToast = useAppStore((state) => state.showToast)
+  const pendingTaskId = useAppStore((state) => state.pomodoroTaskId)
+  const clearPomodoroTask = useAppStore((state) => state.clearPomodoroTask)
 
   const [mode, setMode] = useState<'focus' | 'break'>('focus')
   const [focusMinutes, setFocusMinutes] = useState(25)
@@ -75,6 +77,12 @@ export function PomodoroView(): React.ReactNode {
       showToast(String(error), 'error')
     }
   }, [showToast])
+
+  useEffect(() => {
+    if (!pendingTaskId) return
+    setTaskId(pendingTaskId)
+    clearPomodoroTask()
+  }, [pendingTaskId, clearPomodoroTask])
 
   useEffect(() => {
     void window.api.tasks

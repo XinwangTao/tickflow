@@ -92,6 +92,7 @@ export function MainView(): React.ReactNode {
   const setCalendarMonth = useAppStore((state) => state.setCalendarMonth)
   const setSettings = useAppStore((state) => state.setSettings)
   const emptyTrash = useAppStore((state) => state.emptyTrash)
+  const clearCompleted = useAppStore((state) => state.clearCompleted)
   const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false)
 
   const isCalendar = view === 'calendar'
@@ -146,6 +147,17 @@ export function MainView(): React.ReactNode {
               aria-label="清空垃圾箱"
               disabled={tasks.length === 0}
               onClick={() => setConfirmEmptyTrash(true)}
+            >
+              <Icon name="trash" size={17} />
+            </button>
+          ) : null}
+          {isList && settings.showCompleted ? (
+            <button
+              type="button"
+              className="icon-btn"
+              title="清除已完成"
+              aria-label="清除已完成"
+              onClick={() => void clearCompleted()}
             >
               <Icon name="trash" size={17} />
             </button>

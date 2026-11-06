@@ -29,6 +29,7 @@ export function TaskRow({
   const toggleTask = useAppStore((state) => state.toggleTask)
   const updateTask = useAppStore((state) => state.updateTask)
   const duplicateTask = useAppStore((state) => state.duplicateTask)
+  const startPomodoro = useAppStore((state) => state.startPomodoro)
   const removeTask = useAppStore((state) => state.removeTask)
   const restoreTask = useAppStore((state) => state.restoreTask)
   const purgeTask = useAppStore((state) => state.purgeTask)
@@ -314,6 +315,17 @@ export function TaskRow({
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    className="task-menu-action"
+                    onClick={() => {
+                      void startPomodoro(task.id)
+                      setMenuOpen(false)
+                    }}
+                  >
+                    <Icon name="timer" size={14} />
+                    开始专注
+                  </button>
                   <button
                     type="button"
                     className="task-menu-action"
