@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { _electron as electron } from 'playwright'
+import { _electron as electron, type ElectronApplication, type Page } from 'playwright'
 import type { TickFlowApi } from '../src/shared/ipc'
 
 declare global {
@@ -11,12 +11,41 @@ declare global {
   }
 }
 
-test('desktop smoke: preload API and all main views render', async () => {
-  const app = await electron.launch({ args: ['.'] })
+/**
+ * 每个用例使用独立的数据目录：既不会读写真实用户数据，也不会和其他正在运行的
+ * TickFlow 实例抢单实例锁；默认数据目录被占用时 Electron 会直接退出。
+ */
+async function launchIsolatedApp(): Promise<{
+  app: ElectronApplication
+  page: Page
+  close: () => Promise<void>
+}> {
+  const dataDir = mkdtempSync(join(tmpdir(), 'tickflow-app-'))
+  const app = await electron.launch({
+    args: ['.'],
+    env: { ...process.env, TICKFLOW_USER_DATA: dataDir } as Record<string, string>
+  })
   try {
     const page = await app.firstWindow()
     await page.waitForSelector('.main-title', { timeout: 20_000 })
+    return {
+      app,
+      page,
+      close: async () => {
+        await app.close().catch(() => undefined)
+        rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+      }
+    }
+  } catch (error) {
+    await app.close().catch(() => undefined)
+    rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    throw error
+  }
+}
 
+test('desktop smoke: preload API and all main views render', async () => {
+  const { page, close } = await launchIsolatedApp()
+  try {
     const info = await page.evaluate(() => window.api.app.info())
     expect(info.platform).toBe('win32')
     expect(info.version).toBeTruthy()
@@ -44,16 +73,13 @@ test('desktop smoke: preload API and all main views render', async () => {
     await page.locator('.rail-item[title="今天"]').click()
     await expect(page.locator('.quick-add-input')).toBeVisible()
   } finally {
-    await app.close()
+    await close()
   }
 })
 
 test('close-to-tray hides the window and show restores it', async () => {
-  const app = await electron.launch({ args: ['.'] })
+  const { app, page, close } = await launchIsolatedApp()
   try {
-    const page = await app.firstWindow()
-    await page.waitForSelector('.main-title', { timeout: 20_000 })
-
     const visibleAfterClose = await app.evaluate(({ BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0]
       if (!win) return null
@@ -70,7 +96,7 @@ test('close-to-tray hides the window and show restores it', async () => {
     })
     expect(visibleAfterShow).toBe(true)
   } finally {
-    await app.close()
+    await close()
   }
 })
 
@@ -108,10 +134,8 @@ test('autostart + startMinimized keeps the window hidden', async () => {
 
 
 test('about dialog shows version and data directory', async () => {
-  const app = await electron.launch({ args: ['.'] })
+  const { page, close } = await launchIsolatedApp()
   try {
-    const page = await app.firstWindow()
-    await page.waitForSelector('.main-title', { timeout: 20_000 })
     await page.locator('.rail-bottom button[title="关于"]').click()
     await expect(page.locator('.modal-header h2')).toHaveText('关于刻度清单')
     await expect(page.locator('.about-hero h3')).toHaveText('刻度清单 TickFlow')
@@ -122,16 +146,14 @@ test('about dialog shows version and data directory', async () => {
     await page.locator('.modal-header .icon-btn').click()
     await expect(page.locator('.modal-header h2')).toHaveCount(0)
   } finally {
-    await app.close()
+    await close()
   }
 })
 
 
 test('shortcut help opens with question mark and closes with Escape', async () => {
-  const app = await electron.launch({ args: ['.'] })
+  const { page, close } = await launchIsolatedApp()
   try {
-    const page = await app.firstWindow()
-    await page.waitForSelector('.main-title', { timeout: 20_000 })
     await page.locator('.main-title').click()
     await page.evaluate(() => {
       ;(document.activeElement as HTMLElement | null)?.blur()
@@ -142,6 +164,6 @@ test('shortcut help opens with question mark and closes with Escape', async () =
     await page.keyboard.press('Escape')
     await expect(page.locator('.modal-header h2')).toHaveCount(0)
   } finally {
-    await app.close()
+    await close()
   }
 })

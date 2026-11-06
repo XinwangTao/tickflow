@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
 import { aiConfigFromSettings, buildSummaryInput } from '@shared/ai'
-import { todayKey } from '@shared/dates'
+import { normalizeDateKey, todayKey } from '@shared/dates'
 import type {
   ApplyTemplateInput,
   CreateFilterInput,
@@ -217,20 +217,25 @@ export function registerIpc(): void {
     return next
   })
 
-  ipcMain.handle(IPC.aiQuickAdd, (_event, input: string, requestId?: string) => {
-    const db = getDb()
-    const controller = requestId ? registerAiRequest(requestId) : null
-    const pending = parseQuickAddWithAi(
-      input,
-      listRepo.listLists(db).map((list) => list.name),
-      {
-        config: aiConfigFromSettings(settingsRepo.getSettings(db)),
-        signal: controller?.signal
-      }
-    )
-    if (!requestId || !controller) return pending
-    return pending.finally(() => releaseAiRequest(requestId))
-  })
+  ipcMain.handle(
+    IPC.aiQuickAdd,
+    (_event, input: string, requestId?: string, defaultDate?: string | null) => {
+      const db = getDb()
+      const controller = requestId ? registerAiRequest(requestId) : null
+      const pending = parseQuickAddWithAi(
+        input,
+        listRepo.listLists(db).map((list) => list.name),
+        {
+          config: aiConfigFromSettings(settingsRepo.getSettings(db)),
+          signal: controller?.signal,
+          // 只接受合法 YYYY-MM-DD；非法值退回普通快速添加的“时间落今天”语义。
+          defaultDate: normalizeDateKey(defaultDate)
+        }
+      )
+      if (!requestId || !controller) return pending
+      return pending.finally(() => releaseAiRequest(requestId))
+    }
+  )
   // renderer 点「取消」或按 Esc 时调用：中止 main 进程里对应的那次 fetch。
   ipcMain.handle(IPC.aiCancel, (_event, requestId: string) => cancelAiRequest(requestId))
   ipcMain.handle(IPC.aiSubtasks, (_event, taskId: string, requestId?: string) => {

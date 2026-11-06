@@ -2,7 +2,16 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { TaskWithMeta } from '@shared/types'
 import { fromDateKey, todayKey, toDateKey } from '@shared/dates'
 import { parseCalendarAdd } from '@shared/calendar-add'
-import { describeReminderOffset, reminderTriggerAt } from '@shared/quick-add'
+import {
+  describeReminderOffset,
+  reminderTriggerAt,
+  type QuickAddResult
+} from '@shared/quick-add'
+import {
+  createQuickAddDraft,
+  draftToQuickAddResult,
+  type QuickAddDraft
+} from '@shared/quick-add-draft'
 import {
   monthDays,
   monthLabel,
@@ -15,6 +24,7 @@ import { formatDateLabel, formatDueLabel, describeRecurrence } from '../lib/form
 import { PRIORITY_LABELS } from '../lib/colors'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
+import { QuickAddDraftCard } from './QuickAddDraftCard'
 import { TaskCard } from './TaskCard'
 
 interface CalendarViewProps {
@@ -139,14 +149,65 @@ export function CalendarView({
   const [draft, setDraft] = useState('')
   const [addHint, setAddHint] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiElapsed, setAiElapsed] = useState(0)
+  const [aiDraft, setAiDraft] = useState<QuickAddDraft | null>(null)
+  const [draftBusy, setDraftBusy] = useState(false)
   const addInputRef = useRef<HTMLInputElement | null>(null)
+  // 异步返回时用来核对输入是否已被改写，避免把上一条解析结果套到新输入上。
+  const draftValueRef = useRef('')
+  const aiRequestSeq = useRef(0)
+  const activeAiRequest = useRef<{ id: string; text: string } | null>(null)
+  const unmounted = useRef(false)
 
-  // 切换日期后表单跟着切走，避免把下一条任务建到看不见的那一天。
+  const aiAvailable = Boolean(settings.aiEnabled && window.api.ai?.parseQuickAdd)
+  const aiTimeoutSeconds = Math.max(1, Math.round((settings.aiTimeoutMs || 15000) / 1000))
+
+  /** 中止进行中的 AI 解析；返回 false 表示当前没有挂起的请求。 */
+  function cancelActiveAiRequest(): boolean {
+    const active = activeAiRequest.current
+    if (!active) return false
+    activeAiRequest.current = null
+    try {
+      const pending = window.api.ai?.cancel?.(active.id)
+      if (pending && typeof pending.catch === 'function') {
+        void pending.catch(() => undefined)
+      }
+    } catch {
+      // 旧 preload 或测试桩没有 cancel 时忽略，结果仍会按 requestId 丢弃。
+    }
+    return true
+  }
+
+  // 切换日期后表单跟着切走，避免把下一条任务建到看不见的那一天；
+  // 同时中止进行中的 AI 请求，迟到的结果不会落到新日期上。
   useEffect(() => {
+    cancelActiveAiRequest()
     setAdding(false)
     setDraft('')
+    draftValueRef.current = ''
     setAddHint('')
+    setAiDraft(null)
+    setAiBusy(false)
+    setAiElapsed(0)
   }, [addDay])
+
+  useEffect(() => {
+    if (!aiBusy) {
+      setAiElapsed(0)
+      return
+    }
+    const timer = setInterval(() => setAiElapsed((seconds) => seconds + 1), 1000)
+    return () => clearInterval(timer)
+  }, [aiBusy])
+
+  // 切换视图导致日历卸载时，别让 AI 请求在后台白等到超时。
+  useEffect(() => {
+    return () => {
+      unmounted.current = true
+      cancelActiveAiRequest()
+    }
+  }, [])
 
   const parsed = useMemo(
     () => (draft.trim() ? parseCalendarAdd(draft, addDay) : null),
@@ -169,9 +230,14 @@ export function CalendarView({
   }, [parsed])
 
   const closeAddForm = (): void => {
+    cancelActiveAiRequest()
     setAdding(false)
     setDraft('')
+    draftValueRef.current = ''
     setAddHint('')
+    setAiDraft(null)
+    setAiBusy(false)
+    setAiElapsed(0)
   }
 
   const openAddForm = (): void => {
@@ -179,21 +245,17 @@ export function CalendarView({
     setAdding(true)
   }
 
-  /** `~清单` 写法与快速添加一致：按名字匹配（忽略空白与大小写），找不到就落默认清单。 */
-  const resolveAddList = (name: string | null): (typeof lists)[number] | undefined => {
-    if (name) {
-      const lowered = name.replace(/\s+/g, '').toLowerCase()
-      const matched = lists.find(
-        (list) => list.name.replace(/\s+/g, '').toLowerCase() === lowered
-      )
-      if (matched) return matched
-    }
-    return (
-      lists.find((list) => list.id === defaultListId) ??
-      lists.find((list) => list.isInbox) ??
-      lists[0]
-    )
+  /** `~清单` / AI listName 按名字匹配，忽略空白与大小写。 */
+  const matchList = (name: string | null): (typeof lists)[number] | undefined => {
+    if (!name) return undefined
+    const lowered = name.replace(/\s+/g, '').toLowerCase()
+    return lists.find((list) => list.name.replace(/\s+/g, '').toLowerCase() === lowered)
   }
+
+  const fallbackList = (): (typeof lists)[number] | undefined =>
+    lists.find((list) => list.id === defaultListId) ??
+    lists.find((list) => list.isInbox) ??
+    lists[0]
 
   /**
    * 提前提醒落到 reminders 表：提醒时间已过或没有截止日期时不硬建一条永不触发的记录，
@@ -220,57 +282,197 @@ export function CalendarView({
     }
   }
 
-  const submitTask = async (): Promise<void> => {
-    if (submitting) return
+  /** 写库的唯一步骤：规则解析、AI 失败回落与 AI 草稿确认都走这里。 */
+  const createFromResult = async (
+    result: QuickAddResult,
+    options: { listId?: string | null; applyDefaultDueDate?: boolean } = {}
+  ): Promise<{ task: TaskWithMeta; reminderNote: string | null } | null> => {
+    const matched = options.listId
+      ? lists.find((list) => list.id === options.listId)
+      : matchList(result.listName)
+    const target = matched ?? fallbackList()
+    if (!target) {
+      setAddHint('没有可用清单，请先创建一个清单')
+      return null
+    }
+    if (result.listName && !matched) {
+      showToast(`未找到清单「${result.listName}」，已放入「${target.name}」`, 'info')
+    }
+
+    const dueDate =
+      options.applyDefaultDueDate === false ? result.dueDate : (result.dueDate ?? addDay)
+    const created = await createTask({
+      listId: target.id,
+      title: result.title,
+      priority: result.priority,
+      dueDate,
+      dueTime: result.dueTime,
+      allDay: result.allDay,
+      recurrence: result.recurrence,
+      tagNames: result.tags
+    })
+    if (!created) return null
+    const reminderNote = await scheduleAddReminder(created, result.reminderOffsetMin, {
+      dueDate,
+      dueTime: result.dueTime
+    })
+    return { task: created, reminderNote }
+  }
+
+  /** 创建成功统一给「撤销」：直接移除刚建的任务（进垃圾箱，可恢复）。 */
+  const notifyAdded = (
+    created: TaskWithMeta,
+    message: string,
+    kind: 'success' | 'info' = 'success',
+    duration = 6000
+  ): void => {
+    showToast(message, kind, {
+      duration,
+      actionLabel: '撤销',
+      action: async () => {
+        try {
+          await window.api.tasks.remove(created.id)
+          await refresh()
+        } catch (error) {
+          showToast(String(error), 'error')
+        }
+      }
+    })
+  }
+
+  const submitTask = async (useAi: boolean): Promise<void> => {
+    if (submitting || draftBusy) return
     const raw = draft.trim()
     if (!raw) {
       setAddHint('请输入任务标题')
       addInputRef.current?.focus()
       return
     }
-    const result = parseCalendarAdd(draft, addDay)
-    const target = resolveAddList(result.listName)
-    if (!target) {
-      setAddHint('没有可用清单，请先创建一个清单')
+    if (aiBusy) {
+      // 普通 Enter 不绕过进行中的请求；Esc 或「取消」可中止。
+      showToast('AI 正在解析，按 Esc 或点「取消」可中止', 'info')
       return
     }
-    if (result.listName && target.name.replace(/\s+/g, '') !== result.listName.replace(/\s+/g, '')) {
-      showToast(`未找到清单「${result.listName}」，已放入「${target.name}」`, 'info')
+    if (aiDraft) {
+      if (!useAi) {
+        showToast('请先添加或取消上方的 AI 解析结果', 'info')
+        return
+      }
+      // 再点一次 AI 视为按当前输入重新解析。
+      setAiDraft(null)
+    }
+
+    let result: QuickAddResult = parseCalendarAdd(raw, addDay)
+    let aiWarning: string | null = null
+    let aiUsed = false
+    if (useAi && aiAvailable) {
+      aiUsed = true
+      const requestId = `calendar-add-${(aiRequestSeq.current += 1)}`
+      activeAiRequest.current = { id: requestId, text: raw }
+      setAiBusy(true)
+      try {
+        // 第三个参数让 main 在输入没写日期时落到选中的那一天。
+        const response = await window.api.ai.parseQuickAdd(raw, requestId, addDay)
+        if (unmounted.current) return
+        // 已取消或已被新请求取代：迟到的结果一律丢弃。
+        if (activeAiRequest.current?.id !== requestId) return
+        if (draftValueRef.current.trim() !== raw) {
+          showToast('输入已变化，已忽略上一次 AI 解析结果', 'info')
+          return
+        }
+        if (response.ok && response.source === 'ai') {
+          // AI 成功先进入草稿，不立即写库：可以改完标题、时间、清单再添加。
+          const nextDraft = createQuickAddDraft(
+            response.result,
+            lists,
+            defaultListId ?? null,
+            addDay
+          )
+          setAiDraft(nextDraft)
+          if (response.result.listName && !matchList(response.result.listName)) {
+            const fallback = lists.find((list) => list.id === nextDraft.listId)
+            showToast(
+              `未找到清单「${response.result.listName}」，已选择「${fallback?.name ?? '当前清单'}」`,
+              'info'
+            )
+          }
+          return
+        }
+        result = response.result
+        aiWarning = response.warning
+      } catch (error) {
+        if (activeAiRequest.current?.id !== requestId) return
+        result = parseCalendarAdd(raw, addDay)
+        aiWarning = String(error)
+      } finally {
+        if (activeAiRequest.current?.id === requestId) {
+          activeAiRequest.current = null
+          setAiBusy(false)
+        }
+      }
     }
 
     setSubmitting(true)
     try {
-      const created = await createTask({
-        listId: target.id,
-        title: result.title,
-        priority: result.priority,
-        dueDate: result.dueDate,
-        dueTime: result.dueTime,
-        allDay: result.allDay,
-        recurrence: result.recurrence,
-        tagNames: result.tags
-      })
+      const created = await createFromResult(result)
       if (!created) return
-      const reminderNote = await scheduleAddReminder(created, result.reminderOffsetMin, result)
       closeAddForm()
-      showToast(
-        `已添加「${created.title}」${reminderNote ? `（${reminderNote}）` : ''}`,
-        'success',
-        {
-          duration: 6000,
-          actionLabel: '撤销',
-          action: async () => {
-            try {
-              await window.api.tasks.remove(created.id)
-              await refresh()
-            } catch (error) {
-              showToast(String(error), 'error')
-            }
-          }
-        }
-      )
+      const suffix = created.reminderNote ? `（${created.reminderNote}）` : ''
+      if (aiUsed) {
+        notifyAdded(
+          created.task,
+          aiWarning
+            ? `AI 未能解析，已按规则添加「${created.task.title}」：${aiWarning}${suffix}`
+            : `AI 已添加「${created.task.title}」${suffix}`,
+          aiWarning ? 'info' : 'success',
+          aiWarning ? 7000 : 6000
+        )
+      } else {
+        notifyAdded(created.task, `已添加「${created.task.title}」${suffix}`)
+      }
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  /** 取消进行中的 AI 解析：中止 main 里的 fetch，输入内容保持不变。 */
+  const cancelAiParse = (): void => {
+    if (!cancelActiveAiRequest()) return
+    setAiBusy(false)
+    setAiElapsed(0)
+    showToast('已取消 AI 解析，输入内容已保留', 'info')
+    addInputRef.current?.focus()
+  }
+
+  const updateAiDraft = (patch: Partial<QuickAddDraft>): void => {
+    setAiDraft((current) => (current ? { ...current, ...patch } : current))
+  }
+
+  const cancelAiDraft = (): void => {
+    setAiDraft(null)
+    addInputRef.current?.focus()
+  }
+
+  const confirmAiDraft = async (): Promise<void> => {
+    if (!aiDraft || aiBusy || draftBusy) return
+    const result = draftToQuickAddResult(aiDraft, lists)
+    if (!result) {
+      showToast('任务标题不能为空', 'error')
+      return
+    }
+    setDraftBusy(true)
+    try {
+      const created = await createFromResult(result, {
+        listId: aiDraft.listId,
+        // 用户可能主动清空了日期，确认时不能再被选中日期补回来。
+        applyDefaultDueDate: false
+      })
+      if (!created) return
+      closeAddForm()
+      const suffix = created.reminderNote ? `（${created.reminderNote}）` : ''
+      notifyAdded(created.task, `AI 已添加「${created.task.title}」${suffix}`)
+    } finally {
+      setDraftBusy(false)
     }
   }
 
@@ -281,7 +483,7 @@ export function CalendarView({
           className="calendar-add-form"
           onSubmit={(event) => {
             event.preventDefault()
-            void submitTask()
+            void submitTask(false)
           }}
         >
           <input
@@ -293,26 +495,62 @@ export function CalendarView({
             placeholder="任务标题，可写 9点 / #标签 / !高 / 每3天"
             onChange={(event) => {
               setDraft(event.target.value)
+              draftValueRef.current = event.target.value
               if (addHint) setAddHint('')
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
+              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
                 event.preventDefault()
-                void submitTask()
+                void submitTask(true)
+              } else if (event.key === 'Enter') {
+                event.preventDefault()
+                void submitTask(false)
               } else if (event.key === 'Escape') {
                 event.preventDefault()
-                closeAddForm()
+                if (aiBusy) cancelAiParse()
+                else if (aiDraft) cancelAiDraft()
+                else closeAddForm()
               }
             }}
           />
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
+          {aiAvailable ? (
+            aiBusy ? (
+              <button
+                type="button"
+                className="quick-add-ai busy calendar-add-ai"
+                aria-label="取消 AI 解析"
+                title="取消本次 AI 解析"
+                onClick={cancelAiParse}
+              >
+                <Icon name="sparkles" size={13} />
+                {aiElapsed > 0 ? `解析中 ${aiElapsed}s` : '解析中'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="quick-add-ai calendar-add-ai"
+                aria-label="AI 解析"
+                title={`AI 解析（Ctrl+Enter）· 超过 ${aiTimeoutSeconds} 秒自动回落到规则解析`}
+                disabled={submitting || draftBusy || !draft.trim()}
+                onClick={() => void submitTask(true)}
+              >
+                <Icon name="sparkles" size={13} />
+                AI
+              </button>
+            )
+          ) : null}
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={submitting || aiBusy || draftBusy || Boolean(aiDraft)}
+          >
             添加
           </button>
           <button type="button" className="btn" onClick={closeAddForm}>
             取消
           </button>
         </form>
-        {previewChips.length ? (
+        {previewChips.length && !aiDraft ? (
           <div className="calendar-add-preview" aria-label="解析预览">
             {previewChips.map((chip) => (
               <span className="calendar-add-chip" key={chip}>
@@ -325,6 +563,19 @@ export function CalendarView({
           <span className="calendar-add-hint" role="status">
             {addHint}
           </span>
+        ) : null}
+        {aiDraft ? (
+          <QuickAddDraftCard
+            draft={aiDraft}
+            lists={lists}
+            busy={draftBusy}
+            note="修改后点「确认添加」写库；放弃后仍可用普通 Enter 按规则添加。"
+            confirmLabel="确认添加"
+            cancelLabel="放弃"
+            onChange={updateAiDraft}
+            onConfirm={() => void confirmAiDraft()}
+            onCancel={cancelAiDraft}
+          />
         ) : null}
       </div>
     ) : null

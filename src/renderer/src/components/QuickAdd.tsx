@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   describeReminderOffset,
   parseQuickAdd,
-  REMINDER_OFFSET_CHOICES,
   reminderTriggerAt,
   type QuickAddResult
 } from '@shared/quick-add'
@@ -44,25 +43,17 @@ import {
   VOICE_UNSUPPORTED_HINT,
   voiceElapsedSeconds
 } from '@shared/voice'
-import type { Priority, TaskWithMeta } from '@shared/types'
+import type { TaskWithMeta } from '@shared/types'
 import { describeRecurrence, formatDueLabel } from '../lib/format'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../lib/colors'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
+import { QuickAddDraftCard } from './QuickAddDraftCard'
 
 interface QuickAddProps {
   defaultListId: string
   defaultDueDate?: string | null
 }
-
-const RECURRENCE_CHOICES = [
-  { value: '', label: '不重复' },
-  { value: 'FREQ=DAILY', label: '每天' },
-  { value: 'FREQ=WEEKLY', label: '每周' },
-  { value: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', label: '工作日' },
-  { value: 'FREQ=MONTHLY', label: '每月' },
-  { value: 'FREQ=YEARLY', label: '每年' }
-]
 
 function normalizedListName(name: string): string {
   return name.replace(/\s+/g, '').toLowerCase()
@@ -477,29 +468,6 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       setDraftBusy(false)
     }
   }
-
-  const recurrenceChoices = RECURRENCE_CHOICES.slice()
-  if (
-    aiDraft?.recurrence &&
-    !recurrenceChoices.some((choice) => choice.value === aiDraft.recurrence)
-  ) {
-    recurrenceChoices.push({
-      value: aiDraft.recurrence,
-      label: describeRecurrence(aiDraft.recurrence)
-    })
-  }
-
-  const reminderChoices = REMINDER_OFFSET_CHOICES.slice()
-  if (
-    aiDraft?.reminderOffsetMin != null &&
-    !reminderChoices.some((choice) => choice.value === aiDraft.reminderOffsetMin)
-  ) {
-    reminderChoices.push({
-      value: aiDraft.reminderOffsetMin,
-      label: describeReminderOffset(aiDraft.reminderOffsetMin)
-    })
-  }
-
 
   // 语音输入走本机离线识别（vosk）：录完把文字追加进输入框，
   // 剩下的日期/重复解析仍由原来的规则 + AI 流程负责。
@@ -964,184 +932,14 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
       </div>
 
       {aiDraft ? (
-        <div className="quick-add-draft" role="dialog" aria-label="AI 解析结果">
-          <div className="quick-add-draft-head">
-            <span className="quick-add-draft-title">
-              <Icon name="sparkles" size={13} /> AI 解析结果 · 可修改后添加
-            </span>
-            <button
-              type="button"
-              className="icon-btn"
-              title="取消 AI 解析结果"
-              aria-label="取消 AI 解析结果"
-              onClick={cancelDraft}
-            >
-              <Icon name="close" size={13} />
-            </button>
-          </div>
-
-          <input
-            className="quick-add-draft-name"
-            value={aiDraft.title}
-            placeholder="任务标题"
-            aria-label="AI 任务标题"
-            autoFocus
-            onChange={(event) => updateDraft({ title: event.target.value })}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                void confirmDraft()
-              } else if (event.key === 'Escape') {
-                event.preventDefault()
-                cancelDraft()
-              }
-            }}
-          />
-
-          <div className="quick-add-draft-fields">
-            <label className="quick-add-field">
-              <span>截止日期</span>
-              <input
-                type="date"
-                value={aiDraft.dueDate}
-                aria-label="AI 截止日期"
-                onChange={(event) =>
-                  updateDraft({
-                    dueDate: event.target.value,
-                    dueTime: event.target.value ? aiDraft.dueTime : '',
-                    // 没有截止日期就无法换算提醒时刻，清空日期时一并清空提前量。
-                    reminderOffsetMin: event.target.value ? aiDraft.reminderOffsetMin : null
-                  })
-                }
-              />
-            </label>
-            <label className="quick-add-field">
-              <span>时间</span>
-              <input
-                type="time"
-                value={aiDraft.dueTime}
-                aria-label="AI 截止时间"
-                disabled={!aiDraft.dueDate || aiDraft.allDay}
-                onChange={(event) =>
-                  updateDraft({ dueTime: event.target.value, allDay: false })
-                }
-              />
-            </label>
-            <label className="quick-add-field">
-              <span>优先级</span>
-              <select
-                value={aiDraft.priority}
-                aria-label="AI 优先级"
-                onChange={(event) =>
-                  updateDraft({ priority: Number(event.target.value) as Priority })
-                }
-              >
-                {PRIORITY_LABELS.map((label, index) => (
-                  <option value={index} key={label}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="quick-add-field">
-              <span>清单</span>
-              <select
-                value={aiDraft.listId ?? ''}
-                aria-label="AI 清单"
-                onChange={(event) => updateDraft({ listId: event.target.value || null })}
-              >
-                {aiDraft.listId === null ? <option value="">当前清单</option> : null}
-                {lists.map((list) => (
-                  <option value={list.id} key={list.id}>
-                    {list.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="quick-add-draft-fields">
-            <label className="quick-add-field grow">
-              <span>标签</span>
-              <input
-                value={aiDraft.tagsText}
-                placeholder="空格或逗号分隔，例如：工作 重点"
-                aria-label="AI 标签"
-                onChange={(event) => updateDraft({ tagsText: event.target.value })}
-              />
-            </label>
-            <label className="quick-add-field">
-              <span>重复</span>
-              <select
-                value={aiDraft.recurrence ?? ''}
-                aria-label="AI 重复"
-                onChange={(event) => updateDraft({ recurrence: event.target.value || null })}
-              >
-                {recurrenceChoices.map((choice) => (
-                  <option value={choice.value} key={choice.value || 'none'}>
-                    {choice.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="quick-add-field">
-              <span>提醒</span>
-              <select
-                value={aiDraft.reminderOffsetMin ?? ''}
-                aria-label="AI 提前提醒"
-                title={
-                  aiDraft.dueDate
-                    ? '按截止日期/时间提前提醒；全天任务按 09:00 计算'
-                    : '请先填写截止日期'
-                }
-                disabled={!aiDraft.dueDate}
-                onChange={(event) =>
-                  updateDraft({
-                    reminderOffsetMin:
-                      event.target.value === '' ? null : Number(event.target.value)
-                  })
-                }
-              >
-                {reminderChoices.map((choice) => (
-                  <option value={choice.value ?? ''} key={choice.value ?? 'none'}>
-                    {choice.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="quick-add-all-day">
-              <input
-                type="checkbox"
-                checked={aiDraft.allDay}
-                aria-label="AI 全天任务"
-                onChange={(event) =>
-                  updateDraft({
-                    allDay: event.target.checked,
-                    dueTime: event.target.checked ? '' : aiDraft.dueTime
-                  })
-                }
-              />
-              全天
-            </label>
-          </div>
-
-          <div className="quick-add-draft-footer">
-            <span className="quick-add-draft-note">
-              修改后点「添加」写库；取消后可继续用普通 Enter 按规则添加。
-            </span>
-            <button type="button" className="btn" onClick={cancelDraft}>
-              取消
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={!aiDraft.title.trim() || draftBusy}
-              onClick={() => void confirmDraft()}
-            >
-              {draftBusy ? '添加中…' : '添加'}
-            </button>
-          </div>
-        </div>
+        <QuickAddDraftCard
+          draft={aiDraft}
+          lists={lists}
+          busy={draftBusy}
+          onChange={updateDraft}
+          onConfirm={() => void confirmDraft()}
+          onCancel={cancelDraft}
+        />
       ) : null}
 
       {focused && !aiDraft && hasMeta ? (

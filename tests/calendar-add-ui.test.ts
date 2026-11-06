@@ -5,7 +5,13 @@ import { CalendarView } from '../src/renderer/src/components/CalendarView'
 import { useAppStore } from '../src/renderer/src/store/useAppStore'
 import { AI_DEFAULT_BASE_URL, AI_DEFAULT_MODEL, AI_DEFAULT_TIMEOUT_MS } from '../src/shared/ai'
 import { addDaysToKey, todayKey } from '../src/shared/dates'
-import type { CreateTaskInput, ListWithCount, Settings, TaskWithMeta } from '../src/shared/types'
+import type {
+  CreateTaskInput,
+  ListWithCount,
+  Settings,
+  TaskWithMeta
+} from '../src/shared/types'
+import type { QuickAddResult } from '../src/shared/quick-add'
 
 const LISTS: ListWithCount[] = [
   {
@@ -88,6 +94,8 @@ function taskFrom(input: CreateTaskInput, id: string): TaskWithMeta {
 
 const createTask = vi.fn(async (input: CreateTaskInput) => taskFrom(input, 'task-1'))
 const removeTask = vi.fn(async () => undefined)
+const parseAi = vi.fn()
+const cancelAi = vi.fn(async () => true)
 const createReminder = vi.fn(async () => ({
   id: 'reminder-1',
   taskId: 'task-1',
@@ -98,8 +106,33 @@ const createReminder = vi.fn(async () => ({
 
 let showToastSpy: ReturnType<typeof vi.fn>
 
+function aiRuleResult(overrides: Partial<QuickAddResult> = {}): QuickAddResult {
+  return {
+    title: '买牛奶',
+    priority: 0,
+    tags: [],
+    listName: null,
+    dueDate: todayKey(),
+    dueTime: null,
+    allDay: true,
+    recurrence: null,
+    reminderOffsetMin: null,
+    ...overrides
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  parseAi.mockReset()
+  parseAi.mockResolvedValue({
+    ok: false,
+    source: 'rule',
+    result: aiRuleResult(),
+    warning: null,
+    attempts: 1
+  })
+  cancelAi.mockReset()
+  cancelAi.mockResolvedValue(true)
   const realShowToast = useAppStore.getState().showToast
   showToastSpy = vi.fn(realShowToast)
   useAppStore.setState({
@@ -131,6 +164,10 @@ beforeEach(() => {
       create: createReminder,
       list: vi.fn(async () => []),
       remove: vi.fn(async () => undefined)
+    },
+    ai: {
+      parseQuickAdd: parseAi,
+      cancel: cancelAi
     }
   }
 })
@@ -320,5 +357,229 @@ describe('日历选中日期行内添加任务', { timeout: 20_000 }, () => {
       dueTime: '15:00',
       allDay: false
     })
+  })
+})
+
+describe('日历行内添加 AI 解析', { timeout: 20_000 }, () => {
+  it('AI 结果先进入可编辑草稿，确认后才写库并可撤销', async () => {
+    parseAi.mockResolvedValue({
+      ok: true,
+      source: 'ai',
+      result: aiRuleResult({
+        title: '跟客户开会',
+        priority: 3,
+        tags: ['工作'],
+        dueDate: todayKey(),
+        dueTime: '09:00',
+        allDay: false
+      }),
+      warning: null,
+      attempts: 1
+    })
+
+    renderCalendar()
+    const input = openAddForm()
+    fireEvent.change(input, { target: { value: '明早九点跟客户开会 #工作' } })
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+
+    // 草稿展示期间不写库，并带上选中的日期供 main 兜底。
+    await screen.findByLabelText('AI 任务标题')
+    expect(createTask).not.toHaveBeenCalled()
+    expect(parseAi).toHaveBeenCalledWith(
+      '明早九点跟客户开会 #工作',
+      expect.stringMatching(/^calendar-add-\d+$/),
+      todayKey()
+    )
+    expect(screen.queryByLabelText('解析预览')).toBeNull()
+
+    // 草稿未处理时普通 Enter 不会绕过草稿重复建任务。
+    fireEvent.keyDown(screen.getByLabelText('日历添加任务标题'), { key: 'Enter' })
+    expect(
+      showToastSpy.mock.calls.some((call) =>
+        String(call[0]).includes('请先添加或取消上方的 AI 解析结果')
+      )
+    ).toBe(true)
+    expect(createTask).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('AI 任务标题'), {
+      target: { value: '跟客户开会（已改）' }
+    })
+    fireEvent.change(screen.getByLabelText('AI 优先级'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('AI 截止日期'), {
+      target: { value: addDaysToKey(todayKey(), 1) }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认添加' }))
+
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    expect(createTask.mock.calls[0][0]).toMatchObject({
+      listId: 'inbox',
+      title: '跟客户开会（已改）',
+      priority: 1,
+      tagNames: ['工作'],
+      dueDate: addDaysToKey(todayKey(), 1),
+      dueTime: '09:00',
+      allDay: false
+    })
+    expect(screen.queryByLabelText('AI 任务标题')).toBeNull()
+
+    const toast = useAppStore.getState().toast
+    expect(toast?.message).toContain('AI 已添加「跟客户开会（已改）」')
+    expect(toast?.actionLabel).toBe('撤销')
+    await toast?.action?.()
+    expect(removeTask).toHaveBeenCalledWith('task-1')
+  })
+
+  it('AI 失败时按规则立即添加，提示原因并保留撤销', async () => {
+    parseAi.mockResolvedValue({
+      ok: false,
+      source: 'rule',
+      result: aiRuleResult({ title: '买牛奶' }),
+      warning: 'AI 服务繁忙，请稍后再试',
+      attempts: 2
+    })
+
+    renderCalendar()
+    const input = openAddForm()
+    fireEvent.change(input, { target: { value: '买牛奶' } })
+    fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    expect(screen.queryByLabelText('AI 任务标题')).toBeNull()
+    expect(createTask.mock.calls[0][0]).toMatchObject({
+      title: '买牛奶',
+      dueDate: todayKey(),
+      allDay: true
+    })
+
+    const toast = useAppStore.getState().toast
+    expect(toast?.message).toContain('AI 未能解析，已按规则添加「买牛奶」')
+    expect(toast?.message).toContain('AI 服务繁忙')
+    expect(toast?.actionLabel).toBe('撤销')
+  })
+
+  it('取消进行中的 AI 解析：中止请求、不建任务、输入保留', async () => {
+    let resolveAi: (value: unknown) => void = () => undefined
+    parseAi.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAi = resolve
+        })
+    )
+
+    renderCalendar()
+    const input = openAddForm()
+    fireEvent.change(input, { target: { value: '明早 晨会' } })
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+
+    const cancelButton = await screen.findByRole('button', { name: '取消 AI 解析' })
+    fireEvent.click(cancelButton)
+
+    expect(cancelAi).toHaveBeenCalledWith(expect.stringMatching(/^calendar-add-\d+$/))
+    expect(createTask).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('日历添加任务标题') as HTMLInputElement).value).toBe(
+      '明早 晨会'
+    )
+    expect(
+      showToastSpy.mock.calls.some((call) => String(call[0]).includes('已取消 AI 解析'))
+    ).toBe(true)
+
+    // 取消后迟到的结果不会弹出草稿。
+    resolveAi({
+      ok: true,
+      source: 'ai',
+      result: aiRuleResult({ title: '迟到的结果' }),
+      warning: null,
+      attempts: 1
+    })
+    await waitFor(() => expect(screen.queryByLabelText('AI 任务标题')).toBeNull())
+  })
+
+  it('等待解析期间改写输入会丢弃迟到结果', async () => {
+    let resolveAi: (value: unknown) => void = () => undefined
+    parseAi.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAi = resolve
+        })
+    )
+
+    renderCalendar()
+    const input = openAddForm()
+    fireEvent.change(input, { target: { value: '旧的一句话' } })
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+    await screen.findByRole('button', { name: '取消 AI 解析' })
+
+    fireEvent.change(input, { target: { value: '换了一句新任务' } })
+    resolveAi({
+      ok: true,
+      source: 'ai',
+      result: aiRuleResult({ title: '旧任务' }),
+      warning: null,
+      attempts: 1
+    })
+
+    await waitFor(() =>
+      expect(
+        showToastSpy.mock.calls.some((call) =>
+          String(call[0]).includes('输入已变化，已忽略上一次 AI 解析结果')
+        )
+      ).toBe(true)
+    )
+    expect(screen.queryByLabelText('AI 任务标题')).toBeNull()
+    expect(createTask).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('日历添加任务标题') as HTMLInputElement).value).toBe(
+      '换了一句新任务'
+    )
+  })
+
+  it('草稿里清空日期后确认，不会被选中日期补回来', async () => {
+    parseAi.mockResolvedValue({
+      ok: true,
+      source: 'ai',
+      result: aiRuleResult({
+        title: '待定会议',
+        dueDate: todayKey(),
+        dueTime: '10:00',
+        allDay: false
+      }),
+      warning: null,
+      attempts: 1
+    })
+
+    renderCalendar()
+    const input = openAddForm()
+    fireEvent.change(input, { target: { value: '待定会议' } })
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+    await screen.findByLabelText('AI 任务标题')
+
+    fireEvent.change(screen.getByLabelText('AI 截止日期'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认添加' }))
+
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    expect(createTask.mock.calls[0][0]).toMatchObject({
+      title: '待定会议',
+      dueDate: null,
+      dueTime: null,
+      allDay: true
+    })
+    expect(createReminder).not.toHaveBeenCalled()
+  })
+
+  it('关闭 AI 时不显示 AI 按钮，普通 Enter 仍按规则添加', async () => {
+    useAppStore.setState({ settings: { ...SETTINGS, aiEnabled: false } })
+    renderCalendar()
+    const input = openAddForm()
+    expect(screen.queryByRole('button', { name: 'AI 解析' })).toBeNull()
+
+    fireEvent.change(input, { target: { value: '9点 晨会' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    expect(createTask.mock.calls[0][0]).toMatchObject({
+      title: '晨会',
+      dueDate: todayKey(),
+      dueTime: '09:00'
+    })
+    expect(parseAi).not.toHaveBeenCalled()
   })
 })

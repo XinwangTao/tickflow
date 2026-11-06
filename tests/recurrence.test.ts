@@ -67,7 +67,9 @@ describe('生成的 RRULE 可被 rrule 正常展开', () => {
     const rule = RRule.fromString(
       `DTSTART:${start}T090000\nRRULE:${result.recurrence}`
     )
-    const first = rule.all()[0]
+    // 只取第一条：没有 COUNT/UNTIL 的规则用 all() 会一直展开到 9999 年，
+    // 并行跑测试时容易把 5 秒超时耗光；iterator 返回 false 会提前结束枚举。
+    const first = rule.all((_date, index) => index < 1)[0]
     expect(first).toBeTruthy()
     const pad = (value: number): string => String(value).padStart(2, '0')
     return {

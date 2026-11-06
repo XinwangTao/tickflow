@@ -33,6 +33,7 @@ import {
   type AiSummaryResponse,
   type AiTestResult
 } from '@shared/ai'
+import { parseCalendarAdd } from '@shared/calendar-add'
 import {
   AiRequestError,
   requestAiModelsResult,
@@ -50,6 +51,11 @@ export interface AiRuntime {
   onRetry?: AiClientOptions['onRetry']
   /** 用户取消信号（来自 `ai:cancel`），取消后不再重试。 */
   signal?: AbortSignal
+  /**
+   * 日历行内添加的默认日期：输入里没写日期时落到选中的那一天。
+   * 普通快速添加不传，保持“只写时间落在今天”的原有语义。
+   */
+  defaultDate?: string | null
 }
 
 /**
@@ -132,7 +138,12 @@ export async function parseQuickAddWithAi(
   runtime: AiRuntime
 ): Promise<AiQuickAddResponse> {
   const now = runtime.now ?? new Date()
-  const fallback = ruleQuickAdd(input, now)
+  // 日历行内添加传入 defaultDate：规则降级同样以选中日期为默认，
+  // 输入里明确写了日期（“明天 10点”）时仍以用户写的为准。
+  const calendarFallback = runtime.defaultDate
+    ? parseCalendarAdd(input, runtime.defaultDate, now)
+    : null
+  const fallback = calendarFallback ?? ruleQuickAdd(input, now)
   if (!input.trim()) {
     return { ok: false, source: 'rule', result: fallback, warning: '输入为空', attempts: 0 }
   }
@@ -164,10 +175,20 @@ export async function parseQuickAddWithAi(
     // 显式 #标签 / !优先级 / ~清单 以规则为准；AI 漏掉的日期、时间、重复用规则补齐。
     const merged = mergeQuickAddWithRule(parsed, fallback, now)
     // 模型经常在用户没提清单时按任务内容猜一个；忽略猜测，留在当前清单。
-    const quickAdd =
+    let quickAdd =
       merged.listName && !isListNameMentioned(input, merged.listName)
         ? { ...merged, listName: null }
         : merged
+    // 日历场景下，输入里没有日期时始终落到选中的那天：
+    // 即使模型擅自定义了日期，也不能把任务建到用户没看的那一页。
+    if (calendarFallback && !calendarFallback.explicitDate) {
+      quickAdd = {
+        ...quickAdd,
+        dueDate: calendarFallback.dueDate,
+        // 日历里“只有日期没有时间”就是全天任务；模型偶尔给 allDay=false 也纠正过来。
+        allDay: quickAdd.dueTime ? false : true
+      }
+    }
     return { ok: true, source: 'ai', result: quickAdd, warning: null, attempts }
   } catch (error) {
     if (isAiCanceled(error)) {

@@ -238,6 +238,74 @@ test.describe('AI 快速添加结果', () => {
     }
   })
 
+  test('日历行内添加先展示 AI 草稿，没写日期时落到选中日期并可撤销', async () => {
+    const selectedDate = localDateKey()
+    const gateway = await startFakeGateway(() => ({
+      status: 200,
+      body: anthropicReply(
+        JSON.stringify({
+          title: '日历 AI 会议',
+          dueDate: null,
+          dueTime: '09:00',
+          allDay: false,
+          priority: 2,
+          tags: [],
+          listName: null,
+          recurrence: null
+        })
+      )
+    }))
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      await page.locator('.rail-item[title="日历"]').click()
+      await expect(page.locator('.calendar-grid')).toBeVisible()
+      await page.locator('.calendar-day-panel .calendar-add-btn').click()
+
+      const input = page.locator('input[aria-label="日历添加任务标题"]')
+      await input.fill('9点 日历 AI 会议')
+      await page.locator('.calendar-add-ai').click()
+
+      const draft = page.getByRole('dialog', { name: 'AI 解析结果' })
+      await expect(draft).toBeVisible()
+      await expect(draft.getByLabel('AI 任务标题')).toHaveValue('日历 AI 会议')
+      // AI 没有返回日期，日历把结果落到选中的那一天。
+      await expect(draft.getByLabel('AI 截止日期')).toHaveValue(selectedDate)
+      await expect(draft.getByLabel('AI 截止时间')).toHaveValue('09:00')
+      await expect(draft.getByLabel('AI 优先级')).toHaveValue('2')
+      expect(await allTaskTitles(page)).toEqual([])
+
+      await draft.getByLabel('AI 任务标题').fill('日历 AI 会议（终稿）')
+      await draft.getByRole('button', { name: '确认添加' }).click()
+
+      await expect(draft).toHaveCount(0)
+      const panel = page.locator('.calendar-day-panel-body')
+      await expect(panel).toContainText('日历 AI 会议（终稿）', { timeout: 10_000 })
+
+      const tasks = await page.evaluate(async () => {
+        const rows = await window.api.tasks.query({ view: 'all' })
+        return rows.map((task) => ({ title: task.title, dueDate: task.dueDate, dueTime: task.dueTime }))
+      })
+      expect(tasks).toEqual([
+        { title: '日历 AI 会议（终稿）', dueDate: selectedDate, dueTime: '09:00' }
+      ])
+
+      const toast = page.locator('.toast')
+      await expect(toast).toContainText('AI 已添加「日历 AI 会议（终稿）」')
+      await toast.locator('.toast-action').click()
+      await expect.poll(() => allTaskTitles(page)).toEqual([])
+
+      expect(gateway.requests).toHaveLength(1)
+      expect(gateway.requests[0].path).toBe('/v1/messages')
+      expect(gateway.requests[0].model).toBe(AI_DEFAULT_MODEL)
+      expect(gateway.requests[0].maxTokens).toBe(AI_QUICK_ADD_MAX_TOKENS)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+
   test('服务 5xx 时自动重试一次，失败后按规则创建且可撤销', async () => {
     const gateway = await startFakeGateway(() => ({
       status: 500,

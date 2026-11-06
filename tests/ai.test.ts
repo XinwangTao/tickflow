@@ -563,6 +563,66 @@ describe('parseQuickAddWithAi', () => {
   })
 })
 
+describe('parseQuickAddWithAi 日历行内添加', () => {
+  it('输入没写日期时落到选中的日期，AI 漏掉的日期由规则补齐', async () => {
+    const response = await parseQuickAddWithAi('9点 晨会', [], {
+      config: CONFIG,
+      now: NOW,
+      defaultDate: '2026-11-12',
+      fetch: async () => textResponse(JSON.stringify({ title: '晨会', dueTime: '09:00' }))
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.result.dueDate).toBe('2026-11-12')
+    expect(response.result.dueTime).toBe('09:00')
+    expect(response.result.allDay).toBe(false)
+  })
+
+  it('输入明确写了日期时以输入为准，不被选中日期覆盖', async () => {
+    const response = await parseQuickAddWithAi('明天 10点 开会', [], {
+      config: CONFIG,
+      now: NOW,
+      defaultDate: '2026-11-20',
+      fetch: async () => textResponse(JSON.stringify({ title: '开会' }))
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.result.dueDate).toBe('2026-11-06')
+    expect(response.result.dueTime).toBe('10:00')
+  })
+
+  it('AI 擅自定义日期但输入没写日期时仍用选中日期，只保留 AI 的时间', async () => {
+    const response = await parseQuickAddWithAi('晨会', [], {
+      config: CONFIG,
+      now: NOW,
+      defaultDate: '2026-11-20',
+      fetch: async () =>
+        textResponse(
+          JSON.stringify({ title: '晨会', dueDate: '2026-11-05', dueTime: '09:00' })
+        )
+    })
+
+    expect(response.result.dueDate).toBe('2026-11-20')
+    expect(response.result.dueTime).toBe('09:00')
+    expect(response.result.allDay).toBe(false)
+  })
+
+  it('AI 失败回落规则结果同样使用选中日期', async () => {
+    const response = await parseQuickAddWithAi('每3天 浇花', [], {
+      config: CONFIG,
+      now: NOW,
+      defaultDate: '2026-11-30',
+      maxAttempts: 1,
+      fetch: failFetch()
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.source).toBe('rule')
+    expect(response.result.dueDate).toBe('2026-11-30')
+    expect(response.result.recurrence).toBe('FREQ=DAILY;INTERVAL=3')
+  })
+})
+
 describe('breakdownSubtasksWithAi', () => {
   it('解析 AI 返回的子任务', async () => {
     let body: Record<string, unknown> = {}

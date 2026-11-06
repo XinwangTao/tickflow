@@ -68,7 +68,7 @@
 | 月视图 + 拖拽改期 | ✅ | |
 | 周视图 | ✅ | |
 | 日视图 | ✅ | 月/周/日三档 |
-| 点击日期查看当天全部任务（+N） | ✅ | 日期选择 + 当天任务面板 + 行内添加任务（自然语言预览、添加后撤销；日视图也可添加） |
+| 点击日期查看当天全部任务（+N） | ✅ | 日期选择 + 当天任务面板 + 行内添加任务（自然语言预览、AI 可编辑草稿、添加后撤销；日视图也可添加） |
 | 四象限 | ✅ | 重要/紧急自动分区 |
 | 看板（按清单分列，拖拽移动） | ✅ | |
 | 看板按清单/优先级分组 | ✅ | 「⋯」菜单切换按清单或按优先级分列 |
@@ -138,6 +138,10 @@
   Esc /「取消」收起并清空草稿，切换日期自动收起，空标题只提示「请输入任务标题」不写库。
 - 提前提醒按截止时间换算后写入提醒中心；已过期或没有截止日期时不建无效提醒，并在 toast 里说明。
 - 添加成功 toast 带「撤销」，点击后把刚创建的任务移入垃圾箱；`~清单` 找不到时落回默认清单并提示。
-- 代码与测试：`src/shared/calendar-add.ts`（解析）、`src/renderer/src/components/CalendarView.tsx`（表单与预览）、
-  `tests/calendar-add.test.ts`（解析规则）、`tests/calendar-add-ui.test.ts`（表单交互/撤销/清单/切日期）、
-  `e2e/calendar-add.spec.ts`（Electron 全链路）。
+- AI 解析：输入后点 AI 按钮或按 `Ctrl/Cmd + Enter`，AI 成功先展开可编辑草稿（标题、日期、时间、优先级、
+  清单、标签、重复、提醒、全天），点「确认添加」才写库、「放弃」不写库；没写日期时 AI 结果落到选中日期，
+  明确写了日期以输入为准，切换日期会中止进行中的请求。AI 失败按规则立即添加，toast 保留原因与撤销。
+- 代码与测试：`src/shared/calendar-add.ts`（解析）、`src/renderer/src/components/CalendarView.tsx`（表单、预览与 AI 草稿）、
+  `src/renderer/src/components/QuickAddDraftCard.tsx`（与快速添加共用的 AI 草稿卡）、
+  `tests/calendar-add.test.ts`（解析规则）、`tests/calendar-add-ui.test.ts`（表单交互/撤销/清单/切日期/AI 草稿）、
+  `e2e/calendar-add.spec.ts`（Electron 全链路）、`e2e/ai-quick-add.spec.ts`（日历 AI 草稿全链路）。
