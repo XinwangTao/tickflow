@@ -11,8 +11,10 @@ import {
   buildSubtasksPrompt,
   buildSummaryInput,
   buildSummaryPrompt,
+  describeAiFailure,
   filterNewSubtasks,
   isListNameMentioned,
+  isRetryableAiError,
   localDateKeyFromIso,
   mergeQuickAddWithRule,
   normalizeAiModels,
@@ -60,6 +62,15 @@ function modelsResponse(ids: string[]): Response {
   return responseWith({
     data: ids.map((id) => ({ type: 'model', id, display_name: id.split('--').pop() }))
   })
+}
+
+function statusResponse(status: number, body = ''): Response {
+  return {
+    ok: false,
+    status,
+    json: async () => ({}),
+    text: async () => body
+  } as unknown as Response
 }
 
 function failFetch(message = 'connect ECONNREFUSED'): FetchLike {
@@ -840,5 +851,241 @@ describe('testAiConnection', () => {
     const result = await testAiConnection(CONFIG, { fetch: failFetch('本地服务未启动') })
     expect(result.ok).toBe(false)
     expect(result.message).toContain('本地服务未启动')
+  })
+})
+
+describe('describeAiFailure 失败分类与提示', () => {
+  it('超时提示写明超时秒数，并说明不重试的原因', () => {
+    const info = describeAiFailure(new Error('AI 请求超时'), {
+      baseUrl: AI_DEFAULT_BASE_URL,
+      timeoutMs: 8000
+    })
+    expect(info.kind).toBe('timeout')
+    expect(info.retryable).toBe(false)
+    expect(info.hint).toContain('8 秒')
+    expect(info.hint).toContain('调大超时')
+  })
+
+  it('连接被拒时提示本机服务地址并标记可重试', () => {
+    const info = describeAiFailure(new Error('connect ECONNREFUSED 127.0.0.1:15721'), CONFIG)
+    expect(info.kind).toBe('network')
+    expect(info.retryable).toBe(true)
+    expect(info.hint).toContain('127.0.0.1:15721')
+    expect(info.hint).toContain('CC Switch')
+    expect(info.hint).toContain('ECONNREFUSED')
+  })
+
+  it('限流与 5xx 可重试，鉴权与模型错误不重试且给出自助排查方向', () => {
+    const overloaded = describeAiFailure(new Error('AI 接口返回 503：overloaded'))
+    expect(overloaded.kind).toBe('busy')
+    expect(overloaded.retryable).toBe(true)
+    expect(overloaded.hint).toContain('繁忙')
+
+    // 服务器正文里出现 timeout 时，仍按状态码归类，不会被误判为客户端超时。
+    const gateway = describeAiFailure(new Error('AI 接口返回 504：gateway timeout'))
+    expect(gateway.kind).toBe('busy')
+    expect(gateway.retryable).toBe(true)
+
+    const limited = describeAiFailure(new Error('AI 接口返回 429：slow down'))
+    expect(limited.kind).toBe('busy')
+    expect(limited.retryable).toBe(true)
+    expect(limited.hint).toContain('限流')
+
+    const auth = describeAiFailure(new Error('AI 接口返回 401：invalid key'))
+    expect(auth.kind).toBe('auth')
+    expect(auth.retryable).toBe(false)
+    expect(auth.hint).toContain('Token')
+
+    const model = describeAiFailure(new Error('AI 接口返回 404：model not found'))
+    expect(model.kind).toBe('model')
+    expect(model.retryable).toBe(false)
+    expect(model.hint).toContain('获取模型列表')
+  })
+
+  it('只有 thinking 的回复保留输出预算不足的可操作提示', () => {
+    const info = describeAiFailure(
+      new Error('AI 只返回了推理过程，正文为空（输出预算不足），请重试或更换模型')
+    )
+    expect(info.kind).toBe('empty')
+    expect(info.retryable).toBe(false)
+    expect(info.hint).toContain('推理过程')
+    expect(info.hint).toContain('输出预算不足')
+    expect(isRetryableAiError(new Error('AI 返回内容为空'))).toBe(false)
+  })
+
+  it('标注自动重试次数', () => {
+    const info = describeAiFailure(new Error('connect ECONNREFUSED'), CONFIG, 2)
+    expect(info.hint).toContain('已自动重试 1 次')
+  })
+
+  it('空模型列表给出更具体的提示', () => {
+    const info = describeAiFailure(new Error('AI 模型列表为空'))
+    expect(info.kind).toBe('empty')
+    expect(info.retryable).toBe(false)
+    expect(info.hint).toContain('模型列表为空')
+  })
+})
+
+describe('AI 失败重试', () => {
+  it('连接被拒时自动重试一次并成功', async () => {
+    let calls = 0
+    const retries: number[] = []
+    const response = await parseQuickAddWithAi('交周报', [], {
+      config: CONFIG,
+      now: NOW,
+      retryDelayMs: 0,
+      onRetry: ({ attempt }) => retries.push(attempt),
+      fetch: async () => {
+        calls += 1
+        if (calls === 1) throw new Error('connect ECONNREFUSED')
+        return textResponse(JSON.stringify({ title: '交周报' }))
+      }
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.source).toBe('ai')
+    expect(response.attempts).toBe(2)
+    expect(calls).toBe(2)
+    expect(retries).toEqual([1])
+  })
+
+  it('5xx 重试后仍失败时标注已重试，并保留规则解析结果', async () => {
+    let calls = 0
+    const response = await parseQuickAddWithAi('明天下午3点 交周报', [], {
+      config: CONFIG,
+      now: NOW,
+      retryDelayMs: 0,
+      fetch: async () => {
+        calls += 1
+        return statusResponse(504, 'gateway timeout')
+      }
+    })
+
+    expect(calls).toBe(2)
+    expect(response.ok).toBe(false)
+    expect(response.source).toBe('rule')
+    expect(response.attempts).toBe(2)
+    expect(response.warning).toContain('繁忙')
+    expect(response.warning).toContain('已自动重试 1 次')
+    expect(response.result.dueDate).toBe('2026-11-06')
+    expect(response.result.dueTime).toBe('15:00')
+  })
+
+  it('超时不重试，提示写明超时秒数并立即回落规则解析', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+    })
+    const response = await parseQuickAddWithAi('交周报', [], {
+      config: { ...CONFIG, timeoutMs: 5000 },
+      now: NOW,
+      retryDelayMs: 0,
+      fetch: fetchImpl as unknown as FetchLike
+    })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(response.ok).toBe(false)
+    expect(response.attempts).toBe(1)
+    expect(response.warning).toContain('超时')
+    expect(response.warning).toContain('5 秒')
+    expect(response.result.title).toBe('交周报')
+  })
+
+  it('模型不存在时不重试，提示核对模型 ID', async () => {
+    let calls = 0
+    const response = await summarizeTodayWithAi(
+      { date: '2026-11-05', tasks: [], completedCount: 0, openCount: 0, overdueCount: 0 },
+      {
+        config: CONFIG,
+        retryDelayMs: 0,
+        fetch: async () => {
+          calls += 1
+          return statusResponse(404, '{"error":"model not found"}')
+        }
+      }
+    )
+
+    expect(calls).toBe(1)
+    expect(response.ok).toBe(false)
+    expect(response.attempts).toBe(1)
+    expect(response.warning).toContain('获取模型列表')
+    expect(response.summary.summary).toContain('2026-11-05')
+  })
+
+  it('模型列表与测试连接同样重试，并回报尝试次数', async () => {
+    let modelCalls = 0
+    const models = await listAiModels(CONFIG, {
+      retryDelayMs: 0,
+      fetch: async () => {
+        modelCalls += 1
+        return modelCalls === 1 ? statusResponse(502, 'bad gateway') : modelsResponse([AI_DEFAULT_MODEL])
+      }
+    })
+    expect(models.ok).toBe(true)
+    expect(models.attempts).toBe(2)
+    expect(models.models.map((model) => model.id)).toEqual([AI_DEFAULT_MODEL])
+
+    const failed = await testAiConnection(CONFIG, {
+      retryDelayMs: 0,
+      fetch: failFetch('connect ECONNREFUSED')
+    })
+    expect(failed.ok).toBe(false)
+    expect(failed.attempts).toBe(2)
+    expect(failed.message).toContain('CC Switch')
+    expect(failed.message).toContain('已自动重试 1 次')
+  })
+
+  it('重试成功后结构仍非法时，尝试次数照样回报', async () => {
+    let calls = 0
+    const response = await parseQuickAddWithAi('写周报', [], {
+      config: CONFIG,
+      now: NOW,
+      retryDelayMs: 0,
+      fetch: async () => {
+        calls += 1
+        if (calls === 1) throw new Error('connect ECONNREFUSED')
+        return textResponse('我不太确定')
+      }
+    })
+
+    expect(calls).toBe(2)
+    expect(response.ok).toBe(false)
+    expect(response.attempts).toBe(2)
+    expect(response.warning).toContain('无法解析')
+    expect(response.warning).toContain('已自动重试 1 次')
+  })
+
+  it('模型列表为空时不重试，并返回可操作提示', async () => {
+    let calls = 0
+    const result = await listAiModels(CONFIG, {
+      retryDelayMs: 0,
+      fetch: async () => {
+        calls += 1
+        return responseWith({ data: [] })
+      }
+    })
+    expect(calls).toBe(1)
+    expect(result.ok).toBe(false)
+    expect(result.attempts).toBe(1)
+    expect(result.message).toContain('模型列表为空')
+  })
+
+  it('maxAttempts=1 时可关闭自动重试', async () => {
+    let calls = 0
+    const response = await breakdownSubtasksWithAi(
+      { title: '准备季度汇报', notes: '收集数据；写幻灯片' },
+      {
+        config: CONFIG,
+        maxAttempts: 1,
+        retryDelayMs: 0,
+        fetch: async () => {
+          calls += 1
+          throw new Error('connect ECONNRESET')
+        }
+      }
+    )
+    expect(calls).toBe(1)
+    expect(response.ok).toBe(false)
+    expect(response.attempts).toBe(1)
+    expect(response.subtasks.map((item) => item.title)).toEqual(['收集数据', '写幻灯片'])
   })
 })

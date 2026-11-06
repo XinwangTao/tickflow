@@ -35,6 +35,8 @@ export interface AiQuickAddResponse {
   source: AiSource
   result: QuickAddResult
   warning: string | null
+  /** 失败时的请求次数：大于 1 表示瞬时故障已自动重试过。 */
+  attempts?: number
 }
 
 export interface AiSubtaskDraft {
@@ -50,6 +52,7 @@ export interface AiSubtasksResponse {
   source: AiSource
   subtasks: AiSubtaskDraft[]
   warning: string | null
+  attempts?: number
 }
 
 export interface AiSummaryTask {
@@ -82,6 +85,7 @@ export interface AiSummaryResponse {
   source: AiSource
   summary: AiTodaySummary
   warning: string | null
+  attempts?: number
 }
 
 export interface AiTestResult {
@@ -89,6 +93,7 @@ export interface AiTestResult {
   message: string
   model?: string
   latencyMs?: number
+  attempts?: number
 }
 
 export interface AiModelInfo {
@@ -100,6 +105,7 @@ export interface AiModelsResult {
   ok: boolean
   models: AiModelInfo[]
   message: string
+  attempts?: number
 }
 
 /** 解析 /v1/models：兼容 Anthropic 的 { data: [...] } 与纯数组，id 保持逐字不变。 */
@@ -159,6 +165,122 @@ function weekdayLabel(date: Date): string {
 export function describeAiError(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+export type AiFailureKind =
+  | 'disabled'
+  | 'timeout'
+  | 'network'
+  | 'busy'
+  | 'auth'
+  | 'model'
+  | 'http'
+  | 'empty'
+  | 'invalid'
+  | 'unknown'
+
+export interface AiFailureInfo {
+  kind: AiFailureKind
+  /** 网络抖动、限流、5xx 这类瞬时故障值得自动重试；超时不重试，否则等待时间翻倍。 */
+  retryable: boolean
+  /** 展示给用户的提示：说明发生了什么，并给出下一步该做什么。 */
+  hint: string
+}
+
+const AI_HTTP_STATUS_PATTERN = /(?:接口|模型列表)返回\s*(\d{3})/i
+
+/** 从 Base URL 取出主机名，用在“连不上服务”的提示里。 */
+export function aiEndpointHost(baseUrl: string | undefined): string {
+  const raw = (baseUrl ?? '').trim() || AI_DEFAULT_BASE_URL
+  try {
+    return new URL(raw).host
+  } catch {
+    return raw
+  }
+}
+
+/** 把可操作的提示与原始错误拼在一起，原始错误已包含在提示里时不重复。 */
+function composeAiHint(friendly: string, raw: string): string {
+  const detail = raw.trim()
+  if (!detail || friendly.includes(detail)) return friendly
+  return `${friendly} · ${detail}`
+}
+
+/**
+ * 给 AI 失败分类，并生成一句可操作的提示。
+ * 提示既说明原因（超时多少秒、连不上哪个地址、HTTP 状态），
+ * 也说明下一步（调大超时、启动 CC Switch、核对模型 ID、检查 Token），
+ * 避免只显示“AI 调用失败”这种无法自助排查的文案。
+ * attempts 大于 1 时会在提示末尾标注“已自动重试 N 次”。
+ */
+export function describeAiFailure(
+  error: unknown,
+  config?: Pick<AiConfig, 'baseUrl' | 'timeoutMs'>,
+  attempts = 1
+): AiFailureInfo {
+  const raw = describeAiError(error).trim()
+  const statusMatch = AI_HTTP_STATUS_PATTERN.exec(raw)
+  const status = statusMatch ? Number(statusMatch[1]) : null
+  const seconds = Math.max(1, Math.round((config?.timeoutMs ?? AI_DEFAULT_TIMEOUT_MS) / 1000))
+
+  let kind: AiFailureKind
+  let retryable = false
+  let friendly: string
+
+  if (/AI 已关闭|未配置模型|输入为空|任务标题为空/.test(raw)) {
+    kind = 'disabled'
+    friendly = raw || 'AI 已关闭或未配置模型'
+  } else if (
+    status !== null &&
+    (status === 408 || status === 425 || status === 429 || status >= 500)
+  ) {
+    kind = 'busy'
+    retryable = true
+    friendly = status === 429 ? 'AI 服务限流，请稍后再试' : 'AI 服务繁忙，请稍后再试'
+  } else if (status === 401 || status === 403) {
+    kind = 'auth'
+    friendly = 'AI 鉴权失败，请检查设置里的 Token（本机服务通常留空）'
+  } else if (status === 400 || status === 404 || status === 422) {
+    kind = 'model'
+    friendly = '模型或请求不可用，请在设置页用「获取模型列表」逐字核对模型 ID'
+  } else if (status !== null) {
+    kind = 'http'
+    friendly = 'AI 接口请求被拒绝，请稍后再试'
+  } else if (/模型列表为空/.test(raw)) {
+    kind = 'empty'
+    friendly = 'AI 模型列表为空，请确认 CC Switch 已加载模型'
+  } else if (/超时|timeout|timed out|AbortError/i.test(raw)) {
+    kind = 'timeout'
+    friendly = `AI 请求超时（${seconds} 秒），可在设置里调大超时或换更快的模型`
+  } else if (
+    /ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|EPIPE|ETIMEDOUT|fetch failed|Failed to fetch|NetworkError|network|socket hang up|拒绝|断开/i.test(
+      raw
+    )
+  ) {
+    kind = 'network'
+    retryable = true
+    friendly = `连接不上 AI 服务（${aiEndpointHost(config?.baseUrl)}），请确认 CC Switch 已启动`
+  } else if (/推理过程|输出预算|正文为空|内容为空/.test(raw)) {
+    kind = 'empty'
+    friendly = 'AI 返回正文为空，请重试或换一个输出更稳定的模型'
+  } else if (/无法识别|结构无法|不是 JSON|不是JSON/i.test(raw)) {
+    kind = 'invalid'
+    friendly = 'AI 返回内容无法解析，已按本地规则处理'
+  } else {
+    kind = 'unknown'
+    friendly = 'AI 调用失败'
+  }
+
+  const retrySuffix = attempts > 1 ? `（已自动重试 ${attempts - 1} 次）` : ''
+  return { kind, retryable, hint: `${composeAiHint(friendly, raw)}${retrySuffix}` }
+}
+
+/** 是否值得自动重试：只重试瞬时故障，超时与参数类错误不重试。 */
+export function isRetryableAiError(
+  error: unknown,
+  config?: Pick<AiConfig, 'baseUrl' | 'timeoutMs'>
+): boolean {
+  return describeAiFailure(error, config).retryable
 }
 
 /**

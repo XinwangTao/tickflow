@@ -349,6 +349,10 @@ export function SettingsDialog(): React.ReactNode {
             />
           </label>
         </div>
+        <p className="field-hint">
+          超时只作用于单次请求（1000–120000 毫秒）。连接被拒、限流或 5xx 会自动重试 1 次；
+          超时不重试，因为已经用满了这里的等待时间，界面会立即回落到本地规则。
+        </p>
         {aiModels.length > 0 &&
         !aiModels.some((model) => model.id === ai.model) ? (
           <p className="field-hint">

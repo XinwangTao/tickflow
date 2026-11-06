@@ -23,10 +23,16 @@ export function AiDailySummary(): React.ReactNode {
       setSource(response.source)
       setWarning(response.warning)
       if (!response.ok) {
+        // 失败提示里已说明原因（超时秒数 / 服务地址 / 模型），这里再给一个“重试”入口，
+        // 网络抖动恢复后无需先刷新页面。
         showToast(
           `AI 总结不可用，已使用本地统计生成${response.warning ? `：${response.warning}` : ''}`,
           'info',
-          { duration: 5000 }
+          {
+            duration: 7000,
+            actionLabel: '重试',
+            action: () => generate()
+          }
         )
       }
     } catch (error) {

@@ -20,11 +20,24 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
   const [value, setValue] = useState('')
   const [focused, setFocused] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
+  const [aiElapsed, setAiElapsed] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (focusToken > 0) inputRef.current?.focus()
   }, [focusToken])
+
+  // 请求期间显示已等待秒数：超时前用户能看到进度，不会以为界面卡住。
+  useEffect(() => {
+    if (!aiBusy) {
+      setAiElapsed(0)
+      return
+    }
+    const timer = setInterval(() => setAiElapsed((seconds) => seconds + 1), 1000)
+    return () => clearInterval(timer)
+  }, [aiBusy])
+
+  const aiTimeoutSeconds = Math.max(1, Math.round((settings.aiTimeoutMs || 15000) / 1000))
 
   const parsed = useMemo(() => parseQuickAdd(value), [value])
   const hasMeta =
@@ -127,13 +140,13 @@ export function QuickAdd({ defaultListId, defaultDueDate = null }: QuickAddProps
           <button
             type="button"
             className={`quick-add-ai ${aiBusy ? 'busy' : ''}`}
-            title="AI 解析并添加（Ctrl+Enter）"
+            title={`AI 解析并添加（Ctrl+Enter）· 超过 ${aiTimeoutSeconds} 秒自动回落到规则解析`}
             aria-label="AI 解析并添加"
             disabled={aiBusy || !value.trim()}
             onClick={() => void submit(true)}
           >
             <Icon name="sparkles" size={14} />
-            {aiBusy ? '解析中' : 'AI'}
+            {aiBusy ? (aiElapsed > 0 ? `解析中 ${aiElapsed}s` : '解析中') : 'AI'}
           </button>
         ) : null}
         {value.trim() ? <kbd className="quick-add-enter">↵</kbd> : null}

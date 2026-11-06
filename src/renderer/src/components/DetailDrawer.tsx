@@ -108,7 +108,7 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
         showToast(
           `AI 拆解不可用，已使用规则拆解${response.warning ? `：${response.warning}` : ''}`,
           'info',
-          { duration: 5000 }
+          { duration: 7000, actionLabel: '重试', action: () => breakdown() }
         )
       } else if (response.warning) {
         showToast(response.warning, 'info', { duration: 5000 })
