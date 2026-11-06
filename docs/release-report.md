@@ -12,7 +12,7 @@
 | Vitest | 36 个文件 / 508 项全部通过 |
 | Playwright Electron E2E | 32 条通过（含键盘操作、日历行内添加、日历 AI 草稿、关闭到托盘、自启最小化、关于弹窗、R2 mock 同步；每个用例使用独立 `TICKFLOW_USER_DATA` 临时目录，不读写真实数据） |
 | 构建体积预算 | 通过：main 200.8 KB / 220 KB，preload 9.2 KB / 16 KB，renderer JS 969.8 KB / 1400 KB（首屏入口 789.3 KB），CSS 67.8 KB / 90 KB |
-| 桌面安装包 | NSIS 重建成功，117 MB，未签名 |
+| 桌面安装包 | NSIS 重建成功，117 MB，未签名；`release/win-unpacked` 打包版冒烟通过（启动、日历/设置按需 chunk、详情抽屉） |
 | Android debug APK | 5.0 MB，`com.tickflow.mobile`，minSdk 24 / targetSdk 36 |
 | Android release APK | 3.6 MB，已用本地 keystore 签名并通过 `apksigner verify` |
 | 真机（OPPO PKJ110 / Android 17） | 安装、冷启动、快速添加、详情、搜索、清单 CRUD、习惯/番茄/统计、键盘安全区、浅色主题、返回键、20+3 轮稳定性、飞行模式冷启动通过 |

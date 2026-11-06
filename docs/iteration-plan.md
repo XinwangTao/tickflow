@@ -5,7 +5,7 @@
 
 ## 状态基线（2026-11-07）
 
-- 类型检查通过；Vitest 36 个文件 / 508 项；Playwright Electron E2E 31 条
+- 类型检查通过；Vitest 36 个文件 / 508 项；Playwright Electron E2E 32 条；打包版冒烟通过
 - 桌面端功能清单（`docs/product/tickflow-pixel-checklist.md`）除「评论」外全部完成
 - R2 真实桶 B1–B11 通过，当前 3 份快照 / 93.3 KB，处于免费额度内
 - Android 功能已落地，真机复验项集中记录在 `docs/TODO-device.md`
