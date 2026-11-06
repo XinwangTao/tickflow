@@ -74,6 +74,7 @@ describe('Subtasks AI 拆解草稿', () => {
   let createTask: ReturnType<typeof vi.fn>
   let removeTask: ReturnType<typeof vi.fn>
   let breakdown: ReturnType<typeof vi.fn>
+  let cancel: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     currentSubtasks = []
@@ -87,6 +88,7 @@ describe('Subtasks AI 拆解草稿', () => {
       currentSubtasks = currentSubtasks.filter((task) => task.id !== id)
     })
     breakdown = vi.fn(async () => AI_RESPONSE)
+    cancel = vi.fn(async () => true)
 
     useAppStore.setState({
       settings: SETTINGS,
@@ -98,7 +100,7 @@ describe('Subtasks AI 拆解草稿', () => {
       }
     })
     ;(window as unknown as { api: unknown }).api = {
-      ai: { breakdownSubtasks: breakdown },
+      ai: { breakdownSubtasks: breakdown, cancel },
       tasks: {
         query: vi.fn(async () => currentSubtasks),
         create: createTask,
@@ -111,6 +113,13 @@ describe('Subtasks AI 拆解草稿', () => {
     cleanup()
     useAppStore.setState({ tasks: [], toast: null })
   })
+
+  /** 测试里替换拆解实现后，同步给 window.api，模拟 renderer 真实调用链。 */
+  function swapBreakdown(impl: ReturnType<typeof vi.fn>): void {
+    ;(
+      window as unknown as { api: { ai: { breakdownSubtasks: ReturnType<typeof vi.fn> } } }
+    ).api.ai.breakdownSubtasks = impl
+  }
 
   it('AI 结果先进入可编辑草稿，确认后才写库，并可通过 toast 撤销', async () => {
     render(createElement(Subtasks, { task: PARENT }))
@@ -203,5 +212,58 @@ describe('Subtasks AI 拆解草稿', () => {
     expect(toast?.kind).toBe('info')
     expect(toast?.actionLabel).toBe('撤销')
     expect(screen.queryByRole('group', { name: 'AI 拆解结果' })).toBeNull()
+  })
+
+  it('取消进行中的拆解会中止请求，迟到的结果不进入草稿', async () => {
+    let resolveBreakdown!: (value: unknown) => void
+    const pending = new Promise((resolve) => {
+      resolveBreakdown = resolve
+    })
+    breakdown = vi.fn(() => pending)
+    swapBreakdown(breakdown)
+
+    render(createElement(Subtasks, { task: PARENT }))
+    fireEvent.click(screen.getByLabelText('AI 拆解子任务'))
+
+    fireEvent.click(await screen.findByLabelText('取消 AI 拆解'))
+
+    // 取消要精确落到刚才那次请求的 id 上，main 才能中止对应的 fetch。
+    const requestId = breakdown.mock.calls[0][1]
+    expect(requestId).toMatch(/^subtasks-\d+$/)
+    expect(cancel).toHaveBeenCalledWith(requestId)
+    expect(useAppStore.getState().toast?.message).toContain('已取消 AI 拆解')
+    expect(screen.getByLabelText('AI 拆解子任务')).toBeEnabled()
+
+    // 迟到响应：不弹草稿、不写库。
+    resolveBreakdown(AI_RESPONSE)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(screen.queryByRole('group', { name: 'AI 拆解结果' })).toBeNull()
+    expect(createTask).not.toHaveBeenCalled()
+  })
+
+  it('切换到别的任务时自动中止进行中的拆解请求', async () => {
+    let resolveBreakdown!: (value: unknown) => void
+    const pending = new Promise((resolve) => {
+      resolveBreakdown = resolve
+    })
+    breakdown = vi.fn(() => pending)
+    swapBreakdown(breakdown)
+    const OTHER = makeTask({ listId: 'work', title: '写季度总结' }, 'parent-2')
+
+    const view = render(createElement(Subtasks, { task: PARENT }))
+    fireEvent.click(screen.getByLabelText('AI 拆解子任务'))
+    await screen.findByLabelText('取消 AI 拆解')
+
+    view.rerender(createElement(Subtasks, { task: OTHER }))
+
+    expect(cancel).toHaveBeenCalledWith(breakdown.mock.calls[0][1])
+    // 新任务的按钮恢复可用，旧请求的响应不会把草稿塞进新任务。
+    await waitFor(() => expect(screen.getByLabelText('AI 拆解子任务')).toBeEnabled())
+    resolveBreakdown(AI_RESPONSE)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(screen.queryByRole('group', { name: 'AI 拆解结果' })).toBeNull()
+    expect(createTask).not.toHaveBeenCalled()
   })
 })

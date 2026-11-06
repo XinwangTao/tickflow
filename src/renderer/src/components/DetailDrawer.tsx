@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import type { Attachment, Priority, Reminder, TaskWithMeta } from '@shared/types'
-import { filterNewSubtasks, type AiSubtaskDraft } from '@shared/ai'
+import { AI_CANCELED_SUBTASKS_HINT, filterNewSubtasks, type AiSubtaskDraft } from '@shared/ai'
 import {
   collectSelectedSubtasks,
   createSubtaskDraftRows,
@@ -60,6 +60,21 @@ export function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
   // 切换任务时丢弃旧任务的草稿与迟到响应，避免把结果写到新任务下。
   const aiRequestSeq = useRef(0)
   const taskIdRef = useRef(task.id)
+  // 进行中的拆解请求 id：取消、切任务或面板卸载时用它精确中止 main 里的那次 fetch。
+  const activeAiRequest = useRef<string | null>(null)
+
+  /** 中止进行中的拆解请求；返回被中止的 id，没有请求时返回 null。 */
+  const abortActiveAiRequest = (): string | null => {
+    const active = activeAiRequest.current
+    if (!active) return null
+    activeAiRequest.current = null
+    try {
+      void window.api.ai.cancel(active).catch(() => undefined)
+    } catch {
+      // 旧 preload 或测试桩没有 cancel 时忽略，界面状态仍照常复位。
+    }
+    return active
+  }
 
   const load = async (): Promise<void> => {
     try {
@@ -74,11 +89,20 @@ export function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
   useEffect(() => {
     taskIdRef.current = task.id
     aiRequestSeq.current += 1
+    // 切到别的任务时，旧任务的拆解请求没有意义了，直接中止，别让它在后台跑满超时。
+    abortActiveAiRequest()
     setAiDraftRows(null)
     setAiBusy(false)
     setDraftBusy(false)
     void load()
   }, [task.id])
+
+  // 面板关闭（组件卸载）时同样中止进行中的请求。
+  useEffect(() => {
+    return () => {
+      abortActiveAiRequest()
+    }
+  }, [])
 
   const add = async (): Promise<void> => {
     const title = value.trim()
@@ -186,13 +210,14 @@ export function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
   const breakdown = async (): Promise<void> => {
     // 草稿未处理时再点 AI 会覆盖用户改过的内容，先要求确认或取消。
     if (aiBusy || draftBusy || aiDraftRows) return
-    const seq = (aiRequestSeq.current += 1)
+    const requestId = `subtasks-${(aiRequestSeq.current += 1)}`
     const requestTaskId = task.id
+    activeAiRequest.current = requestId
     setAiBusy(true)
     try {
-      const response = await window.api.ai.breakdownSubtasks(task.id)
-      // 等待期间切换了任务：迟到的结果不再展示，也不写库。
-      if (aiRequestSeq.current !== seq || taskIdRef.current !== requestTaskId) return
+      const response = await window.api.ai.breakdownSubtasks(task.id, requestId)
+      // 已取消、切换了任务或被新请求取代：迟到的结果不再展示，也不写库。
+      if (activeAiRequest.current !== requestId || taskIdRef.current !== requestTaskId) return
       // 主进程已按数据库现有子任务过滤；这里再按当前面板状态兜底，
       // 避免连续点击或列表刚好刷新时写入重复子任务。
       const drafts = filterNewSubtasks(
@@ -223,11 +248,21 @@ export function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
       // 规则拆解是确定性结果，保持原先的一步添加；提示里保留 AI 失败原因。
       await createSubtasks(drafts, { fromAi: false, warning: response.warning })
     } catch (error) {
-      if (aiRequestSeq.current !== seq) return
+      if (activeAiRequest.current !== requestId) return
       showToast(`AI 拆解失败：${String(error)}`, 'error', { duration: 5000 })
     } finally {
-      if (aiRequestSeq.current === seq) setAiBusy(false)
+      if (activeAiRequest.current === requestId) {
+        activeAiRequest.current = null
+        setAiBusy(false)
+      }
     }
+  }
+
+  /** 取消进行中的拆解：中止请求并保持子任务列表不变。 */
+  const cancelBreakdown = (): void => {
+    if (!abortActiveAiRequest()) return
+    setAiBusy(false)
+    showToast(`${AI_CANCELED_SUBTASKS_HINT}，未写入任何子任务`, 'info')
   }
 
   const updateDraftRow = (key: string, patch: Partial<AiSubtaskDraftRow>): void => {
@@ -283,6 +318,17 @@ export function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
           <span>
             {done}/{subtasks.length}
           </span>
+          {aiEnabled && aiBusy ? (
+            <button
+              type="button"
+              className="detail-ai-cancel"
+              title="取消本次 AI 拆解（切换任务也会自动取消）"
+              aria-label="取消 AI 拆解"
+              onClick={cancelBreakdown}
+            >
+              取消
+            </button>
+          ) : null}
           {aiEnabled ? (
             <button
               type="button"

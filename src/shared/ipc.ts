@@ -202,8 +202,9 @@ export interface TickFlowApi {
     parseQuickAdd(input: string, requestId?: string): Promise<AiQuickAddResponse>
     /** 中止某个进行中的 AI 请求，返回 false 表示它已经结束或不存在。 */
     cancel(requestId: string): Promise<boolean>
-    breakdownSubtasks(taskId: string): Promise<AiSubtasksResponse>
-    dailySummary(): Promise<AiSummaryResponse>
+    breakdownSubtasks(taskId: string, requestId?: string): Promise<AiSubtasksResponse>
+    /** requestId 同样可传给 `cancel`，用于在超时前主动中止总结或拆解。 */
+    dailySummary(requestId?: string): Promise<AiSummaryResponse>
     models(): Promise<AiModelsResult>
     test(): Promise<AiTestResult>
   }

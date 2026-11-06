@@ -14,7 +14,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
-    "test:ai": "vitest run tests/ai.test.ts tests/ai-cancel.test.ts tests/quick-add-regression.test.ts tests/quick-add.test.ts tests/quick-add-draft.test.ts tests/quick-add-ui.test.ts tests/subtask-draft.test.ts tests/subtask-draft-ui.test.ts",
+    "test:ai": "vitest run tests/ai.test.ts tests/ai-cancel.test.ts tests/ai-summary-ui.test.ts tests/quick-add-regression.test.ts tests/quick-add.test.ts tests/quick-add-draft.test.ts tests/quick-add-ui.test.ts tests/subtask-draft.test.ts tests/subtask-draft-ui.test.ts",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
     "dist": "npm run build && npm run check:bundle && electron-builder --win",

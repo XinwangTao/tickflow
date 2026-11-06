@@ -206,30 +206,41 @@ export function registerIpc(): void {
   })
   // renderer 点「取消」或按 Esc 时调用：中止 main 进程里对应的那次 fetch。
   ipcMain.handle(IPC.aiCancel, (_event, requestId: string) => cancelAiRequest(requestId))
-  ipcMain.handle(IPC.aiSubtasks, (_event, taskId: string) => {
+  ipcMain.handle(IPC.aiSubtasks, (_event, taskId: string, requestId?: string) => {
     const db = getDb()
     const task = taskRepo.getTaskWithMeta(db, taskId)
     if (!task) throw new Error('任务不存在')
     const existing = taskRepo.queryTasks(db, { view: 'subtasks', parentId: taskId })
-    return breakdownSubtasksWithAi(
+    // 与快速添加共用一套注册表：renderer 取消 / 切换任务时按 requestId 精确中止这次 fetch。
+    const controller = requestId ? registerAiRequest(requestId) : null
+    const pending = breakdownSubtasksWithAi(
       {
         title: task.title,
         notes: task.notes,
         listName: task.listName,
         existingSubtasks: existing.map((item) => item.title)
       },
-      { config: aiConfigFromSettings(settingsRepo.getSettings(db)) }
+      {
+        config: aiConfigFromSettings(settingsRepo.getSettings(db)),
+        signal: controller?.signal
+      }
     )
+    if (!requestId || !controller) return pending
+    return pending.finally(() => releaseAiRequest(requestId))
   })
-  ipcMain.handle(IPC.aiSummary, () => {
+  ipcMain.handle(IPC.aiSummary, (_event, requestId?: string) => {
     const db = getDb()
     const tasks = [
       ...taskRepo.queryTasks(db, { view: 'today' }),
       ...taskRepo.queryTasks(db, { view: 'completed' })
     ]
-    return summarizeTodayWithAi(buildSummaryInput(tasks, todayKey()), {
-      config: aiConfigFromSettings(settingsRepo.getSettings(db))
+    const controller = requestId ? registerAiRequest(requestId) : null
+    const pending = summarizeTodayWithAi(buildSummaryInput(tasks, todayKey()), {
+      config: aiConfigFromSettings(settingsRepo.getSettings(db)),
+      signal: controller?.signal
     })
+    if (!requestId || !controller) return pending
+    return pending.finally(() => releaseAiRequest(requestId))
   })
   ipcMain.handle(IPC.aiModels, () =>
     listAiModels(aiConfigFromSettings(settingsRepo.getSettings(getDb())))

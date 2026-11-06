@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import {
   AI_CANCELED_MESSAGE,
+  AI_CANCELED_SUBTASKS_HINT,
+  AI_CANCELED_SUMMARY_HINT,
   AI_DEFAULT_BASE_URL,
   AI_DEFAULT_MODEL,
   describeAiFailure,
   isAiCanceled,
-  type AiConfig
+  type AiConfig,
+  type AiSummaryInput
 } from '../src/shared/ai'
 import {
   activeAiRequestCount,
+  breakdownSubtasksWithAi,
   cancelAiRequest,
   parseQuickAddWithAi,
   registerAiRequest,
-  releaseAiRequest
+  releaseAiRequest,
+  summarizeTodayWithAi
 } from '../src/main/ai'
 import { requestAiTextResult, type FetchLike } from '../src/main/ai-client'
 
@@ -179,5 +184,79 @@ describe('取消 AI 请求', () => {
 
     releaseAiRequest('quick-add-b')
     expect(activeAiRequestCount()).toBe(0)
+  })
+
+  it('取消进行中的今日总结：返回本地统计并说明已取消', async () => {
+    const hanging = hangingFetch()
+    const controller = registerAiRequest('summary-cancel')
+    expect(controller).not.toBeNull()
+
+    const input: AiSummaryInput = {
+      date: '2026-11-05',
+      tasks: [],
+      completedCount: 0,
+      openCount: 0,
+      overdueCount: 0
+    }
+    const pending = summarizeTodayWithAi(input, {
+      config: CONFIG,
+      fetch: hanging.fetch,
+      signal: controller?.signal,
+      maxAttempts: 3,
+      retryDelayMs: 0
+    })
+
+    expect(cancelAiRequest('summary-cancel')).toBe(true)
+    const response = await pending
+
+    // 取消不是瞬时故障：即使允许 3 次尝试也只发一次请求。
+    expect(hanging.calls()).toBe(1)
+    expect(response.ok).toBe(false)
+    expect(response.source).toBe('rule')
+    expect(response.warning).toBe(AI_CANCELED_SUMMARY_HINT)
+    // 仍返回可直接展示的本地统计文案，调用方不必处理空值。
+    expect(response.summary.summary.length).toBeGreaterThan(0)
+    expect(activeAiRequestCount()).toBe(0)
+  })
+
+  it('取消进行中的子任务拆解：不重试，返回规则结果并说明已取消', async () => {
+    const hanging = hangingFetch()
+    const controller = registerAiRequest('subtasks-cancel')
+    expect(controller).not.toBeNull()
+
+    const pending = breakdownSubtasksWithAi(
+      { title: '准备季度复盘', notes: '整理数据；撰写结论' },
+      {
+        config: CONFIG,
+        fetch: hanging.fetch,
+        signal: controller?.signal,
+        maxAttempts: 3,
+        retryDelayMs: 0
+      }
+    )
+
+    expect(cancelAiRequest('subtasks-cancel')).toBe(true)
+    const response = await pending
+
+    expect(hanging.calls()).toBe(1)
+    expect(response.ok).toBe(false)
+    expect(response.source).toBe('rule')
+    expect(response.warning).toBe(AI_CANCELED_SUBTASKS_HINT)
+    expect(response.subtasks.map((item) => item.title)).toEqual(['整理数据', '撰写结论'])
+    expect(activeAiRequestCount()).toBe(0)
+  })
+
+  it('已经取消的总结信号不会发出请求', async () => {
+    const hanging = hangingFetch()
+    const controller = new AbortController()
+    controller.abort()
+
+    const response = await summarizeTodayWithAi(
+      { date: '2026-11-05', tasks: [], completedCount: 0, openCount: 0, overdueCount: 0 },
+      { config: CONFIG, fetch: hanging.fetch, signal: controller.signal }
+    )
+
+    expect(hanging.calls()).toBe(0)
+    expect(response.warning).toBe(AI_CANCELED_SUMMARY_HINT)
   })
 })

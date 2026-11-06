@@ -412,6 +412,77 @@ test.describe('AI 快速添加结果', () => {
       await gateway.close()
     }
   })
+
+  test('今日总结可取消，迟到的结果不会覆盖卡片', async () => {
+    const gateway = await startFakeGateway(() => ({
+      status: 200,
+      body: anthropicReply(
+        JSON.stringify({ summary: '迟到的总结', highlights: [], suggestions: [] })
+      ),
+      // 模拟推理模型的长响应：留出足够时间点「取消」。
+      delayMs: 2500
+    }))
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      const card = page.locator('.ai-summary-card')
+      await card.getByRole('button', { name: '生成' }).click()
+
+      // 请求途中出现「取消」，点它中止这次生成。
+      await card.getByLabel('取消 AI 总结生成').click()
+      await expect(page.locator('.toast')).toContainText('已取消 AI 总结生成')
+
+      // 等过假网关的延迟：迟到的结果不能渲染到卡片上。
+      await page.waitForTimeout(3000)
+      await expect(card.locator('.ai-summary-text')).toHaveCount(0)
+      await expect(card.getByRole('button', { name: '生成' })).toBeEnabled()
+      // 取消不重试：只发出过一次请求。
+      expect(gateway.requests).toHaveLength(1)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
+
+  test('关闭详情面板会中止进行中的子任务拆解，迟到的结果不写库', async () => {
+    const gateway = await startFakeGateway(() => ({
+      status: 200,
+      body: anthropicReply(
+        JSON.stringify({ subtasks: [{ title: '迟到的子任务', priority: 1 }] })
+      ),
+      delayMs: 2500
+    }))
+    const launched = await launchIsolatedApp(gateway.baseUrl)
+
+    try {
+      const { page } = launched
+      // 先用普通回车建主任务，再从详情面板触发 AI 拆解。
+      await page.locator('.quick-add-input').fill('准备季度复盘')
+      await page.locator('.quick-add-input').press('Enter')
+      await page.locator('.task-row', { hasText: '准备季度复盘' }).click()
+
+      const drawer = page.getByLabel('任务详情')
+      await drawer.getByLabel('AI 拆解子任务').click()
+      await expect(drawer.getByLabel('取消 AI 拆解')).toBeVisible()
+
+      // 不等结果直接关面板：组件卸载应中止这次 fetch，而不是在后台跑满超时。
+      await drawer.getByLabel('关闭详情').click()
+      await expect(drawer).toHaveCount(0)
+
+      // 等过假网关的延迟后重新打开：既没有迟到的草稿，也没有写入子任务。
+      await page.waitForTimeout(3000)
+      await page.locator('.task-row', { hasText: '准备季度复盘' }).click()
+      const reopened = page.getByLabel('任务详情')
+      await expect(reopened).toBeVisible()
+      await expect(reopened.locator('.subtask-title')).toHaveCount(0)
+      await expect(reopened.getByRole('group', { name: 'AI 拆解结果' })).toHaveCount(0)
+      expect(gateway.requests).toHaveLength(1)
+    } finally {
+      await launched.close()
+      await gateway.close()
+    }
+  })
 })
 
 test.describe('AI 失败与边界路径', () => {

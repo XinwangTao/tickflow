@@ -1,5 +1,8 @@
 import {
   AI_CONNECTION_MAX_TOKENS,
+  AI_CANCELED_QUICK_ADD_HINT,
+  AI_CANCELED_SUBTASKS_HINT,
+  AI_CANCELED_SUMMARY_HINT,
   AI_QUICK_ADD_MAX_TOKENS,
   AI_QUICK_ADD_SYSTEM,
   AI_SUBTASKS_MAX_TOKENS,
@@ -169,7 +172,13 @@ export async function parseQuickAddWithAi(
     if (isAiCanceled(error)) {
       // 用户主动取消：renderer 会直接丢弃这次响应，这里仍返回一份可用的规则结果，
       // 保证任何调用方都不会因为取消而拿到空数据。
-      return { ok: false, source: 'rule', result: fallback, warning: '已取消 AI 解析', attempts }
+      return {
+        ok: false,
+        source: 'rule',
+        result: fallback,
+        warning: AI_CANCELED_QUICK_ADD_HINT,
+        attempts
+      }
     }
     return {
       ok: false,
@@ -227,6 +236,17 @@ export async function breakdownSubtasksWithAi(
       attempts
     }
   } catch (error) {
+    // 用户取消（切任务、关面板或点「取消」）与失败不同：保留规则结果但明确说明已取消，
+    // renderer 据 requestId 丢弃这次响应，既不会写入子任务，也不会弹失败提示。
+    if (isAiCanceled(error)) {
+      return {
+        ok: false,
+        source: 'rule',
+        subtasks: fallback,
+        warning: AI_CANCELED_SUBTASKS_HINT,
+        attempts
+      }
+    }
     return {
       ok: false,
       source: 'rule',
@@ -269,6 +289,15 @@ export async function summarizeTodayWithAi(
     if (!summary) throw new Error('AI 返回结构无法识别')
     return { ok: true, source: 'ai', summary, warning: null, attempts }
   } catch (error) {
+    if (isAiCanceled(error)) {
+      return {
+        ok: false,
+        source: 'rule',
+        summary: fallback,
+        warning: AI_CANCELED_SUMMARY_HINT,
+        attempts
+      }
+    }
     return {
       ok: false,
       source: 'rule',

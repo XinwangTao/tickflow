@@ -1,24 +1,59 @@
-import { useState } from 'react'
-import type { AiTodaySummary } from '@shared/ai'
+import { useEffect, useRef, useState } from 'react'
+import { AI_CANCELED_SUMMARY_HINT, type AiTodaySummary } from '@shared/ai'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
 
 /** 今日视图内的 AI 计划总结卡片：按需生成，失败时展示本地统计文案。 */
 export function AiDailySummary(): React.ReactNode {
   const aiEnabled = useAppStore((state) => state.settings.aiEnabled)
+  const aiTimeoutMs = useAppStore((state) => state.settings.aiTimeoutMs)
   const showToast = useAppStore((state) => state.showToast)
   const [loading, setLoading] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
   const [summary, setSummary] = useState<AiTodaySummary | null>(null)
   const [source, setSource] = useState<'ai' | 'rule' | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
+  // 每次生成都带自增 requestId：取消或重新生成后，迟到的响应直接丢弃。
+  const requestSeq = useRef(0)
+  const activeRequest = useRef<string | null>(null)
+
+  // 请求期间显示已等待秒数：与快速添加一致，用户能分清“正在生成”和“界面卡住”。
+  useEffect(() => {
+    if (!loading) {
+      setElapsed(0)
+      return
+    }
+    const timer = setInterval(() => setElapsed((seconds) => seconds + 1), 1000)
+    return () => clearInterval(timer)
+  }, [loading])
+
+  // 卡片卸载（例如切到别的视图）时中止进行中的请求，不在后台白等超时。
+  useEffect(() => {
+    return () => {
+      const active = activeRequest.current
+      if (!active) return
+      activeRequest.current = null
+      try {
+        void window.api.ai.cancel(active).catch(() => undefined)
+      } catch {
+        // 旧 preload 或测试桩没有 cancel 时忽略，不影响卸载。
+      }
+    }
+  }, [])
 
   if (!aiEnabled) return null
 
+  const aiTimeoutSeconds = Math.max(1, Math.round((aiTimeoutMs || 15000) / 1000))
+
   const generate = async (): Promise<void> => {
     if (loading) return
+    const requestId = `summary-${(requestSeq.current += 1)}`
+    activeRequest.current = requestId
     setLoading(true)
     try {
-      const response = await window.api.ai.dailySummary()
+      const response = await window.api.ai.dailySummary(requestId)
+      // 已取消或被新的生成请求取代：结果一律丢弃，不覆盖卡片内容。
+      if (activeRequest.current !== requestId) return
       setSummary(response.summary)
       setSource(response.source)
       setWarning(response.warning)
@@ -36,10 +71,29 @@ export function AiDailySummary(): React.ReactNode {
         )
       }
     } catch (error) {
+      if (activeRequest.current !== requestId) return
       showToast(`生成今日总结失败：${String(error)}`, 'error', { duration: 5000 })
     } finally {
-      setLoading(false)
+      if (activeRequest.current === requestId) {
+        activeRequest.current = null
+        setLoading(false)
+      }
     }
+  }
+
+  /** 取消进行中的生成：先让 main 中止 fetch，再丢弃响应，卡片保留上一次结果。 */
+  const cancelGenerate = (): void => {
+    const active = activeRequest.current
+    if (!active) return
+    activeRequest.current = null
+    setLoading(false)
+    setElapsed(0)
+    try {
+      void window.api.ai.cancel(active).catch(() => undefined)
+    } catch {
+      // 与卸载清理一致：没有 cancel 能力时不影响界面复位。
+    }
+    showToast(`${AI_CANCELED_SUMMARY_HINT}，可随时重新生成`, 'info')
   }
 
   return (
@@ -48,14 +102,28 @@ export function AiDailySummary(): React.ReactNode {
         <span className="ai-summary-title">
           <Icon name="sparkles" size={14} /> AI 今日总结
         </span>
-        <button
-          type="button"
-          className="btn"
-          disabled={loading}
-          onClick={() => void generate()}
-        >
-          {loading ? '生成中…' : summary ? '刷新' : '生成'}
-        </button>
+        <div className="ai-summary-actions">
+          {loading ? (
+            <button
+              type="button"
+              className="btn ai-summary-cancel"
+              title="取消本次生成（不必等满超时）"
+              aria-label="取消 AI 总结生成"
+              onClick={cancelGenerate}
+            >
+              取消
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="btn"
+            disabled={loading}
+            title={`超过 ${aiTimeoutSeconds} 秒自动回落到本地统计`}
+            onClick={() => void generate()}
+          >
+            {loading ? (elapsed > 0 ? `生成中 ${elapsed}s` : '生成中…') : summary ? '刷新' : '生成'}
+          </button>
+        </div>
       </div>
 
       {loading ? (
