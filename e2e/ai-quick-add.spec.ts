@@ -304,7 +304,7 @@ test.describe('AI 快速添加结果', () => {
     }
   })
 
-  test('AI 拆解子任务写入详情面板，并可从 toast 批量撤销', async () => {
+  test('AI 拆解子任务先展示可编辑草稿，确认添加后可批量撤销', async () => {
     const gateway = await startFakeGateway(() => ({
       status: 200,
       body: anthropicReply(
@@ -329,12 +329,22 @@ test.describe('AI 快速添加结果', () => {
       await expect(drawer).toBeVisible()
       await drawer.getByLabel('AI 拆解子任务').click()
 
-      await expect(drawer.locator('.subtask-title')).toHaveText([
-        '整理季度数据',
-        '撰写复盘结论'
-      ])
+      const draft = drawer.getByRole('group', { name: 'AI 拆解结果' })
+      await expect(draft).toBeVisible()
+      await expect(draft.getByLabel('子任务标题 1')).toHaveValue('整理季度数据')
+      await expect(draft.getByLabel('子任务标题 2')).toHaveValue('撰写复盘结论')
+      // 草稿展示期间不写库。
+      await expect(drawer.locator('.subtask-title')).toHaveCount(0)
+
+      // 改标题、取消勾选第二条，只添加选中的一条。
+      await draft.getByLabel('子任务标题 1').fill('整理季度原始数据')
+      await draft.getByLabel('选择子任务 2').uncheck()
+      await draft.getByRole('button', { name: /添加选中/ }).click()
+
+      await expect(draft).toHaveCount(0)
+      await expect(drawer.locator('.subtask-title')).toHaveText(['整理季度原始数据'])
       const toast = page.locator('.toast')
-      await expect(toast).toContainText('AI 已添加 2 个子任务')
+      await expect(toast).toContainText('AI 已添加 1 个子任务')
 
       await toast.locator('.toast-action').click()
       await expect(drawer.locator('.subtask-title')).toHaveCount(0)

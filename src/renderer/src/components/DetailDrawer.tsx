@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import type { Attachment, Priority, Reminder, TaskWithMeta } from '@shared/types'
-import { filterNewSubtasks } from '@shared/ai'
+import { filterNewSubtasks, type AiSubtaskDraft } from '@shared/ai'
+import {
+  collectSelectedSubtasks,
+  createSubtaskDraftRows,
+  type AiSubtaskDraftRow
+} from '@shared/subtask-draft'
 import { fromDateKey, todayKey } from '@shared/dates'
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../lib/colors'
 import {
@@ -42,24 +47,36 @@ function recurrenceRule(kind: string, task: TaskWithMeta): string | null {
   return null
 }
 
-function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
+export function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
   const refresh = useAppStore((state) => state.refresh)
   const showToast = useAppStore((state) => state.showToast)
   const aiEnabled = useAppStore((state) => state.settings.aiEnabled)
   const [subtasks, setSubtasks] = useState<TaskWithMeta[]>([])
   const [value, setValue] = useState('')
   const [aiBusy, setAiBusy] = useState(false)
+  // AI 成功返回后先进入可编辑草稿，用户确认才批量写库。
+  const [aiDraftRows, setAiDraftRows] = useState<AiSubtaskDraftRow[] | null>(null)
+  const [draftBusy, setDraftBusy] = useState(false)
+  // 切换任务时丢弃旧任务的草稿与迟到响应，避免把结果写到新任务下。
+  const aiRequestSeq = useRef(0)
+  const taskIdRef = useRef(task.id)
 
   const load = async (): Promise<void> => {
     try {
       const rows = await window.api.tasks.query({ view: 'subtasks', parentId: task.id })
-      setSubtasks(rows)
+      // 切换任务后旧任务的查询可能才返回，不能覆盖新任务的子任务列表。
+      if (taskIdRef.current === task.id) setSubtasks(rows)
     } catch (error) {
       showToast(String(error), 'error')
     }
   }
 
   useEffect(() => {
+    taskIdRef.current = task.id
+    aiRequestSeq.current += 1
+    setAiDraftRows(null)
+    setAiBusy(false)
+    setDraftBusy(false)
     void load()
   }, [task.id])
 
@@ -99,11 +116,83 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
     }
   }
 
+  /** 批量写入子任务；成功后提供一次撤销，失败时保留已写入条目的撤销入口。 */
+  const createSubtasks = async (
+    drafts: AiSubtaskDraft[],
+    options: { fromAi: boolean; warning: string | null }
+  ): Promise<boolean> => {
+    const createdIds: string[] = []
+    const removeCreated = async (): Promise<void> => {
+      try {
+        for (const id of createdIds) {
+          await window.api.tasks.remove(id)
+        }
+        await load()
+        await refresh()
+      } catch (error) {
+        showToast(String(error), 'error')
+      }
+    }
+
+    try {
+      for (const draft of drafts) {
+        const created = await window.api.tasks.create({
+          listId: task.listId,
+          parentId: task.id,
+          title: draft.title,
+          priority: draft.priority,
+          dueDate: draft.dueDate,
+          dueTime: draft.dueTime,
+          allDay: draft.allDay
+        })
+        createdIds.push(created.id)
+      }
+    } catch (error) {
+      await load()
+      await refresh()
+      if (createdIds.length > 0) {
+        showToast(`创建子任务中断，已添加 ${createdIds.length} 个：${String(error)}`, 'error', {
+          actionLabel: '撤销',
+          duration: 7000,
+          action: removeCreated
+        })
+      } else {
+        showToast(`创建子任务失败：${String(error)}`, 'error')
+      }
+      return false
+    }
+
+    await load()
+    await refresh()
+    if (createdIds.length > 0) {
+      // AI 拆解可能一次写入多条，撤销时一并移除刚创建的子任务。
+      showToast(
+        options.fromAi
+          ? `AI 已添加 ${createdIds.length} 个子任务`
+          : `AI 拆解不可用，已按规则添加 ${createdIds.length} 个子任务${
+              options.warning ? `：${options.warning}` : ''
+            }`,
+        options.fromAi ? 'success' : 'info',
+        {
+          actionLabel: '撤销',
+          duration: options.fromAi ? 6000 : 7000,
+          action: removeCreated
+        }
+      )
+    }
+    return true
+  }
+
   const breakdown = async (): Promise<void> => {
-    if (aiBusy) return
+    // 草稿未处理时再点 AI 会覆盖用户改过的内容，先要求确认或取消。
+    if (aiBusy || draftBusy || aiDraftRows) return
+    const seq = (aiRequestSeq.current += 1)
+    const requestTaskId = task.id
     setAiBusy(true)
     try {
       const response = await window.api.ai.breakdownSubtasks(task.id)
+      // 等待期间切换了任务：迟到的结果不再展示，也不写库。
+      if (aiRequestSeq.current !== seq || taskIdRef.current !== requestTaskId) return
       // 主进程已按数据库现有子任务过滤；这里再按当前面板状态兜底，
       // 避免连续点击或列表刚好刷新时写入重复子任务。
       const drafts = filterNewSubtasks(
@@ -126,53 +215,63 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
         }
         return
       }
-      const createdIds: string[] = []
-      for (const draft of drafts) {
-        const created = await window.api.tasks.create({
-          listId: task.listId,
-          parentId: task.id,
-          title: draft.title,
-          priority: draft.priority,
-          dueDate: draft.dueDate,
-          dueTime: draft.dueTime,
-          allDay: draft.allDay
-        })
-        createdIds.push(created.id)
+      if (response.ok) {
+        // AI 结果不直接写库：先摊平成可编辑草稿，用户可以改标题、调优先级或去掉某条。
+        setAiDraftRows(createSubtaskDraftRows(drafts))
+        return
       }
-      await load()
-      await refresh()
-      if (createdIds.length > 0) {
-        // AI 拆解可能一次写入多条，撤销时一并移除刚创建的子任务。
-        showToast(
-          response.ok
-            ? `AI 已添加 ${createdIds.length} 个子任务`
-            : `AI 拆解不可用，已按规则添加 ${createdIds.length} 个子任务${
-                response.warning ? `：${response.warning}` : ''
-              }`,
-          response.ok ? 'success' : 'info',
-          {
-            actionLabel: '撤销',
-            duration: response.ok ? 6000 : 7000,
-            action: async () => {
-              try {
-                for (const id of createdIds) {
-                  await window.api.tasks.remove(id)
-                }
-                await load()
-                await refresh()
-              } catch (error) {
-                showToast(String(error), 'error')
-              }
-            }
-          }
-        )
-      }
+      // 规则拆解是确定性结果，保持原先的一步添加；提示里保留 AI 失败原因。
+      await createSubtasks(drafts, { fromAi: false, warning: response.warning })
     } catch (error) {
+      if (aiRequestSeq.current !== seq) return
       showToast(`AI 拆解失败：${String(error)}`, 'error', { duration: 5000 })
     } finally {
-      setAiBusy(false)
+      if (aiRequestSeq.current === seq) setAiBusy(false)
     }
   }
+
+  const updateDraftRow = (key: string, patch: Partial<AiSubtaskDraftRow>): void => {
+    setAiDraftRows((rows) =>
+      rows ? rows.map((row) => (row.key === key ? { ...row, ...patch } : row)) : rows
+    )
+  }
+
+  const removeDraftRow = (key: string): void => {
+    setAiDraftRows((rows) => (rows ? rows.filter((row) => row.key !== key) : rows))
+  }
+
+  const cancelDraft = (): void => {
+    if (draftBusy) return
+    setAiDraftRows(null)
+  }
+
+  const confirmDrafts = async (): Promise<void> => {
+    if (!aiDraftRows || aiBusy || draftBusy) return
+    // 确认前再按当前列表过滤一次：草稿展示期间用户可能手动加了同名子任务。
+    const selected = filterNewSubtasks(collectSelectedSubtasks(aiDraftRows), [
+      task.title,
+      ...subtasks.map((item) => item.title)
+    ])
+    if (selected.length === 0) {
+      showToast('请至少保留一个未添加过的子任务', 'info', { duration: 4000 })
+      return
+    }
+    setDraftBusy(true)
+    try {
+      if (await createSubtasks(selected, { fromAi: true, warning: null })) {
+        setAiDraftRows(null)
+      }
+    } finally {
+      setDraftBusy(false)
+    }
+  }
+
+  const draftSelectedCount = aiDraftRows
+    ? filterNewSubtasks(collectSelectedSubtasks(aiDraftRows), [
+        task.title,
+        ...subtasks.map((item) => item.title)
+      ]).length
+    : 0
 
   const done = subtasks.filter((subtask) => subtask.status === 'completed').length
 
@@ -188,9 +287,9 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
             <button
               type="button"
               className={`icon-btn ${aiBusy ? 'active' : ''}`}
-              title="AI 拆解子任务"
+              title={aiDraftRows ? '请先添加或取消当前拆解结果' : 'AI 拆解子任务'}
               aria-label="AI 拆解子任务"
-              disabled={aiBusy}
+              disabled={aiBusy || draftBusy || aiDraftRows !== null}
               onClick={() => void breakdown()}
             >
               <Icon name="sparkles" size={13} />
@@ -198,6 +297,93 @@ function Subtasks({ task }: { task: TaskWithMeta }): React.ReactNode {
           ) : null}
         </div>
       </div>
+      {aiDraftRows ? (
+        <div className="subtask-draft" role="group" aria-label="AI 拆解结果">
+          <div className="subtask-draft-head">
+            <span className="subtask-draft-title">
+              <Icon name="sparkles" size={13} /> AI 拆解结果 · 可修改后添加
+            </span>
+            <button
+              type="button"
+              className="icon-btn"
+              title="取消 AI 拆解结果"
+              aria-label="取消 AI 拆解结果"
+              onClick={cancelDraft}
+            >
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+          {aiDraftRows.map((row, index) => (
+            <div className="subtask-draft-row" key={row.key}>
+              <input
+                type="checkbox"
+                className="subtask-draft-check"
+                checked={row.selected}
+                aria-label={`选择子任务 ${index + 1}`}
+                onChange={(event) =>
+                  updateDraftRow(row.key, { selected: event.target.checked })
+                }
+              />
+              <input
+                className="subtask-draft-input"
+                value={row.title}
+                placeholder="子任务标题"
+                aria-label={`子任务标题 ${index + 1}`}
+                onChange={(event) => updateDraftRow(row.key, { title: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void confirmDrafts()
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault()
+                    cancelDraft()
+                  }
+                }}
+              />
+              <select
+                className="subtask-draft-priority"
+                value={row.priority}
+                aria-label={`子任务优先级 ${index + 1}`}
+                onChange={(event) =>
+                  updateDraftRow(row.key, {
+                    priority: Number(event.target.value) as Priority
+                  })
+                }
+              >
+                {PRIORITY_LABELS.map((label, priority) => (
+                  <option value={priority} key={label}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="icon-btn danger"
+                aria-label={`移除子任务 ${index + 1}`}
+                onClick={() => removeDraftRow(row.key)}
+              >
+                <Icon name="trash" size={13} />
+              </button>
+            </div>
+          ))}
+          <div className="subtask-draft-footer">
+            <span className="subtask-draft-note">
+              勾选要添加的条目，可直接改标题；取消不写库。
+            </span>
+            <button type="button" className="btn" onClick={cancelDraft} disabled={draftBusy}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={draftBusy || draftSelectedCount === 0}
+              onClick={() => void confirmDrafts()}
+            >
+              {draftBusy ? '添加中…' : `添加选中（${draftSelectedCount}）`}
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="subtask-list">
         {subtasks.map((subtask) => (
           <div className="subtask-row" key={subtask.id}>

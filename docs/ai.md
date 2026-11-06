@@ -142,12 +142,18 @@ authorization: Bearer <aiToken，可选>
 - 输入：主任务标题、备注、所属清单，以及**已有子任务标题**；提示词明确要求模型不要重复或改写已有子任务。
 - AI 输出：`{"subtasks":[{"title":"...","priority":0}]}`，最多 10 条。
 - 客户端会过滤掉与主任务或已有子任务同名（忽略大小写与空白）的条目，去重、去空、限制长度，
-  再逐条创建为当前任务的子任务；重复点击 AI 拆解不会重复写入相同子任务。
+  然后展开「AI 拆解结果 · 可修改后添加」草稿：每条子任务都能改标题、调优先级、勾选/取消或删除，
+  点「添加选中（N）」才批量写库。点「取消」或在标题框按 `Esc` 放弃草稿，不写库；
+  草稿未处理时 AI 按钮不可用，避免重新解析覆盖用户改过的内容。
+- 草稿确认时会再按当前列表过滤一次：如果草稿展示期间用户手动加了同名子任务，
+  该条会被跳过，不会重复写入；全部条目都已存在时提示「请至少保留一个未添加过的子任务」。
 - 创建成功后 toast 显示本次新增数量并提供 **撤销**，一次移除本批次创建的子任务。
   若 AI 不可用而使用规则拆解，提示里保留失败原因，撤销同样可用。
-- 若模型返回的条目全部已存在，提示「AI 返回的子任务均已存在，未重复添加」，不会创建空任务。
+- 若模型返回的条目全部已存在，提示「AI 返回的子任务均已存在，未重复添加」，不会创建空任务，
+  也不会弹草稿。
 - 规则降级：按标题/备注中的换行、分号、逗号/顿号拆分，去掉 `-`、`*`、`1.` 等列表符号；
-  同样跳过主任务与已有子任务同名条目；没有可拆内容时提示手动添加。
+  同样跳过主任务与已有子任务同名条目；没有可拆内容时提示手动添加。规则结果是确定性的，
+  仍保持一步添加（带撤销），不进入二次确认草稿。
 
 ### 3.3 AI 今日计划总结
 
@@ -222,16 +228,20 @@ renderer 只是多等这一小会儿，不会因此重复创建任务：
 | --- | --- |
 | `src/shared/ai.ts` | 类型、默认值、提示词、JSON 提取、归一化、规则降级、失败分类与提示文案 |
 | `src/shared/quick-add-draft.ts` | AI 快速添加草稿：清单匹配、标签拆分、日期/时间校验、优先级收敛、落库前转换 |
+| `src/shared/subtask-draft.ts` | AI 拆解子任务草稿：生成可编辑行、勾选/去重/空标题过滤、确认前的最终收集 |
 | `src/main/ai-client.ts` | `/v1/messages` 与 `/v1/models` 请求、鉴权头、单次超时、外部取消信号、瞬时故障自动重试、响应文本提取 |
 | `src/main/ai.ts` | 三个功能的编排与降级、失败提示与尝试次数、`requestId → AbortController` 注册表、模型列表、连接测试 |
 | `src/main/ipc.ts` | `ai:quick-add` / `ai:cancel` / `ai:subtasks` / `ai:summary` / `ai:models` / `ai:test` |
 | `src/renderer/src/components/QuickAdd.tsx` | AI 快速添加入口、可编辑结果草稿、取消与过期结果丢弃、添加后撤销 |
-| `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口、批量添加后撤销 |
+| `src/renderer/src/components/DetailDrawer.tsx` | AI 拆解子任务入口、可编辑草稿、批量添加后撤销 |
 | `src/renderer/src/components/AiDailySummary.tsx` | 今日总结卡片 |
 | `src/renderer/src/components/SettingsDialog.tsx` | AI 配置与连接测试 |
 | `tests/quick-add-regression.test.ts` | 快速添加准确率回归集：50+ 条规则用例 + AI 解析/归一化/合并用例 + 失败与请求契约 |
 | `tests/ai-cancel.test.ts` | 取消：取消与超时区分、不重试、已取消的 signal 不发请求、requestId 注册表与不泄漏、并行请求互不影响 |
-| `e2e/ai-quick-add.spec.ts` | 桌面端 AI 结果 E2E：可编辑草稿→添加→撤销、5xx 重试→规则降级→撤销、今日总结、子任务拆解批量撤销 |
+| `tests/quick-add-draft.test.ts` | AI 快速添加草稿：清单名匹配、默认日期、清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、空标题保护 |
+| `tests/subtask-draft.test.ts` | AI 拆解草稿：可编辑行生成、全选默认、勾选收集、空标题/重复标题过滤、10 条上限 |
+| `tests/subtask-draft-ui.test.ts` | 拆解草稿 UI：先展示不写库 → 改标题/优先级/取消勾选 → 添加 → 撤销；取消草稿、全不选禁用、确认时按最新列表去重、规则降级一步添加 |
+| `e2e/ai-quick-add.spec.ts` | 桌面端 AI 结果 E2E：可编辑草稿→添加→撤销、5xx 重试→规则降级→撤销、今日总结、子任务拆解可编辑草稿→批量撤销 |
 
 验证命令：
 
@@ -247,10 +257,13 @@ npm test                 # tests/ai.test.ts 覆盖成功、超时/连接失败�
                          # tests/quick-add-regression.test.ts 覆盖快速添加准确率回归集（见 6.1）；
                          # tests/quick-add-draft.test.ts 覆盖 AI 结果草稿：清单名匹配、默认日期、
                          # 清空日期不被补回、非法日期/时间局部丢弃、标签去重、优先级夹取、空标题保护；
+                         # tests/subtask-draft.test.ts 覆盖拆解草稿行生成、勾选收集、空标题/重复标题过滤；
+                         # tests/subtask-draft-ui.test.ts 覆盖「先展示拆解草稿不写库 → 改标题/优先级/
+                         # 取消勾选 → 确认添加 → 撤销」、取消草稿、全不选禁用与规则降级一步添加；
                          # tests/quick-add-ui.test.ts 覆盖「先展示草稿不写库 → 编辑后确认 → 撤销」与取消流程，
                          # 以及解析中点取消/改输入后迟到结果被丢弃、Enter 提示与 Esc 中止；
                          # tests/ai-cancel.test.ts 覆盖取消与超时的区分、取消不重试、requestId 注册表不泄漏
-npm run test:ai          # 只跑 AI 相关测试：ai、请求取消、快速添加回归集、规则解析、草稿与草稿 UI
+npm run test:ai          # 只跑 AI 相关测试：ai、请求取消、快速添加回归集、规则解析、草稿、拆解草稿与草稿 UI
 npm run test:e2e         # 构建后跑 Playwright：AI 结果 E2E + 桌面端视图冒烟（见 6.2）
 ```
 
@@ -301,7 +314,8 @@ curl -s http://127.0.0.1:15721/v1/messages \
   迟到的响应不会弹出草稿也不会建任务，且只发出过一次请求（取消不重试）。
 - **今日总结**：断言 AI 的 `summary`、`highlights`、`suggestions` 渲染，且不显示
   「已回落到本地统计」说明。
-- **子任务拆解**：从详情面板触发，断言子任务写入、toast 显示新增数量、批量撤销后清空。
+- **子任务拆解**：从详情面板触发，断言先出现可编辑草稿且暂不写库；改标题、取消勾选一条后点
+  「添加选中」，断言只写入选中的子任务、toast 显示新增数量，批量撤销后清空。
 - **请求契约**：每次请求都是 `POST /v1/messages`，`model` 与 `AI_DEFAULT_MODEL`
   逐字一致，`max_tokens` 分别等于快速添加 1200、今日总结 1600、子任务 1600 的预算，
   Token 为空时不带 `authorization`。
