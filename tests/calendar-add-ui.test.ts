@@ -227,17 +227,22 @@ describe('日历选中日期行内添加任务', { timeout: 20_000 }, () => {
     })
 
     // 提前 15 分钟 → 选中日 08:45 的本地时间。
-    expect(createReminder).toHaveBeenCalledTimes(1)
+    // 提醒写入同样在异步链里，忙的时候会晚一拍，统一用 waitFor 兜住。
+    await waitFor(() => expect(createReminder).toHaveBeenCalledTimes(1), { timeout: 3000 })
     const [reminderTaskId, triggerAt] = createReminder.mock.calls[0] as unknown as [string, string]
     expect(reminderTaskId).toBe('task-1')
     const [year, month, day] = addDaysToKey(todayKey(), 1).split('-').map(Number)
     expect(triggerAt).toBe(new Date(year, month - 1, day, 8, 45, 0, 0).toISOString())
 
-    // 添加成功后收起表单，输入框清空。
-    expect(screen.queryByLabelText('日历添加任务标题')).toBeNull()
+    // 添加成功后收起表单，输入框清空。表单收起与 toast 都在同一批状态更新里，
+    // 并行跑测试时可能还没重渲染，用 waitFor 等状态稳定再断言。
+    await waitFor(() => expect(screen.queryByLabelText('日历添加任务标题')).toBeNull(),
+                   { timeout: 3000 })
 
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.message).toContain('已添加「晨会」')
+    }, { timeout: 3000 })
     const toast = useAppStore.getState().toast
-    expect(toast?.message).toContain('已添加「晨会」')
     expect(toast?.actionLabel).toBe('撤销')
     await toast?.action?.()
     expect(removeTask).toHaveBeenCalledWith('task-1')
