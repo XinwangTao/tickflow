@@ -82,10 +82,32 @@ npm run test:android -- --cycles=20 --offline=3
 
 参数：`--cycles`、`--offline`、`--serial`、`--port`。要求安装 debug 包（release 默认不开 WebView 调试），测试任务会在结束后删除。
 
+## AI（本地 / 云端）
+
+设置页「AI（本地 / 云端）」提供三档通道，语义与雅思 App 的 `routeLlm` 一致：
+
+- 本地：端侧 MNN（`LlmSession` + `libmnnllmapp.so`，从 ielts-android 移植），默认模型目录名 `qwen35-2b`，离线可用、零额度
+- 云端：OpenAI 兼容 `/chat/completions`（默认 `https://open.bigmodel.cn/api/paas/v4` + `glm-4-flash`），需要 API Key
+- 自动：先云端，失败回退本地
+
+模型投递（与雅思 App 同一套约定）：
+
+```bash
+bash scripts/push-local-ai-model.sh F:/cache/models/qwen35-2b-mnn qwen35-2b
+# 目标：/sdcard/Android/data/com.tickflow.mobile/files/models/mnn/qwen35-2b/
+```
+
+首次使用会把外部目录整目录拷到内部 `filesDir`（`/sdcard` 是 FUSE，mmap 权重不可靠），设置页可「释放本地模型内存」。
+
+注意：
+
+- `com.alibaba.mnnllm.android.llm.LlmSession` 的包名 / 类名 / 方法名不能改，so 按全限定名静态注册
+- APK 体积从 5.4MB 增至约 9.1MB（三个 arm64 `.so`），`abiFilters` 只打 `arm64-v8a`，`jniLibs.useLegacyPackaging = true`
+- 快速添加面板新增「AI 解析」按钮，结果以 `AI` 标签标出；失败时回落到规则解析并提示原因
+
 ## 习惯 / 番茄 / 统计
 
 底部导航「更多」页提供三个分段：
-
 - 习惯：新建、今日打卡、7 天视图、连续/最长连续/本周次数、删除
 - 习惯每日提醒：桌面用系统通知 + 通知中心；安卓用 `@capacitor/local-notifications` 注册每日本地通知，支持权限申请、启动/同步后对账、点击回到习惯页。已开系统「闹钟和提醒」时排精确闹钟，未开则退回不精确并在习惯页提示「可能明显延迟」+「去开启」。2026-11-07 真机验证：后台到点收到通知、点击通知进入「更多 → 习惯」、关闭提醒后待触发通知清空
 - 番茄：25 分钟专注 / 5 分钟短休息 / 4 个番茄后 15 分钟长休息，支持暂停、跳过、重置、白噪音（Web Audio 生成，可调音量）

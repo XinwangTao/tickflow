@@ -4,6 +4,8 @@ import type { Priority } from '@shared/types'
 import { INBOX_ID } from '@shared/types'
 import type { SyncTask } from '@shared/sync'
 import { parseQuickAdd } from '@shared/quick-add'
+import type { QuickAddResult } from '@shared/quick-add'
+import { aiParseQuickAdd } from './ai'
 import { formatDateLabel, isOverdue, toDateKey, todayKey } from '@shared/dates'
 import { R2_CORS_POLICY } from '@shared/r2-cors'
 import {
@@ -25,6 +27,7 @@ import {
   type ListWithCount
 } from './db'
 import { Icon } from './Icon'
+import { AiSettings } from './AiSettings'
 import { MoreTab } from './MoreTab'
 import { buildBackupJson, importBackupJson } from './backup'
 import {
@@ -204,12 +207,33 @@ function QuickAddSheet({
   onAdded: (message: string, kind: ToastKind) => void
 }): ReactNode {
   const [value, setValue] = useState('')
+  const [aiDraft, setAiDraft] = useState<QuickAddResult | null>(null)
+  const [aiBusy, setAiBusy] = useState(false)
   const parsed = useMemo(() => parseQuickAdd(value), [value])
+  const effective = aiDraft ?? parsed
+
+  const runAi = async (): Promise<void> => {
+    const text = value.trim()
+    if (!text || aiBusy) return
+    setAiBusy(true)
+    try {
+      const outcome = await aiParseQuickAdd(text, lists.map((list) => list.name))
+      if (outcome.ok) {
+        setAiDraft(outcome.result)
+        onAdded(`AI 已解析（${outcome.channel === 'cloud' ? '云端' : outcome.channel === 'local' ? '本地' : '自动'}）`, 'success')
+      } else {
+        setAiDraft(null)
+        onAdded(`AI 未解析成功，已按规则解析：${outcome.warning ?? '未知原因'}`, 'error')
+      }
+    } finally {
+      setAiBusy(false)
+    }
+  }
 
   const add = async (): Promise<void> => {
     const text = value.trim()
     if (!text) return
-    const result = parseQuickAdd(text)
+    const result = effective
     const matched = lists.find(
       (list) => list.name.toLowerCase() === (result.listName ?? '').toLowerCase()
     )
@@ -253,35 +277,44 @@ function QuickAddSheet({
           autoFocus
           value={value}
           placeholder="明天下午3点 交周报 #工作 !高"
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            setValue(event.target.value)
+            setAiDraft(null)
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter') void add()
           }}
         />
         <div className="preview">
-          {parsed.dueDate ? (
+          {aiDraft ? <span className="chip ai-chip">AI</span> : null}
+          {effective.dueDate ? (
             <span className="chip">
               <Icon name="calendar" size={12} />
-              {formatDateLabel(parsed.dueDate)} {parsed.dueTime ?? ''}
+              {formatDateLabel(effective.dueDate)} {effective.dueTime ?? ''}
             </span>
           ) : null}
-          {parsed.priority > 0 ? (
-            <span className="chip" style={{ color: PRIORITY_COLORS[parsed.priority] }}>
+          {effective.priority > 0 ? (
+            <span className="chip" style={{ color: PRIORITY_COLORS[effective.priority] }}>
               <Icon name="flag" size={12} />
-              {PRIORITY_LABELS[parsed.priority]}
+              {PRIORITY_LABELS[effective.priority]}
             </span>
           ) : null}
-          {parsed.tags.map((tag) => (
+          {effective.tags.map((tag) => (
             <span className="chip" key={tag}>
               <Icon name="tag" size={12} />#{tag}
             </span>
           ))}
-          {parsed.listName ? <span className="chip">{parsed.listName}</span> : null}
+          {effective.listName ? <span className="chip">{effective.listName}</span> : null}
         </div>
         <p className="hint">支持：明天下午 3 点 · 每周一 · #标签 · !高 · ~清单</p>
-        <button type="button" className="primary-btn" disabled={!value.trim()} onClick={() => void add()}>
-          添加任务
-        </button>
+        <div className="button-row">
+          <button type="button" className="secondary-btn" disabled={!value.trim() || aiBusy} onClick={() => void runAi()}>
+            {aiBusy ? 'AI 解析中…' : 'AI 解析'}
+          </button>
+          <button type="button" className="primary-btn" disabled={!value.trim()} onClick={() => void add()}>
+            添加任务
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -873,6 +906,8 @@ function SettingsTab({
           复制 CORS 配置
         </button>
       </section>
+
+      <AiSettings onToast={onToast} />
 
       <section className="settings-section">
         <h3>本地备份</h3>
