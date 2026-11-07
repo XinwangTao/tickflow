@@ -12,7 +12,9 @@ import {
 } from './db/settings'
 import { registerIpc } from './ipc'
 import { startReminderScheduler, stopReminderScheduler } from './reminders'
-import { autoSync } from './sync'
+import { getSyncConfig, isSyncConfigured, syncNow } from './sync'
+import { SyncScheduler } from './sync-scheduler'
+import { setChangeListener } from './db/change-log'
 import { destroyTray, setupTray } from './tray'
 
 // 测试/便携运行时可指定独立数据目录，避免 E2E 写入真实用户数据库与备份。
@@ -25,6 +27,7 @@ if (userDataOverride) {
 }
 
 let mainWindow: BrowserWindow | null = null
+let syncScheduler: SyncScheduler | null = null
 let isQuitting = false
 const launchedByAutostart = process.argv.includes('--autostart')
 
@@ -92,11 +95,7 @@ function createWindow(): void {
       startReminderScheduler(mainWindow)
       setTimeout(() => {
         if (!mainWindow) return
-        void autoSync(getDb())
-          .then((result) => {
-            if (result) mainWindow?.webContents.send(IPC.syncResultEvent, result)
-          })
-          .catch(() => undefined)
+        void syncScheduler?.runStartup().catch(() => undefined)
       }, 2500)
     }
   })
@@ -177,7 +176,23 @@ if (!gotLock) {
     initDatabase()
     if (configureSecretCodec()) migratePlaintextSecrets()
     applyAutoLaunch()
-    registerIpc()
+    syncScheduler = new SyncScheduler({
+      sync: () => syncNow(getDb()),
+      isAutoEnabled: () => {
+        const settings = getSettings(getDb())
+        return Boolean(settings.r2AutoSync) && isSyncConfigured(getSyncConfig(getDb()))
+      },
+      notify: (result) => {
+        setSettings(getDb(), result.ok ? { r2LastError: '' } : { r2LastError: result.message })
+        mainWindow?.webContents.send(IPC.syncResultEvent, result)
+      }
+    })
+    setChangeListener((entityType) => {
+      if (entityType === 'list' || entityType === 'task' || entityType === 'tag') {
+        syncScheduler?.schedule()
+      }
+    })
+    registerIpc(syncScheduler)
     createWindow()
 
     if (mainWindow) {
@@ -204,6 +219,8 @@ if (!gotLock) {
   app.on('before-quit', () => {
     isQuitting = true
     stopReminderScheduler()
+    syncScheduler?.stop()
+    setChangeListener(null)
     closeDatabase()
   })
 

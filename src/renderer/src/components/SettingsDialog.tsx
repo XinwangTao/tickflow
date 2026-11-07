@@ -768,6 +768,11 @@ export function SettingsDialog(): React.ReactNode {
           {settings.r2LastSync ? formatDateTime(settings.r2LastSync) : '从未'}。
           R2 密钥保存在本机数据库，建议使用仅限该桶的 API Token。
         </p>
+        {settings.r2LastError ? (
+          <p className="settings-note settings-error">
+            上次同步失败：{settings.r2LastError}
+          </p>
+        ) : null}
         <p className="settings-note">
           仅同步清单与任务；每台设备覆盖写一份快照，单份上限 5 MiB，正常使用远低于 R2 免费额度。
         </p>

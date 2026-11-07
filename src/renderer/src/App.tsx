@@ -124,9 +124,17 @@ export default function App(): React.ReactNode {
 
   useEffect(() => {
     return window.api.sync.onResult((result) => {
-      showToast(result.message, result.ok ? 'success' : 'error', {
-        duration: 5000
-      })
+      if (!result.ok) {
+        void window.api.settings.get().then((next) => useAppStore.setState({ settings: next }))
+        showToast(result.message, 'error', { duration: 6000 })
+        return
+      }
+      void useAppStore.getState().refresh()
+      void window.api.settings.get().then((next) => useAppStore.setState({ settings: next }))
+      // 有远端快照合并时才提示；常规自动同步只更新设置页的「上次同步」。
+      if ((result.downloaded ?? 0) > 1) {
+        showToast(result.message, 'success', { duration: 5000 })
+      }
     })
   }, [showToast])
 

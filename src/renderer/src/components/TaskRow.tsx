@@ -4,6 +4,7 @@ import { PRIORITY_COLORS, PRIORITY_LABELS } from '../lib/colors'
 import { describeRecurrence, formatDueLabel, isOverdue } from '../lib/format'
 import { useAppStore } from '../store/useAppStore'
 import { Icon } from './Icon'
+import { Modal } from './Modal'
 
 interface TaskRowProps {
   task: TaskWithMeta
@@ -39,6 +40,7 @@ export function TaskRow({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(task.title)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [purgeOpen, setPurgeOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -68,6 +70,7 @@ export function TaskRow({
   }
 
   return (
+    <>
     <div
       className={`task-row ${completed ? 'completed' : ''} ${isTrash ? 'trash' : ''} ${
         selected ? 'selected' : ''
@@ -252,7 +255,7 @@ export function TaskRow({
               className="icon-btn danger"
               title="永久删除"
               aria-label="永久删除"
-              onClick={() => void purgeTask(task.id)}
+              onClick={() => setPurgeOpen(true)}
             >
               <Icon name="trash" size={15} />
             </button>
@@ -385,5 +388,29 @@ export function TaskRow({
         )}
       </div>
     </div>
+    {purgeOpen ? (
+      <Modal title="永久删除任务" onClose={() => setPurgeOpen(false)} width={420}>
+        <p className="modal-text">
+          永久删除不会生成跨端删除标记。如果已开启 R2 同步，其他设备上的旧快照可能让任务重新出现。
+        </p>
+        <p className="modal-text">建议先移到垃圾箱，等两端同步完成后再清理。</p>
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={() => setPurgeOpen(false)}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={() => {
+              setPurgeOpen(false)
+              void purgeTask(task.id)
+            }}
+          >
+            仍然永久删除
+          </button>
+        </div>
+      </Modal>
+    ) : null}
+    </>
   )
 }

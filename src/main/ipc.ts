@@ -53,12 +53,13 @@ import * as pomodoroRepo from './db/pomodoro'
 import * as reminderRepo from './db/reminders'
 import * as settingsRepo from './db/settings'
 import * as statsRepo from './db/stats'
-import { getSyncUsage, syncNow, testSync } from './sync'
+import { getSyncUsage, testSync } from './sync'
+import type { SyncScheduler } from './sync-scheduler'
 import * as tagRepo from './db/tags'
 import * as taskRepo from './db/tasks'
 import * as templateRepo from './db/templates'
 
-export function registerIpc(): void {
+export function registerIpc(scheduler: SyncScheduler): void {
   ipcMain.handle(IPC.appInfo, () => ({
     version: app.getVersion(),
     platform: process.platform,
@@ -190,7 +191,7 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.filtersDelete, (_event, id: string) => filterRepo.deleteFilter(getDb(), id))
 
   ipcMain.handle(IPC.syncTest, () => testSync(getDb()))
-  ipcMain.handle(IPC.syncNow, () => syncNow(getDb()))
+  ipcMain.handle(IPC.syncNow, () => scheduler.runManual())
   ipcMain.handle(IPC.syncUsage, () => getSyncUsage(getDb()))
 
   ipcMain.handle(IPC.dataExport, (event, format: 'json' | 'csv' | 'ics') =>

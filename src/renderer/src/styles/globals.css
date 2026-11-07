@@ -1726,6 +1726,10 @@ option {
   color: var(--muted);
 }
 
+.settings-note.settings-error {
+  color: var(--danger, #e5484d);
+}
+
 .settings-subhead {
   margin: 18px 0 10px;
   padding-top: 14px;

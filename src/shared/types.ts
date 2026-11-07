@@ -85,6 +85,8 @@ export interface Settings {
   r2Prefix: string
   r2AutoSync: boolean
   r2LastSync: string | null
+  /** 最近一次后台同步失败原因；成功时清空。 */
+  r2LastError?: string
   aiEnabled: boolean
   aiBaseUrl: string
   aiModel: string
