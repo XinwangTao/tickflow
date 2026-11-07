@@ -64,6 +64,12 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }): Reac
         <path d="M8.5 12.2l2.3 2.3 4.7-5" />
       </>
     ),
+    bell: (
+      <>
+        <path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6" />
+        <path d="M10 20a2 2 0 0 0 4 0" />
+      </>
+    ),
     back: <path d="M15 6l-6 6 6 6" />,
     chevronRight: <path d="M9 6l6 6-6 6" />,
     chevronDown: <path d="M6 9l6 6 6-6" />,

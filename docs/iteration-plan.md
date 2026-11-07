@@ -5,7 +5,7 @@
 
 ## 状态基线（2026-11-07）
 
-- 类型检查通过；Vitest 40 个文件 / 531 项；Playwright Electron E2E 36 条；打包版冒烟通过
+- 类型检查通过；Vitest 42 个文件 / 538 项；Playwright Electron E2E 36 条；打包版冒烟通过
 - 桌面端功能清单（`docs/product/tickflow-pixel-checklist.md`）除「评论」外全部完成
 - R2 真实桶 B1–B11 通过（3 份快照 / 93.3 KB）；同步范围扩展后已用 mock 双端验证，真实桶与真机复验列入 `docs/TODO-device.md`
 - Android 功能已落地，真机复验项集中记录在 `docs/TODO-device.md`
@@ -41,23 +41,23 @@
    - ✅ 多选批量完成 / 删除（2026-11-07）：长按任务或顶栏「多选」进入，批量条完成/删除（删除二次确认），返回键退出
    - ✅ 搜索历史（2026-11-07）：回车或打开结果即记录，最多 5 条、大小写去重、可清空；localStorage 持久化，刷新/重启仍在
    - 验证：`npm run check:mobile-web` 覆盖长按、批量完成/删除、搜索历史记录/清空/刷新后保留；Vitest 新增 3 + 4 项
-7. 🟡 Android 习惯提醒（L2，阶段 C，等待确认后写码）
-   - 简报：`docs/product/mobile-habit-reminders_brief.md`（范围、成功标准、失败出口）
-   - 图：`docs/archify/mobile_habit_reminders_workflow.html` + 同源 `.json`（8 节点 / 10 边）
-   - 方案：`@capacitor/local-notifications` 8.3.1；复用已同步的 `habitReminders`；`id=hash(habitId)`；启动/升级用 `getPending` 与 Dexie 对账
-   - 待确认假设：① 每习惯每天一次；② 关闭写 tombstone 并取消通知；③ 点通知打开「更多 → 习惯」；④ 不做通知中心历史；⑤ 权限拒绝只提示、不反复弹
-   - 确认前不写通知业务代码；上机项已写入 `docs/TODO-device.md`
+7. ✅ Android 习惯提醒（2026-11-07，L2，按 `mobile_habit_reminders_workflow` 实现）
+   - `@capacitor/local-notifications` 8.3.1；每习惯每天一次，复用已同步的 `habitReminders`
+   - 习惯页铃铛设置 HH:MM；保存后检查/申请通知权限并重排；关闭写 tombstone 并取消通知
+   - 通知 id 用 habitId 稳定哈希；启动、同步成功、删除习惯后调用 `reconcileHabitNotifications` 对账
+   - 点击通知回到「更多 → 习惯」；Web/预览环境返回 unsupported，不申请权限
+   - 验证：`tests/mobile-habit-reminder-time.test.ts`（4）、`tests/mobile-sync.test.ts`（+2）、`tests/mobile-notifications-web.test.ts`（1）；`check:mobile-web` 覆盖提醒保存/刷新保留/关闭；debug/release APK 构建通过
+   - 真机触发/重启/权限恢复项在 `docs/TODO-device.md`
 8. ⬜ 真机验收（待设备接入，按 `docs/TODO-device.md` 顺序执行）
    - 见 `docs/TODO-device.md`：备份导出分享面板、用量核对、release 覆盖安装、返回键五路径、习惯/番茄/统计、真实 R2 双端、无线重连、versionCode 递增
 
 ## 复盘状态（第 60 轮，2026-11-07）
 
-- **已完成（本区间）**：首屏拆包（-43%）、任务行键盘操作、800 任务渲染基线、同步可靠性调度（防抖/单飞/退避/错误可见）、同步范围扩展（习惯/打卡/番茄/提醒 + tombstone）、Android 多选批量与搜索历史、MIT 许可证与 CI、永久删除确认
+- **已完成（本区间）**：首屏拆包（-43%）、任务行键盘操作、800 任务渲染基线、同步可靠性调度（防抖/单飞/退避/错误可见）、同步范围扩展（习惯/打卡/番茄/提醒 + tombstone）、Android 多选批量与搜索历史、Android 习惯提醒（本地通知 + 权限 + 对账）、MIT 许可证与 CI、永久删除确认
 - **可离线队列**：空（不新增低价值改动凑数）
 - **长尾离线池**：空
 - **阻塞（写明解除条件）**：
-  - Android 习惯提醒（L2）：图与简报已出，等确认 5 项假设与 `mobile_habit_reminders_workflow` 后写码
-  - 真机验收：等 OPPO PKJ110 接入无线调试；设备在线后按 `docs/TODO-device.md` 顺序执行（含习惯/番茄同步复验）
+  - 真机验收：等 OPPO PKJ110 接入无线调试；设备在线后按 `docs/TODO-device.md` 顺序执行（含通知触发/重启/权限恢复、习惯/番茄同步）
 
 ## 明确不做
 

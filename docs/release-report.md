@@ -9,12 +9,12 @@
 | 项 | 结果 |
 |---|---|
 | TypeScript 类型检查 | 通过（main / preload / renderer） |
-| Vitest | 40 个文件 / 531 项全部通过 |
+| Vitest | 42 个文件 / 538 项全部通过 |
 | Playwright Electron E2E | 36 条通过（含习惯/打卡/番茄/提醒双端合并、自动同步防抖与失败提示、键盘操作、日历行内添加、日历 AI 草稿、关闭到托盘、自启最小化、关于弹窗、R2 mock 同步；每个用例使用独立 `TICKFLOW_USER_DATA` 临时目录，不读写真实数据） |
 | 构建体积预算 | 通过：main 200.8 KB / 220 KB，preload 9.2 KB / 16 KB，renderer JS 969.8 KB / 1400 KB（首屏入口 789.3 KB），CSS 67.8 KB / 90 KB |
 | 桌面安装包 | NSIS 重建成功，117 MB，未签名；`release/win-unpacked` 打包版冒烟通过（启动、日历/设置按需 chunk、详情抽屉） |
-| Android debug APK | 5.0 MB，`com.tickflow.mobile`，minSdk 24 / targetSdk 36 |
-| Android release APK | 3.6 MB，已用本地 keystore 签名并通过 `apksigner verify` |
+| Android debug APK | 5.4 MB，`com.tickflow.mobile`，minSdk 24 / targetSdk 36，含本地通知插件 |
+| Android release APK | 3.8 MB，已用本地 keystore 签名并通过 `apksigner verify` |
 | 真机（OPPO PKJ110 / Android 17） | 安装、冷启动、快速添加、详情、搜索、清单 CRUD、习惯/番茄/统计、键盘安全区、浅色主题、返回键、20+3 轮稳定性、飞行模式冷启动通过 |
 | R2 真实桶 | B1–B11 通过：双端双向、软删除、LWW、1000 任务快照、错 Secret 403；当前 3 份快照 / 93.3 KB |
 | 安全 | JSON 导出剔除 R2/AI 凭据；桌面 R2/AI 密钥使用 `safeStorage` 加密落库并自动迁移旧明文 |
@@ -24,8 +24,8 @@
 | 产物 | 大小 | SHA-256 |
 |---|---|---|
 | `release/刻度清单 Setup 0.1.0.exe` | 121,592,822 B | `ec7e6aef6d368e5cac23d0c39f16111b7318fd92386a6f3038a78bfa231391c2` |
-| `mobile/android/app/build/outputs/apk/debug/app-debug.apk` | 5,278,812 B | `6d375c34e3dad217e53f3c6a76546b4773035b18d9d96e6e9ad50b437268dd3a` |
-| `mobile/android/app/build/outputs/apk/release/app-release.apk` | 3,802,297 B | `a5e34a6959ced080719c65784ecbf7fd959e2db84226985ae139afceff6509b1` |
+| `mobile/android/app/build/outputs/apk/debug/app-debug.apk` | 5,430,281 B | `faf547ebe33e15427c54e551902f7d994c2488bd9b52d8fa5b95fc72b0b023a3` |
+| `mobile/android/app/build/outputs/apk/release/app-release.apk` | 3,836,875 B | `eb4c5229d3f0613df99b5d9ededd93e7ce49f1170721238c7643c898e096da98` |
 
 校验文件：`release/SHA256SUMS.txt`（`sha256sum -c` 可直接复核）
 

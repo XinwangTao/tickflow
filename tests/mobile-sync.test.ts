@@ -6,6 +6,9 @@ let createHabit: typeof import('../mobile/src/db').createHabit
 let toggleHabitToday: typeof import('../mobile/src/db').toggleHabitToday
 let listHabits: typeof import('../mobile/src/db').listHabits
 let addPomodoroSession: typeof import('../mobile/src/db').addPomodoroSession
+let setHabitReminder: typeof import('../mobile/src/db').setHabitReminder
+let listHabitReminders: typeof import('../mobile/src/db').listHabitReminders
+let getHabitReminder: typeof import('../mobile/src/db').getHabitReminder
 let buildSnapshot: typeof import('../mobile/src/db').buildSnapshot
 let applySnapshot: typeof import('../mobile/src/db').applySnapshot
 
@@ -19,6 +22,9 @@ beforeAll(async () => {
   toggleHabitToday = dbModule.toggleHabitToday
   listHabits = dbModule.listHabits
   addPomodoroSession = dbModule.addPomodoroSession
+  setHabitReminder = dbModule.setHabitReminder
+  listHabitReminders = dbModule.listHabitReminders
+  getHabitReminder = dbModule.getHabitReminder
   buildSnapshot = dbModule.buildSnapshot
   applySnapshot = dbModule.applySnapshot
 })
@@ -72,5 +78,37 @@ describe('mobile sync scope', () => {
     const rows = await db.habitLogs.toArray()
     expect(rows).toHaveLength(1)
     expect(rows[0].deletedAt).toBeTruthy()
+  })
+
+  it('习惯提醒写入、关闭 tombstone、重新开启复用同一行', async () => {
+    const habit = await createHabit('喝水')
+    const reminder = await setHabitReminder(habit.id, '09:00')
+    expect(reminder).toBeTruthy()
+    expect(new Date(reminder?.triggerAt ?? '').getHours()).toBe(9)
+    expect(await listHabitReminders()).toHaveLength(1)
+
+    await setHabitReminder(habit.id, null)
+    expect(await listHabitReminders()).toHaveLength(0)
+    const snapshot = await buildSnapshot()
+    expect(snapshot.habitReminders).toHaveLength(1)
+    expect(snapshot.habitReminders?.[0].deletedAt).toBeTruthy()
+
+    const reopened = await setHabitReminder(habit.id, '10:30')
+    expect(reopened?.id).toBe(reminder?.id)
+    expect(await listHabitReminders()).toHaveLength(1)
+  })
+
+  it('提醒随快照应用到空库', async () => {
+    const habit = await createHabit('冥想')
+    await setHabitReminder(habit.id, '08:15')
+    const snapshot = await buildSnapshot()
+
+    await db.delete()
+    await db.open()
+    await applySnapshot(snapshot)
+
+    const reminder = await getHabitReminder(habit.id)
+    expect(reminder).toBeTruthy()
+    expect(new Date(reminder?.triggerAt ?? '').getHours()).toBe(8)
   })
 })

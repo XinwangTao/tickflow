@@ -117,7 +117,30 @@ try {
   await page.getByLabel('搜索').click()
   await expect(page.locator('.recent-chip', { hasText: '持久化搜索' })).toHaveCount(1)
 
-  console.log('移动端多选 / 批量完成 / 批量删除 / 搜索历史校验通过')
+  // 习惯提醒：Web 环境不申请系统通知，验证保存、展示、刷新保留与关闭。
+  await page.getByLabel('关闭').click()
+  await page.getByRole('button', { name: '更多' }).click()
+  await page.waitForSelector('.habit-editor input')
+  await page.locator('.habit-editor input').fill('提醒习惯')
+  await page.locator('.habit-editor').getByRole('button', { name: '添加' }).click()
+  const habitCard = page.locator('.habit-card', { hasText: '提醒习惯' })
+  await expect(habitCard).toBeVisible()
+
+  await page.getByLabel('设置提醒 提醒习惯').click()
+  await page.locator('.habit-reminder input[type="time"]').fill('08:30')
+  await page.locator('.habit-reminder').getByRole('button', { name: '保存' }).click()
+  await expect(habitCard).toContainText('提醒 08:30')
+
+  await page.reload()
+  await page.waitForSelector('.bottom-nav', { timeout: 30_000 })
+  await page.getByRole('button', { name: '更多' }).click()
+  await expect(habitCard).toContainText('提醒 08:30')
+
+  await page.getByLabel('设置提醒 提醒习惯').click()
+  await page.getByRole('button', { name: '关闭提醒' }).click()
+  await expect(habitCard).not.toContainText('提醒 08:30')
+
+  console.log('移动端多选 / 批量完成 / 批量删除 / 搜索历史 / 习惯提醒校验通过')
 } finally {
   if (app) await app.close()
   server.kill()

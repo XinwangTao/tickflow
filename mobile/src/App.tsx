@@ -27,6 +27,10 @@ import {
 import { Icon } from './Icon'
 import { MoreTab } from './MoreTab'
 import { buildBackupJson, importBackupJson } from './backup'
+import {
+  onHabitNotificationTap,
+  reconcileHabitNotifications
+} from './notifications'
 import { parseRecentSearches, pushRecentSearch, RECENT_SEARCH_KEY } from './recent-searches'
 import { autoSync, getSyncUsage, syncNow, testSync } from './sync'
 
@@ -1103,6 +1107,13 @@ export default function App(): ReactNode {
     tab
   ])
 
+  useEffect(() => {
+    return onHabitNotificationTap(() => {
+      setTab('more')
+      setListId(null)
+    })
+  }, [])
+
   const reload = async (): Promise<void> => {
     const [nextLists, all] = await Promise.all([
       listLists(),
@@ -1130,6 +1141,7 @@ export default function App(): ReactNode {
       setTheme(nextTheme)
       document.documentElement.dataset.theme = nextTheme
       await reload()
+      void reconcileHabitNotifications()
       const result = await autoSync()
       if (!cancelled && result) {
         showToast(result.message, result.ok ? 'success' : 'error')
@@ -1200,6 +1212,7 @@ export default function App(): ReactNode {
     if (result.ok) {
       setRefreshKey((value) => value + 1)
       setSettings(await getSettingsMap())
+      void reconcileHabitNotifications()
     }
   }
 

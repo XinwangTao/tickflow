@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type {
   Habit,
   HabitLog,
+  HabitReminder,
   PomodoroSession,
   Priority,
   TodoList
@@ -10,6 +11,7 @@ import { INBOX_ID } from '@shared/types'
 import type { SyncSnapshot, SyncTask } from '@shared/sync'
 import { uuidv7 } from '@shared/uuid'
 import { addDaysToKey, startOfWeekKey, todayKey } from '@shared/dates'
+import { nextDailyTrigger } from './habit-reminder-time'
 
 export interface SettingRow {
   key: string
@@ -26,6 +28,7 @@ class TickFlowDB extends Dexie {
   settings!: Table<SettingRow, string>
   habits!: Table<Habit, string>
   habitLogs!: Table<HabitLog, string>
+  habitReminders!: Table<HabitReminder, string>
   pomodoroSessions!: Table<PomodoroSession, string>
 
   constructor() {
@@ -39,6 +42,9 @@ class TickFlowDB extends Dexie {
       habits: 'id, archived, sortOrder',
       habitLogs: 'id, habitId, logDate, [habitId+logDate]',
       pomodoroSessions: 'id, startedAt'
+    })
+    this.version(3).stores({
+      habitReminders: 'id, habitId'
     })
   }
 }
@@ -337,6 +343,7 @@ export async function buildSnapshot(): Promise<SyncSnapshot> {
     tasks: await db.tasks.toArray(),
     habits: await db.habits.toArray(),
     habitLogs: await db.habitLogs.toArray(),
+    habitReminders: await db.habitReminders.toArray(),
     pomodoroSessions: await db.pomodoroSessions.toArray()
   }
 }
@@ -346,6 +353,9 @@ export async function applySnapshot(snapshot: SyncSnapshot): Promise<void> {
   const tasks = Array.isArray(snapshot.tasks) ? snapshot.tasks : []
   const habits = Array.isArray(snapshot.habits) ? snapshot.habits : []
   const habitLogs = Array.isArray(snapshot.habitLogs) ? snapshot.habitLogs : []
+  const habitReminders = Array.isArray(snapshot.habitReminders)
+    ? snapshot.habitReminders
+    : []
   const pomodoroSessions = Array.isArray(snapshot.pomodoroSessions)
     ? snapshot.pomodoroSessions
     : []
@@ -358,7 +368,14 @@ export async function applySnapshot(snapshot: SyncSnapshot): Promise<void> {
 
   await db.transaction(
     'rw',
-    [db.lists, db.tasks, db.habits, db.habitLogs, db.pomodoroSessions],
+    [
+      db.lists,
+      db.tasks,
+      db.habits,
+      db.habitLogs,
+      db.habitReminders,
+      db.pomodoroSessions
+    ],
     async () => {
       if (lists.length) await db.lists.bulkPut(lists)
       if (normalized.length) await db.tasks.bulkPut(normalized)
@@ -374,6 +391,17 @@ export async function applySnapshot(snapshot: SyncSnapshot): Promise<void> {
           if (existing && existing.id !== log.id) await db.habitLogs.delete(existing.id)
         }
         await db.habitLogs.bulkPut(habitLogs)
+      }
+      if (habitReminders.length) {
+        const localReminders = await db.habitReminders.toArray()
+        const byHabit = new Map(localReminders.map((item) => [item.habitId, item]))
+        for (const reminder of habitReminders) {
+          const existing = byHabit.get(reminder.habitId)
+          if (existing && existing.id !== reminder.id) {
+            await db.habitReminders.delete(existing.id)
+          }
+        }
+        await db.habitReminders.bulkPut(habitReminders)
       }
       if (pomodoroSessions.length) {
         await db.pomodoroSessions.bulkPut(pomodoroSessions)
@@ -525,6 +553,62 @@ export async function toggleHabitToday(id: string): Promise<boolean> {
     deletedAt: null
   })
   return true
+}
+
+export async function getHabitReminder(habitId: string): Promise<HabitReminder | null> {
+  const row = await db.habitReminders.where('habitId').equals(habitId).first()
+  return row && !row.deletedAt ? row : null
+}
+
+export async function listHabitReminders(): Promise<HabitReminder[]> {
+  return (await db.habitReminders.toArray()).filter((row) => !row.deletedAt)
+}
+
+/** 设置或关闭习惯提醒；关闭写 tombstone，重新开启复用同一行。 */
+export async function setHabitReminder(
+  habitId: string,
+  time: string | null
+): Promise<HabitReminder | null> {
+  const existing = await db.habitReminders.where('habitId').equals(habitId).first()
+  const now = nowIso()
+  if (time == null || time.trim() === '') {
+    if (existing && !existing.deletedAt) {
+      const next: HabitReminder = {
+        ...existing,
+        enabled: false,
+        deletedAt: now,
+        updatedAt: now
+      }
+      await db.habitReminders.put(next)
+    }
+    return null
+  }
+
+  const triggerAt = nextDailyTrigger(time.trim())
+  if (existing) {
+    const next: HabitReminder = {
+      ...existing,
+      triggerAt,
+      enabled: true,
+      deletedAt: null,
+      updatedAt: now
+    }
+    await db.habitReminders.put(next)
+    return next
+  }
+
+  const reminder: HabitReminder = {
+    id: uuidv7(),
+    habitId,
+    triggerAt,
+    enabled: true,
+    sentAt: null,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null
+  }
+  await db.habitReminders.put(reminder)
+  return reminder
 }
 
 export async function listPomodoroSessions(days = 7): Promise<PomodoroSession[]> {

@@ -6,12 +6,21 @@ import {
   createHabit,
   deleteHabit,
   getMobileStats,
+  listHabitReminders,
   listHabits,
   listPomodoroSessions,
+  setHabitReminder,
   toggleHabitToday,
   type MobileHabit,
   type MobileStats
 } from './db'
+import {
+  checkNotificationPermission,
+  reconcileHabitNotifications,
+  requestNotificationPermission,
+  type NotificationPermission
+} from './notifications'
+import { localTimeOf } from './habit-reminder-time'
 import { Icon } from './Icon'
 
 type Page = 'habits' | 'pomodoro' | 'stats'
@@ -33,8 +42,19 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
   const [habits, setHabits] = useState<MobileHabit[]>([])
   const [name, setName] = useState('')
   const [color, setColor] = useState(HABIT_COLORS[0])
+  const [reminderTimes, setReminderTimes] = useState<Record<string, string>>({})
+  const [editingReminder, setEditingReminder] = useState<string | null>(null)
+  const [reminderDraft, setReminderDraft] = useState('09:00')
+  const [permission, setPermission] = useState<NotificationPermission>('unsupported')
 
-  const reload = async (): Promise<void> => setHabits(await listHabits())
+  const reload = async (): Promise<void> => {
+    const [nextHabits, reminders] = await Promise.all([listHabits(), listHabitReminders()])
+    setHabits(nextHabits)
+    setReminderTimes(
+      Object.fromEntries(reminders.map((reminder) => [reminder.habitId, localTimeOf(reminder.triggerAt)]))
+    )
+    setPermission(await checkNotificationPermission())
+  }
 
   useEffect(() => {
     void reload()
@@ -58,10 +78,40 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
   }
 
   const remove = async (habit: MobileHabit): Promise<void> => {
-    if (!window.confirm(`删除习惯「${habit.name}」？打卡记录也会清除。`)) return
+    if (!window.confirm(`删除习惯「${habit.name}」？打卡记录会保留但不再显示。`)) return
     await deleteHabit(habit.id)
+    await reconcileHabitNotifications()
     await reload()
     onToast('习惯已删除', 'info')
+  }
+
+  const openReminder = (habit: MobileHabit): void => {
+    setEditingReminder(habit.id)
+    setReminderDraft(reminderTimes[habit.id] ?? '09:00')
+  }
+
+  const saveReminder = async (habit: MobileHabit): Promise<void> => {
+    await setHabitReminder(habit.id, reminderDraft)
+    let state = await checkNotificationPermission()
+    if (state === 'prompt') state = await requestNotificationPermission()
+    await reconcileHabitNotifications()
+    await reload()
+    setEditingReminder(null)
+    if (state === 'granted') {
+      onToast(`已设置每天 ${reminderDraft} 提醒`, 'success')
+    } else if (state === 'unsupported') {
+      onToast('提醒已保存；通知仅移动端生效', 'info')
+    } else {
+      onToast('提醒已保存；请在系统设置中允许通知', 'error')
+    }
+  }
+
+  const clearReminder = async (habit: MobileHabit): Promise<void> => {
+    await setHabitReminder(habit.id, null)
+    await reconcileHabitNotifications()
+    await reload()
+    setEditingReminder(null)
+    onToast(`已关闭「${habit.name}」提醒`, 'info')
   }
 
   const week = useMemo(() => {
@@ -122,6 +172,7 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
                     <div className="habit-meta">
                       连续 {habit.currentStreak} 天 · 本周 {habit.weekCount}/7 · 最长{' '}
                       {habit.longestStreak} 天
+                      {reminderTimes[habit.id] ? ` · 提醒 ${reminderTimes[habit.id]}` : ''}
                     </div>
                   </div>
                 </div>
@@ -133,6 +184,14 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
                     onClick={() => void toggle(habit)}
                   >
                     <Icon name="check" size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    className={`icon-btn ${reminderTimes[habit.id] ? 'active' : ''}`}
+                    aria-label={`设置提醒 ${habit.name}`}
+                    onClick={() => openReminder(habit)}
+                  >
+                    <Icon name="bell" size={16} />
                   </button>
                   <button
                     type="button"
@@ -159,11 +218,55 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
                   )
                 })}
               </div>
+              {editingReminder === habit.id ? (
+                <div className="habit-reminder">
+                  <label className="habit-reminder-time">
+                    <span>每天提醒</span>
+                    <input
+                      type="time"
+                      value={reminderDraft}
+                      onChange={(event) => setReminderDraft(event.target.value)}
+                    />
+                  </label>
+                  <div className="habit-reminder-actions">
+                    <button
+                      type="button"
+                      className="primary-btn"
+                      onClick={() => void saveReminder(habit)}
+                    >
+                      保存
+                    </button>
+                    {reminderTimes[habit.id] ? (
+                      <button
+                        type="button"
+                        className="secondary-btn"
+                        onClick={() => void clearReminder(habit)}
+                      >
+                        关闭提醒
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => setEditingReminder(null)}
+                    >
+                      取消
+                    </button>
+                  </div>
+                  {permission !== 'granted' ? (
+                    <p className="hint">
+                      {permission === 'unsupported'
+                        ? '当前环境不支持系统通知；提醒会在移动端生效。'
+                        : '通知权限未开启，保存后请在系统设置中允许通知。'}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )
         })
       )}
-      <p className="more-note">习惯数据仅保存在本机，R2 同步暂不包含习惯。</p>
+      <p className="more-note">习惯数据已纳入 R2 同步；提醒使用系统本地通知（移动端）。</p>
     </div>
   )
 }
