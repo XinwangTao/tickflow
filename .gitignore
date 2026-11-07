@@ -26,3 +26,4 @@ mobile/android/.idea/
 tickflow.loop.log
 
 scripts/r2.env
+.tmp/
