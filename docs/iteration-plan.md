@@ -5,7 +5,7 @@
 
 ## 状态基线（2026-11-07）
 
-- 类型检查通过；Vitest 37 个文件 / 511 项；Playwright Electron E2E 32 条；打包版冒烟通过
+- 类型检查通过；Vitest 38 个文件 / 517 项；Playwright Electron E2E 35 条；打包版冒烟通过
 - 桌面端功能清单（`docs/product/tickflow-pixel-checklist.md`）除「评论」外全部完成
 - R2 真实桶 B1–B11 通过，当前 3 份快照 / 93.3 KB，处于免费额度内
 - Android 功能已落地，真机复验项集中记录在 `docs/TODO-device.md`
@@ -23,12 +23,13 @@
 3. ✅ 长列表渲染基线（2026-11-07，L0，暂不虚拟化）
    - 隔离数据目录实测 800 任务：重载到 800 行全部可用约 190ms（页内 170ms），脚本 `npm run perf:list -- 800`
    - 结论：当前 TaskList 规模足够，不引入虚拟滚动；后续任务数超过 2000 再复测
-4. 🟡 同步可靠性增强（L1，图已出，等待确认后写码）
-   - 图：`docs/archify/sync_reliability_workflow.html` + 同源 `.json`（8 节点 / 10 边）
-   - 设计：本地写入 → 3 秒防抖 → 闸门（autoSync 且配置完整）→ 单飞执行 → 成功/失败退避（5s/15s/45s，最多 3 次）→ 错误可见；手动与启动同步立即执行并重置计数
-   - 范围不变：仍只同步清单/任务/任务标签，LWW 与 tombstone 规则不改
-   - 待确认：① 防抖 3 秒；② 退避 5s/15s/45s 最多 3 次；③ 状态只显示在设置页与 toast
-   - 确认前不改同步流程代码
+4. ✅ 同步可靠性增强（2026-11-07，L1，按 `sync_reliability_workflow` 实现）
+   - 本地写入（清单/任务/标签）→ 3 秒防抖 → 闸门（autoSync 且配置完整）→ 单飞执行
+   - 失败退避 5s / 15s / 45s，最多 3 次；新写入或手动同步重置计数
+   - 手动/启动同步走同一调度器；成功写 `r2LastSync`、失败写 `r2LastError` 并在设置页显示
+   - 后台同步成功后自动刷新列表与设置；远端有合并时提示，常规自动同步不弹成功 toast
+   - 代码：`src/main/sync-scheduler.ts`、`src/main/db/change-log.ts`、`src/main/index.ts`、`src/main/ipc.ts`、`src/renderer/src/App.tsx`、`SettingsDialog.tsx`
+   - 测试：`tests/sync-scheduler.test.ts`（6 项）+ `e2e/auto-sync-debounce.spec.ts`（防抖/单次上传/失败可见）
 5. ⬜ 同步范围扩展：习惯 / 番茄 / 习惯提醒（L1，需先出流程图并确认）
 6. 🟡 Android 功能对齐（L0）
    - ✅ 多选批量完成 / 删除（2026-11-07）：长按任务或顶栏「多选」进入，批量条完成/删除（删除二次确认），返回键退出
