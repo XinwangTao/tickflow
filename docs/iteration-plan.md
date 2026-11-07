@@ -5,7 +5,7 @@
 
 ## 状态基线（2026-11-07）
 
-- 类型检查通过；Vitest 39 个文件 / 527 项；Playwright Electron E2E 36 条；打包版冒烟通过
+- 类型检查通过；Vitest 40 个文件 / 531 项；Playwright Electron E2E 36 条；打包版冒烟通过
 - 桌面端功能清单（`docs/product/tickflow-pixel-checklist.md`）除「评论」外全部完成
 - R2 真实桶 B1–B11 通过（3 份快照 / 93.3 KB）；同步范围扩展后已用 mock 双端验证，真实桶与真机复验列入 `docs/TODO-device.md`
 - Android 功能已落地，真机复验项集中记录在 `docs/TODO-device.md`
@@ -37,18 +37,18 @@
    - 安卓：`buildSnapshot`/`applySnapshot` 覆盖习惯/打卡/番茄；取消打卡改 tombstone；习惯提醒仅桌面同步，安卓保留但不展示
    - 测试：`tests/sync.test.ts`（+5）、`tests/desktop-sync.test.ts`（+3）、`tests/mobile-sync.test.ts`（2）、`e2e/r2-habits.spec.ts`（双端合并 + 回传快照）
    - 真机复验项已追加到 `docs/TODO-device.md`
-6. 🟡 Android 功能对齐（L0）
+6. ✅ Android 功能对齐（L0）
    - ✅ 多选批量完成 / 删除（2026-11-07）：长按任务或顶栏「多选」进入，批量条完成/删除（删除二次确认），返回键退出
-   - 验证：`npm run check:mobile-web`（Electron 加载移动端构建）覆盖长按、多选计数、批量完成、批量删除；Vitest 新增 3 项
-   - ⬜ 搜索历史
+   - ✅ 搜索历史（2026-11-07）：回车或打开结果即记录，最多 5 条、大小写去重、可清空；localStorage 持久化，刷新/重启仍在
+   - 验证：`npm run check:mobile-web` 覆盖长按、批量完成/删除、搜索历史记录/清空/刷新后保留；Vitest 新增 3 + 4 项
 7. ⬜ Android 习惯提醒（L2，需先出流程图并确认）
 8. ⬜ 真机验收（待设备接入，按 `docs/TODO-device.md` 顺序执行）
    - 见 `docs/TODO-device.md`：备份导出分享面板、用量核对、release 覆盖安装、返回键五路径、习惯/番茄/统计、真实 R2 双端、无线重连、versionCode 递增
 
 ## 复盘状态（第 60 轮，2026-11-07）
 
-- **已完成（本区间）**：首屏拆包（-43%）、任务行键盘操作、800 任务渲染基线、同步可靠性调度（防抖/单飞/退避/错误可见）、同步范围扩展（习惯/打卡/番茄/提醒 + tombstone）、Android 多选批量完成/删除、MIT 许可证与 CI、永久删除确认
-- **可离线队列**：Android 搜索历史（当前唯一一项，不新增低价值开关凑数）
+- **已完成（本区间）**：首屏拆包（-43%）、任务行键盘操作、800 任务渲染基线、同步可靠性调度（防抖/单飞/退避/错误可见）、同步范围扩展（习惯/打卡/番茄/提醒 + tombstone）、Android 多选批量与搜索历史、MIT 许可证与 CI、永久删除确认
+- **可离线队列**：空（不新增低价值改动凑数）
 - **长尾离线池**：空
 - **阻塞（写明解除条件）**：
   - Android 习惯提醒（L2）：等 L2 流程图与确认

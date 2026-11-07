@@ -3,12 +3,21 @@
 // 用法：npm run check:mobile-web（需先 cd mobile && npm run build）
 import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect } from '@playwright/test'
 
 const root = process.cwd()
 const dataDir = mkdtempSync(join(tmpdir(), 'tickflow-mobile-ui-'))
+const port = await new Promise((resolve, reject) => {
+  const probe = createServer()
+  probe.once('error', reject)
+  probe.listen(0, '127.0.0.1', () => {
+    const { port: freePort } = probe.address()
+    probe.close(() => resolve(freePort))
+  })
+})
 const mainFile = join(dataDir, 'main.cjs')
 writeFileSync(
   mainFile,
@@ -16,13 +25,13 @@ writeFileSync(
 app.setPath('userData', process.env.TF_USER_DATA)
 app.whenReady().then(() => {
   const win = new BrowserWindow({ width: 430, height: 900, webPreferences: { contextIsolation: true } })
-  win.loadURL('http://127.0.0.1:4174/')
+  win.loadURL('http://127.0.0.1:${port}/')
 })
 app.on('window-all-closed', () => app.quit())
 `
 )
 
-const server = spawn('npx.cmd', ['vite', 'preview', '--port', '4174', '--strictPort'], {
+const server = spawn('npx.cmd', ['vite', 'preview', '--port', String(port), '--strictPort'], {
   cwd: join(root, 'mobile'),
   shell: true,
   stdio: 'ignore'
@@ -31,7 +40,7 @@ const server = spawn('npx.cmd', ['vite', 'preview', '--port', '4174', '--strictP
 async function waitServer() {
   for (let i = 0; i < 60; i++) {
     try {
-      const res = await fetch('http://127.0.0.1:4174/')
+      const res = await fetch(`http://127.0.0.1:${port}/`)
       if (res.ok) return
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 300))
@@ -87,7 +96,28 @@ try {
   await expect(page.locator('.batch-bar')).toHaveCount(0)
   await expect(page.locator('.task-row')).toHaveCount(0)
 
-  console.log('移动端多选 / 批量完成 / 批量删除校验通过')
+  // 搜索历史：回车记录、清除、刷新后仍保留。
+  await addTask('搜索历史任务')
+  await page.getByLabel('搜索').click()
+  await page.locator('.quick-input').fill('搜索历史')
+  await page.locator('.quick-input').press('Enter')
+  await expect(page.locator('.task-row', { hasText: '搜索历史任务' })).toBeVisible()
+  await page.getByLabel('关闭').click()
+
+  await page.getByLabel('搜索').click()
+  await expect(page.locator('.recent-chip', { hasText: '搜索历史' })).toHaveCount(1)
+  await page.locator('.recent-head .text-btn').click()
+  await expect(page.locator('.recent-chip')).toHaveCount(0)
+
+  await page.locator('.quick-input').fill('持久化搜索')
+  await page.locator('.quick-input').press('Enter')
+  await page.getByLabel('关闭').click()
+  await page.reload()
+  await page.waitForSelector('.bottom-nav', { timeout: 30_000 })
+  await page.getByLabel('搜索').click()
+  await expect(page.locator('.recent-chip', { hasText: '持久化搜索' })).toHaveCount(1)
+
+  console.log('移动端多选 / 批量完成 / 批量删除 / 搜索历史校验通过')
 } finally {
   if (app) await app.close()
   server.kill()

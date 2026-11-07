@@ -27,6 +27,7 @@ import {
 import { Icon } from './Icon'
 import { MoreTab } from './MoreTab'
 import { buildBackupJson, importBackupJson } from './backup'
+import { parseRecentSearches, pushRecentSearch, RECENT_SEARCH_KEY } from './recent-searches'
 import { autoSync, getSyncUsage, syncNow, testSync } from './sync'
 
 const PRIORITY_LABELS = ['无', '低', '中', '高']
@@ -459,6 +460,32 @@ function SearchSheet({
 }): ReactNode {
   const [q, setQ] = useState('')
   const [results, setResults] = useState<SyncTask[]>([])
+  const [recent, setRecent] = useState<string[]>(() =>
+    parseRecentSearches(localStorage.getItem(RECENT_SEARCH_KEY))
+  )
+
+  const remember = (term: string): void => {
+    const text = term.trim()
+    if (!text) return
+    setRecent((current) => {
+      const next = pushRecentSearch(current, text)
+      try {
+        localStorage.setItem(RECENT_SEARCH_KEY, JSON.stringify(next))
+      } catch {
+        // 存储不可用时只保留内存态
+      }
+      return next
+    })
+  }
+
+  const clearRecent = (): void => {
+    setRecent([])
+    try {
+      localStorage.removeItem(RECENT_SEARCH_KEY)
+    } catch {
+      // 忽略存储异常
+    }
+  }
 
   useEffect(() => {
     const text = q.trim()
@@ -490,7 +517,38 @@ function SearchSheet({
           value={q}
           placeholder="搜索任务、备注、标签"
           onChange={(event) => setQ(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && q.trim()) {
+              remember(q)
+              void queryTasks({ kind: 'search', q: q.trim() }).then(setResults)
+            }
+          }}
         />
+        {!q.trim() && recent.length > 0 ? (
+          <div className="recent-searches">
+            <div className="recent-head">
+              <span>最近搜索</span>
+              <button type="button" className="text-btn" onClick={clearRecent}>
+                清除
+              </button>
+            </div>
+            <div className="recent-chips">
+              {recent.map((term) => (
+                <button
+                  type="button"
+                  key={term}
+                  className="recent-chip"
+                  onClick={() => {
+                    remember(term)
+                    setQ(term)
+                  }}
+                >
+                  {term}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="search-results">
           {results.length === 0 && q.trim() ? <p className="hint">没有匹配结果</p> : null}
           {results.map((task) => (
@@ -498,7 +556,10 @@ function SearchSheet({
               key={task.id}
               task={task}
               lists={lists}
-              onOpen={() => onOpenTask(task)}
+              onOpen={() => {
+                remember(q)
+                onOpenTask(task)
+              }}
               onToggle={() => onToggle(task)}
             />
           ))}
