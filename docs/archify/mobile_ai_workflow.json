@@ -1,0 +1,233 @@
+{
+  "name": "mobile_ai_workflow",
+  "title": "刻度清单 TickFlow — Android AI 配置（本地 / 云端）",
+  "level": "L2",
+  "version": "0.1",
+  "updated": "2026-11-07",
+  "layout": {
+    "width": 1100,
+    "height": 560,
+    "nodeWidth": 200,
+    "nodeHeight": 76
+  },
+  "legend": [
+    {
+      "type": "main",
+      "label": "主流程节点"
+    },
+    {
+      "type": "view",
+      "label": "视图 / 分支"
+    },
+    {
+      "type": "failure",
+      "label": "失败出口"
+    },
+    {
+      "type": "manual",
+      "label": "人工入口（虚线）"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "A1",
+      "label": "设置页选择通道",
+      "type": "main",
+      "x": 40,
+      "y": 80,
+      "detail": [
+        "本地 / 云端 / 自动",
+        "默认本地"
+      ]
+    },
+    {
+      "id": "A2",
+      "label": "云端配置",
+      "type": "main",
+      "x": 300,
+      "y": 80,
+      "detail": [
+        "OpenAI 兼容 Base URL",
+        "API Key + 模型"
+      ]
+    },
+    {
+      "id": "A3",
+      "label": "本地模型投递",
+      "type": "main",
+      "x": 560,
+      "y": 80,
+      "detail": [
+        "adb push 到外部目录",
+        "首次拷贝到 filesDir"
+      ]
+    },
+    {
+      "id": "A4",
+      "label": "快速添加 AI 解析",
+      "type": "view",
+      "x": 820,
+      "y": 80,
+      "detail": [
+        "复用 shared/ai 提示词",
+        "返回任务 JSON"
+      ]
+    },
+    {
+      "id": "A5",
+      "label": "通道路由",
+      "type": "main",
+      "x": 820,
+      "y": 260,
+      "detail": [
+        "local / cloud / auto",
+        "auto = 云端失败回退本地"
+      ]
+    },
+    {
+      "id": "A6",
+      "label": "结果归一化",
+      "type": "main",
+      "x": 560,
+      "y": 260,
+      "detail": [
+        "JSON 解析 + 规则合并",
+        "标题/日期/优先级/标签"
+      ]
+    },
+    {
+      "id": "A7",
+      "label": "回落规则解析",
+      "type": "failure",
+      "x": 300,
+      "y": 260,
+      "detail": [
+        "提示失败原因",
+        "不阻塞创建任务"
+      ]
+    },
+    {
+      "id": "A8",
+      "label": "写入任务",
+      "type": "main",
+      "x": 40,
+      "y": 260,
+      "detail": [
+        "createTask 落 IndexedDB",
+        "随 R2 快照同步"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "A1",
+      "to": "A2",
+      "label": "云端"
+    },
+    {
+      "from": "A1",
+      "to": "A3",
+      "label": "本地"
+    },
+    {
+      "from": "A4",
+      "to": "A5",
+      "label": "解析请求",
+      "points": [
+        [
+          920,
+          156
+        ],
+        [
+          920,
+          260
+        ]
+      ]
+    },
+    {
+      "from": "A2",
+      "to": "A5",
+      "label": "云端通道",
+      "points": [
+        [
+          400,
+          156
+        ],
+        [
+          400,
+          210
+        ],
+        [
+          860,
+          210
+        ],
+        [
+          860,
+          260
+        ]
+      ]
+    },
+    {
+      "from": "A3",
+      "to": "A5",
+      "label": "本地推理",
+      "points": [
+        [
+          660,
+          156
+        ],
+        [
+          660,
+          210
+        ],
+        [
+          900,
+          210
+        ],
+        [
+          900,
+          260
+        ]
+      ]
+    },
+    {
+      "from": "A5",
+      "to": "A6",
+      "label": "生成成功"
+    },
+    {
+      "from": "A6",
+      "to": "A8",
+      "label": "合并后的任务"
+    },
+    {
+      "from": "A5",
+      "to": "A7",
+      "label": "失败 / 未配置",
+      "kind": "failure",
+      "points": [
+        [
+          820,
+          336
+        ],
+        [
+          820,
+          400
+        ],
+        [
+          400,
+          400
+        ],
+        [
+          400,
+          336
+        ]
+      ]
+    },
+    {
+      "from": "A7",
+      "to": "A8",
+      "label": "规则结果"
+    }
+  ]
+}

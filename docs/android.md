@@ -84,7 +84,7 @@ npm run test:android -- --cycles=20 --offline=3
 
 ## AI（本地 / 云端）
 
-设置页「AI（本地 / 云端）」提供三档通道，语义与雅思 App 的 `routeLlm` 一致：
+设置页「AI（本地 / 云端）」提供三档通道，语义与雅思 App 的 `routeLlm` 一致（图：`docs/archify/mobile_ai_workflow.html`，同源 `.json`）：
 
 - 本地：端侧 MNN（`LlmSession` + `libmnnllmapp.so`，从 ielts-android 移植），默认模型目录名 `qwen35-2b`，离线可用、零额度
 - 云端：OpenAI 兼容 `/chat/completions`（默认 `https://open.bigmodel.cn/api/paas/v4` + `glm-4-flash`），需要 API Key
