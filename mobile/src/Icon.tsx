@@ -58,6 +58,12 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }): Reac
     ),
     plus: <path d="M12 5v14M5 12h14" />,
     check: <path d="M5 12.5l4.2 4.2L19 7.5" />,
+    select: (
+      <>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M8.5 12.2l2.3 2.3 4.7-5" />
+      </>
+    ),
     back: <path d="M15 6l-6 6 6 6" />,
     chevronRight: <path d="M9 6l6 6-6 6" />,
     chevronDown: <path d="M6 9l6 6 6-6" />,

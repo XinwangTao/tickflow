@@ -21,7 +21,8 @@
     "test:android:inpage": "node scripts/android-smoke-inpage.mjs",
     "dist": "npm run build && npm run check:bundle && electron-builder --win",
     "check:bundle": "node scripts/check-bundle.mjs",
-    "perf:list": "node scripts/perf-tasklist.mjs"
+    "perf:list": "node scripts/perf-tasklist.mjs",
+    "check:mobile-web": "node scripts/mobile-web-check.mjs"
   },
   "dependencies": {
     "aws4fetch": "^1.0.20",

@@ -174,10 +174,41 @@ select {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 .task-row:active {
   background: var(--panel-2);
+}
+
+.task-row.selecting {
+  border-style: dashed;
+}
+
+.task-row.selected {
+  border-color: var(--accent);
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+
+.select-dot {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  margin-top: -2px;
+  border: 1.8px solid var(--line-strong);
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+}
+
+.select-dot.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
 }
 
 .task-row.done .task-title {
@@ -459,6 +490,62 @@ select {
 
 .nav-item.active {
   color: var(--accent);
+}
+
+.text-btn {
+  padding: 6px 10px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.batch-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(62px + env(safe-area-inset-bottom));
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.batch-count {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.batch-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.batch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.batch-btn:disabled {
+  opacity: 0.45;
+}
+
+.batch-btn.danger {
+  color: var(--high);
+}
+
+.content.with-batch {
+  padding-bottom: calc(164px + env(safe-area-inset-bottom));
 }
 
 .fab {

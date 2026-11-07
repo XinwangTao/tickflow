@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import type { Priority } from '@shared/types'
 import { INBOX_ID } from '@shared/types'
@@ -16,8 +16,10 @@ import {
   listLists,
   queryTasks,
   removeTask,
+  removeTasks,
   renameList,
   saveSettings,
+  setTasksStatus,
   toggleTask,
   updateTask,
   type ListWithCount
@@ -58,37 +60,98 @@ function TaskRow({
   task,
   lists,
   onOpen,
-  onToggle
+  onToggle,
+  selectionMode = false,
+  selected = false,
+  onSelect,
+  onLongPress
 }: {
   task: SyncTask
   lists: ListWithCount[]
   onOpen: () => void
   onToggle: () => void
+  selectionMode?: boolean
+  selected?: boolean
+  onSelect?: () => void
+  onLongPress?: () => void
 }): ReactNode {
   const overdue = isOverdue(task.dueDate, task.dueTime, task.allDay)
   const list = lists.find((item) => item.id === task.listId)
+  const pressTimer = useRef<number | null>(null)
+  const longPressed = useRef(false)
+
+  const clearPress = (): void => {
+    if (pressTimer.current !== null) {
+      window.clearTimeout(pressTimer.current)
+      pressTimer.current = null
+    }
+  }
+
+  useEffect(() => clearPress, [])
+
+  const startPress = (): void => {
+    if (selectionMode) return
+    longPressed.current = false
+    clearPress()
+    pressTimer.current = window.setTimeout(() => {
+      longPressed.current = true
+      onLongPress?.()
+    }, 450)
+  }
+
+  const activate = (): void => {
+    if (longPressed.current) {
+      longPressed.current = false
+      return
+    }
+    if (selectionMode) onSelect?.()
+    else onOpen()
+  }
+
   return (
     <div
-      className={`task-row ${task.status === 'completed' ? 'done' : ''}`}
-      onClick={onOpen}
+      className={`task-row ${task.status === 'completed' ? 'done' : ''} ${
+        selectionMode ? 'selecting' : ''
+      } ${selected ? 'selected' : ''}`}
+      onClick={activate}
       role="button"
       tabIndex={0}
+      onPointerDown={startPress}
+      onPointerUp={clearPress}
+      onPointerLeave={clearPress}
+      onPointerCancel={clearPress}
+      onContextMenu={(event) => {
+        if (selectionMode) return
+        event.preventDefault()
+        clearPress()
+        longPressed.current = true
+        onLongPress?.()
+      }}
       onKeyDown={(event) => {
-        if (event.key === 'Enter') onOpen()
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          activate()
+        }
       }}
     >
-      <button
-        type="button"
-        className={`task-check ${task.status === 'completed' ? 'checked' : ''}`}
-        aria-label={task.status === 'completed' ? '标记为未完成' : '标记为已完成'}
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation()
-          onToggle()
-        }}
-      >
-        {task.status === 'completed' ? <Icon name="today" size={13} /> : null}
-      </button>
+      {selectionMode ? (
+        <span className={`select-dot ${selected ? 'on' : ''}`} aria-hidden="true">
+          {selected ? <Icon name="check" size={12} /> : null}
+        </span>
+      ) : (
+        <button
+          type="button"
+          className={`task-check ${task.status === 'completed' ? 'checked' : ''}`}
+          aria-label={task.status === 'completed' ? '标记为未完成' : '标记为已完成'}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggle()
+          }}
+        >
+          {task.status === 'completed' ? <Icon name="today" size={13} /> : null}
+        </button>
+      )}
       <div className="task-main">
         <div className="task-title">{task.title}</div>
         <div className="task-meta">
@@ -882,6 +945,8 @@ export default function App(): ReactNode {
   const [renamingListId, setRenamingListId] = useState<string | null>(null)
   const [listDraft, setListDraft] = useState('')
   const [showCompleted, setShowCompleted] = useState(false)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
 
   const commitListRename = async (): Promise<void> => {
     if (!renamingListId) return
@@ -920,6 +985,11 @@ export default function App(): ReactNode {
     let removed = false
     let handle: { remove: () => Promise<void> } | null = null
     void CapacitorApp.addListener('backButton', () => {
+      if (selectionMode) {
+        setSelectionMode(false)
+        setSelectedIds([])
+        return
+      }
       if (detailId) {
         setDetailId(null)
         return
@@ -968,6 +1038,7 @@ export default function App(): ReactNode {
     quickOpen,
     renamingListId,
     searchOpen,
+    selectionMode,
     tab
   ])
 
@@ -1057,6 +1128,8 @@ export default function App(): ReactNode {
         : tab === 'more'
           ? '习惯 · 番茄 · 统计'
           : ''
+  const canSelect =
+    tab === 'today' || (tab === 'lists' && Boolean(listId)) || tab === 'calendar'
 
   const handleSync = async (): Promise<void> => {
     setSyncing(true)
@@ -1073,6 +1146,42 @@ export default function App(): ReactNode {
     await toggleTask(task.id)
     setRefreshKey((value) => value + 1)
   }
+
+  const exitSelection = (): void => {
+    setSelectionMode(false)
+    setSelectedIds([])
+  }
+
+  const enterSelection = (id: string): void => {
+    setSelectionMode(true)
+    setSelectedIds((current) => (current.includes(id) ? current : [...current, id]))
+  }
+
+  const toggleSelected = (id: string): void => {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    )
+  }
+
+  const batchComplete = async (): Promise<void> => {
+    const count = await setTasksStatus(selectedIds, 'completed')
+    exitSelection()
+    setRefreshKey((value) => value + 1)
+    showToast(`已完成 ${count} 个任务`, 'success')
+  }
+
+  const batchDelete = async (): Promise<void> => {
+    if (!window.confirm(`删除选中的 ${selectedIds.length} 个任务？`)) return
+    const count = await removeTasks(selectedIds)
+    exitSelection()
+    setRefreshKey((value) => value + 1)
+    showToast(`已删除 ${count} 个任务`, 'info')
+  }
+
+  useEffect(() => {
+    setSelectionMode(false)
+    setSelectedIds([])
+  }, [tab, listId])
 
   const dayTasks = allTasks
     .filter((task) => task.dueDate === selectedDate)
@@ -1117,34 +1226,52 @@ export default function App(): ReactNode {
             </button>
           ) : null}
           <div>
-            <h1>{title}</h1>
-            {subtitle ? <span>{subtitle}</span> : null}
+            <h1>{selectionMode ? `已选 ${selectedIds.length} 项` : title}</h1>
+            {!selectionMode && subtitle ? <span>{subtitle}</span> : null}
           </div>
         </div>
         <div className="topbar-actions">
-          {tab !== 'settings' ? (
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={() => setSearchOpen(true)}
-              aria-label="搜索"
-            >
-              <Icon name="search" size={20} />
+          {selectionMode ? (
+            <button type="button" className="text-btn" onClick={exitSelection}>
+              取消
             </button>
-          ) : null}
-          <button
-            type="button"
-            className={`icon-btn ${syncing ? 'spinning' : ''}`}
-            onClick={() => void handleSync()}
-            aria-label="同步"
-            disabled={syncing}
-          >
-            <Icon name="sync" size={20} />
-          </button>
+          ) : (
+            <>
+              {tab !== 'settings' ? (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setSearchOpen(true)}
+                  aria-label="搜索"
+                >
+                  <Icon name="search" size={20} />
+                </button>
+              ) : null}
+              {canSelect && tasks.length > 0 ? (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setSelectionMode(true)}
+                  aria-label="多选任务"
+                >
+                  <Icon name="select" size={20} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={`icon-btn ${syncing ? 'spinning' : ''}`}
+                onClick={() => void handleSync()}
+                aria-label="同步"
+                disabled={syncing}
+              >
+                <Icon name="sync" size={20} />
+              </button>
+            </>
+          )}
         </div>
       </header>
 
-      <main className="content">
+      <main className={`content ${selectionMode ? 'with-batch' : ''}`}>
         {loading ? (
           <div className="loading">加载中…</div>
         ) : tab === 'today' ? (
@@ -1168,6 +1295,10 @@ export default function App(): ReactNode {
                     lists={lists}
                     onOpen={() => setDetailId(task.id)}
                     onToggle={() => void toggle(task)}
+                    selectionMode={selectionMode}
+                    selected={selectedIds.includes(task.id)}
+                    onSelect={() => toggleSelected(task.id)}
+                    onLongPress={() => enterSelection(task.id)}
                   />
                 ))}
               </div>
@@ -1280,6 +1411,10 @@ export default function App(): ReactNode {
                     lists={lists}
                     onOpen={() => setDetailId(task.id)}
                     onToggle={() => void toggle(task)}
+                    selectionMode={selectionMode}
+                    selected={selectedIds.includes(task.id)}
+                    onSelect={() => toggleSelected(task.id)}
+                    onLongPress={() => enterSelection(task.id)}
                   />
                 ))}
               </div>
@@ -1364,6 +1499,10 @@ export default function App(): ReactNode {
                   lists={lists}
                   onOpen={() => setDetailId(task.id)}
                   onToggle={() => void toggle(task)}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.includes(task.id)}
+                  onSelect={() => toggleSelected(task.id)}
+                  onLongPress={() => enterSelection(task.id)}
                 />
               ))}
               {dayTasks.length === 0 ? <p className="hint">这一天还没有任务。</p> : null}
@@ -1384,6 +1523,32 @@ export default function App(): ReactNode {
           />
         )}
       </main>
+
+      {selectionMode ? (
+        <div className="batch-bar" role="toolbar" aria-label="批量操作">
+          <span className="batch-count">已选 {selectedIds.length} 项</span>
+          <div className="batch-actions">
+            <button
+              type="button"
+              className="batch-btn"
+              disabled={selectedIds.length === 0}
+              onClick={() => void batchComplete()}
+            >
+              <Icon name="check" size={16} />
+              完成
+            </button>
+            <button
+              type="button"
+              className="batch-btn danger"
+              disabled={selectedIds.length === 0}
+              onClick={() => void batchDelete()}
+            >
+              <Icon name="trash" size={16} />
+              删除
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <nav className="bottom-nav">
         {[
@@ -1408,7 +1573,7 @@ export default function App(): ReactNode {
         ))}
       </nav>
 
-      {tab !== 'settings' && tab !== 'more' ? (
+      {tab !== 'settings' && tab !== 'more' && !selectionMode ? (
         <button
           type="button"
           className="fab"

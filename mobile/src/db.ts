@@ -267,6 +267,50 @@ export async function restoreTask(id: string): Promise<void> {
   }
 }
 
+/** 批量切换完成状态，返回实际更新的任务数。 */
+export async function setTasksStatus(
+  ids: string[],
+  status: 'completed' | 'open'
+): Promise<number> {
+  if (ids.length === 0) return 0
+  const now = nowIso()
+  const rows = (await db.tasks.bulkGet(ids)).filter(
+    (task): task is SyncTask => Boolean(task)
+  )
+  if (rows.length === 0) return 0
+  await db.tasks.bulkPut(
+    rows.map((task) => ({
+      ...task,
+      status,
+      completedAt: status === 'completed' ? task.completedAt ?? now : null,
+      updatedAt: now
+    }))
+  )
+  return rows.length
+}
+
+/** 批量软删除任务及其子任务，返回选中的任务数。 */
+export async function removeTasks(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0
+  const now = nowIso()
+  const rows = new Map<string, SyncTask>()
+  for (const id of ids) {
+    const task = await db.tasks.get(id)
+    if (task) rows.set(task.id, task)
+    const children = await db.tasks.where('parentId').equals(id).toArray()
+    for (const child of children) rows.set(child.id, child)
+  }
+  if (rows.size === 0) return 0
+  await db.tasks.bulkPut(
+    Array.from(rows.values()).map((task) => ({
+      ...task,
+      deletedAt: now,
+      updatedAt: now
+    }))
+  )
+  return ids.length
+}
+
 export async function createList(name: string): Promise<TodoList> {
   const now = nowIso()
   const list: TodoList = {
