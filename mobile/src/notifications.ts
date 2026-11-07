@@ -45,6 +45,33 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   }
 }
 
+export type ExactAlarmSetting = 'granted' | 'denied' | 'unsupported'
+
+/**
+ * 精确闹钟（系统「闹钟和提醒」）是否已开启。
+ * 未开启时只能排不精确闹钟，系统可能因省电策略把提醒推迟很久。
+ */
+export async function checkExactAlarmSetting(): Promise<ExactAlarmSetting> {
+  if (!Capacitor.isNativePlatform()) return 'unsupported'
+  try {
+    const status = await LocalNotifications.checkExactNotificationSetting()
+    return status.exact_alarm === 'granted' ? 'granted' : 'denied'
+  } catch {
+    return 'unsupported'
+  }
+}
+
+/** 跳转系统「闹钟和提醒」页，返回最新状态。 */
+export async function requestExactAlarmSetting(): Promise<ExactAlarmSetting> {
+  if (!Capacitor.isNativePlatform()) return 'unsupported'
+  try {
+    const status = await LocalNotifications.changeExactNotificationSetting()
+    return status.exact_alarm === 'granted' ? 'granted' : 'denied'
+  } catch {
+    return 'unsupported'
+  }
+}
+
 function parseTime(time: string): { hour: number; minute: number } | null {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time)
   if (!match) return null
@@ -96,6 +123,7 @@ export async function syncHabitNotifications(
     // 同 id 重新注册即可覆盖
   }
 
+  const exactAllowed = (await checkExactAlarmSetting()) === 'granted'
   const notifications = active
     .map((item) => {
       const time = parseTime(item.time)
@@ -105,19 +133,25 @@ export async function syncHabitNotifications(
         title: '习惯提醒',
         body: `该打卡「${item.name}」了`,
         channelId: CHANNEL_ID,
+        // 已开「闹钟和提醒」才排精确闹钟；否则退回不精确，界面提示可能延迟。
+        isExactNotification: exactAllowed,
+        isExactMandatory: false,
         schedule: {
           on: { hour: time.hour, minute: time.minute },
           repeats: true,
-          allowWhileIdle: true,
-          // 不强制精确闹钟权限；允许系统在省电模式下稍晚触发。
-          isExactNotification: false
+          allowWhileIdle: true
         },
         extra: { habitId: item.habitId }
       }
     })
     .filter((item): item is NonNullable<typeof item> => item !== null)
 
-  await LocalNotifications.schedule({ notifications })
+  try {
+    await LocalNotifications.schedule({ notifications })
+  } catch {
+    // 系统禁用通知等情况不该打断保存；界面会提示去设置开启。
+    return { permission, scheduled: 0 }
+  }
   return { permission, scheduled: notifications.length }
 }
 

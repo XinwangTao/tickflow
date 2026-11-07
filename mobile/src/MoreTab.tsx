@@ -15,9 +15,12 @@ import {
   type MobileStats
 } from './db'
 import {
+  checkExactAlarmSetting,
   checkNotificationPermission,
   reconcileHabitNotifications,
+  requestExactAlarmSetting,
   requestNotificationPermission,
+  type ExactAlarmSetting,
   type NotificationPermission
 } from './notifications'
 import { localTimeOf } from './habit-reminder-time'
@@ -46,6 +49,7 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
   const [editingReminder, setEditingReminder] = useState<string | null>(null)
   const [reminderDraft, setReminderDraft] = useState('09:00')
   const [permission, setPermission] = useState<NotificationPermission>('unsupported')
+  const [exactAlarm, setExactAlarm] = useState<ExactAlarmSetting>('unsupported')
 
   const reload = async (): Promise<void> => {
     const [nextHabits, reminders] = await Promise.all([listHabits(), listHabitReminders()])
@@ -54,6 +58,7 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
       Object.fromEntries(reminders.map((reminder) => [reminder.habitId, localTimeOf(reminder.triggerAt)]))
     )
     setPermission(await checkNotificationPermission())
+    setExactAlarm(await checkExactAlarmSetting())
   }
 
   useEffect(() => {
@@ -112,6 +117,16 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
     await reload()
     setEditingReminder(null)
     onToast(`已关闭「${habit.name}」提醒`, 'info')
+  }
+
+  const enableExactAlarm = async (): Promise<void> => {
+    const state = await requestExactAlarmSetting()
+    setExactAlarm(state)
+    await reconcileHabitNotifications()
+    onToast(
+      state === 'granted' ? '已开启精确提醒' : '尚未开启，提醒可能明显延迟',
+      state === 'granted' ? 'success' : 'info'
+    )
   }
 
   const week = useMemo(() => {
@@ -258,6 +273,17 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
                       {permission === 'unsupported'
                         ? '当前环境不支持系统通知；提醒会在移动端生效。'
                         : '通知权限未开启，保存后请在系统设置中允许通知。'}
+                    </p>
+                  ) : exactAlarm === 'denied' ? (
+                    <p className="hint">
+                      系统「闹钟和提醒」未开启，提醒可能明显延迟。
+                      <button
+                        type="button"
+                        className="text-btn"
+                        onClick={() => void enableExactAlarm()}
+                      >
+                        去开启
+                      </button>
                     </p>
                   ) : null}
                 </div>
@@ -482,7 +508,7 @@ function PomodoroPanel({ onToast }: { onToast: Toast }): ReactNode {
         最近 7 天完成 {sessions.filter((row) => row.completed && row.mode === 'focus').length} 个番茄 ·
         专注 {focusMinutes} 分钟
       </div>
-      <p className="more-note">番茄记录仅保存在本机，R2 同步暂不包含番茄。</p>
+      <p className="more-note">番茄记录会随 R2 同步（按 id 合并，不重复计数）。</p>
     </div>
   )
 }

@@ -87,11 +87,11 @@ npm run test:android -- --cycles=20 --offline=3
 底部导航「更多」页提供三个分段：
 
 - 习惯：新建、今日打卡、7 天视图、连续/最长连续/本周次数、删除
-- 习惯每日提醒：桌面用系统通知 + 通知中心；安卓用 `@capacitor/local-notifications` 注册每日本地通知，支持权限申请、启动/同步后对账、点击回到习惯页（真机触发待验收）
+- 习惯每日提醒：桌面用系统通知 + 通知中心；安卓用 `@capacitor/local-notifications` 注册每日本地通知，支持权限申请、启动/同步后对账、点击回到习惯页。已开系统「闹钟和提醒」时排精确闹钟，未开则退回不精确并在习惯页提示「可能明显延迟」+「去开启」。2026-11-07 真机验证：后台到点收到通知、点击通知进入「更多 → 习惯」、关闭提醒后待触发通知清空
 - 番茄：25 分钟专注 / 5 分钟短休息 / 4 个番茄后 15 分钟长休息，支持暂停、跳过、重置、白噪音（Web Audio 生成，可调音量）
 - 统计：近 7/30 天完成、近 7 天专注分钟与打卡，7 天柱状图和数据表
 
-这三类数据保存在手机 IndexedDB（Dexie 表 `habits` / `habitLogs` / `pomodoroSessions`）。自 2026-11-07 起参与 R2 快照同步：打卡按 `(habitId, logDate)` 去重，取消打卡写 tombstone；习惯提醒仅桌面端同步与提醒，安卓端暂不使用。
+这三类数据保存在手机 IndexedDB（Dexie 表 `habits` / `habitLogs` / `habitReminders` / `pomodoroSessions`）。自 2026-11-07 起参与 R2 快照同步：打卡按 `(habitId, logDate)` 去重，取消打卡写 tombstone；习惯提醒按 `habitId` 合并，关闭写 tombstone。安卓端用 `@capacitor/local-notifications` 按 HH:MM 每日提醒。
 
 ## 本地备份
 

@@ -47,7 +47,9 @@
    - 通知 id 用 habitId 稳定哈希；启动、同步成功、删除习惯后调用 `reconcileHabitNotifications` 对账
    - 点击通知回到「更多 → 习惯」；Web/预览环境返回 unsupported，不申请权限
    - 验证：`tests/mobile-habit-reminder-time.test.ts`（4）、`tests/mobile-sync.test.ts`（+2）、`tests/mobile-notifications-web.test.ts`（1）；`check:mobile-web` 覆盖提醒保存/刷新保留/关闭；debug/release APK 构建通过
-   - 真机触发/重启/权限恢复项在 `docs/TODO-device.md`
+   - 真机（2026-11-07 16:2x，PKJ110 / Android 17，debug 16:20:55 安装）：铃铛设置 16:22 → 通知渠道 `habit-reminders` 建立、AlarmManager 注册；应用退到后台后到点收到系统通知「习惯提醒 / 该打卡「晨间喝水-5934」了」；点通知打开「更多 → 习惯」；关闭提醒后待触发通知清空。截图 `docs/device-2026-11-07/`。
+   - 修正：`isExactNotification` / `isExactMandatory` 属于通知对象而非 `schedule` 内字段；改为按 `checkExactNotificationSetting()` 结果决定是否排精确闹钟，未授权时退回不精确并在习惯页提示「可能明显延迟」+「去开启」，避免插件每次启动都跳系统设置页。
+   - 剩余真机项（锁屏到点、杀进程后到点、系统重启、权限拒绝恢复、时区）在 `docs/TODO-device.md`
 8. ⬜ 真机验收（待设备接入，按 `docs/TODO-device.md` 顺序执行）
    - 见 `docs/TODO-device.md`：备份导出分享面板、用量核对、release 覆盖安装、返回键五路径、习惯/番茄/统计、真实 R2 双端、无线重连、versionCode 递增
 
