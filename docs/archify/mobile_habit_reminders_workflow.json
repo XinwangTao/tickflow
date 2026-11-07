@@ -1,0 +1,294 @@
+{
+  "name": "mobile_habit_reminders_workflow",
+  "title": "刻度清单 TickFlow — Android 习惯提醒（L2）",
+  "level": "L2",
+  "version": "0.1",
+  "updated": "2026-11-07",
+  "layout": {
+    "width": 1100,
+    "height": 560,
+    "nodeWidth": 200,
+    "nodeHeight": 76
+  },
+  "legend": [
+    {
+      "type": "main",
+      "label": "主流程节点"
+    },
+    {
+      "type": "view",
+      "label": "视图 / 分支"
+    },
+    {
+      "type": "failure",
+      "label": "失败出口"
+    },
+    {
+      "type": "manual",
+      "label": "人工入口（虚线）"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "R1",
+      "label": "习惯页设置提醒",
+      "type": "main",
+      "x": 40,
+      "y": 80,
+      "detail": [
+        "选择 HH:MM",
+        "每习惯一条每日提醒"
+      ]
+    },
+    {
+      "id": "R2",
+      "label": "保存并同步",
+      "type": "main",
+      "x": 300,
+      "y": 80,
+      "detail": [
+        "Dexie habitReminders",
+        "关闭写 tombstone"
+      ]
+    },
+    {
+      "id": "R3",
+      "label": "权限闸门",
+      "type": "view",
+      "x": 560,
+      "y": 80,
+      "detail": [
+        "通知权限 + 渠道",
+        "Android 13+ 需授权"
+      ]
+    },
+    {
+      "id": "R4",
+      "label": "注册每日通知",
+      "type": "main",
+      "x": 820,
+      "y": 80,
+      "detail": [
+        "Capacitor LocalNotifications",
+        "id=hash(habitId)，allowWhileIdle"
+      ]
+    },
+    {
+      "id": "R6",
+      "label": "修改 / 关闭",
+      "type": "main",
+      "x": 300,
+      "y": 260,
+      "detail": [
+        "取消旧通知",
+        "按新时间重排"
+      ]
+    },
+    {
+      "id": "R7",
+      "label": "启动 / 升级对账",
+      "type": "main",
+      "x": 560,
+      "y": 260,
+      "detail": [
+        "getPending vs Dexie",
+        "补排缺失、清理已删"
+      ]
+    },
+    {
+      "id": "R5",
+      "label": "到点触发",
+      "type": "view",
+      "x": 820,
+      "y": 260,
+      "detail": [
+        "系统通知（锁屏/后台）",
+        "点击打开习惯页"
+      ]
+    },
+    {
+      "id": "R8",
+      "label": "权限失败提示",
+      "type": "failure",
+      "x": 300,
+      "y": 420,
+      "detail": [
+        "引导去系统设置",
+        "保留时间，不阻塞打卡"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "保存"
+    },
+    {
+      "from": "R2",
+      "to": "R3",
+      "label": "注册"
+    },
+    {
+      "from": "R3",
+      "to": "R4",
+      "label": "已授权"
+    },
+    {
+      "from": "R4",
+      "to": "R5",
+      "label": "到点",
+      "points": [
+        [
+          920,
+          156
+        ],
+        [
+          920,
+          260
+        ]
+      ]
+    },
+    {
+      "from": "R2",
+      "to": "R6",
+      "label": "改时间 / 关闭",
+      "points": [
+        [
+          400,
+          156
+        ],
+        [
+          400,
+          260
+        ]
+      ]
+    },
+    {
+      "from": "R6",
+      "to": "R4",
+      "label": "重排 / 取消",
+      "points": [
+        [
+          400,
+          336
+        ],
+        [
+          400,
+          390
+        ],
+        [
+          1060,
+          390
+        ],
+        [
+          1060,
+          118
+        ],
+        [
+          1020,
+          118
+        ]
+      ]
+    },
+    {
+      "from": "R7",
+      "to": "R4",
+      "label": "补排 / 清理",
+      "points": [
+        [
+          660,
+          260
+        ],
+        [
+          660,
+          210
+        ],
+        [
+          900,
+          210
+        ],
+        [
+          900,
+          156
+        ]
+      ]
+    },
+    {
+      "from": "R3",
+      "to": "R8",
+      "label": "未授权 / 渠道关闭",
+      "kind": "failure",
+      "points": [
+        [
+          560,
+          118
+        ],
+        [
+          540,
+          118
+        ],
+        [
+          540,
+          380
+        ],
+        [
+          400,
+          380
+        ],
+        [
+          400,
+          420
+        ]
+      ]
+    },
+    {
+      "from": "R8",
+      "to": "R3",
+      "label": "用户开启后重试",
+      "kind": "manual",
+      "points": [
+        [
+          500,
+          458
+        ],
+        [
+          530,
+          458
+        ],
+        [
+          530,
+          140
+        ],
+        [
+          560,
+          140
+        ]
+      ]
+    },
+    {
+      "from": "R5",
+      "to": "R1",
+      "label": "点击通知",
+      "kind": "manual",
+      "points": [
+        [
+          920,
+          336
+        ],
+        [
+          920,
+          520
+        ],
+        [
+          140,
+          520
+        ],
+        [
+          140,
+          156
+        ]
+      ]
+    }
+  ]
+}
