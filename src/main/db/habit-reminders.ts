@@ -15,6 +15,7 @@ interface HabitReminderRow {
   created_at: string
   updated_at: string
   device_id: string
+  deleted_at?: string | null
 }
 
 function toReminder(row: HabitReminderRow): HabitReminder {
@@ -25,7 +26,8 @@ function toReminder(row: HabitReminderRow): HabitReminder {
     enabled: Number(row.enabled) === 1,
     sentAt: row.sent_at == null ? null : String(row.sent_at),
     createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at)
+    updatedAt: String(row.updated_at),
+    deletedAt: row.deleted_at == null ? null : String(row.deleted_at)
   }
 }
 
@@ -50,7 +52,7 @@ export function getHabitReminder(
   habitId: string
 ): HabitReminder | null {
   const row = db
-    .prepare('SELECT * FROM habit_reminders WHERE habit_id = ?')
+    .prepare('SELECT * FROM habit_reminders WHERE habit_id = ? AND deleted_at IS NULL')
     .get(habitId) as unknown as HabitReminderRow | undefined
   return row ? toReminder(row) : null
 }
@@ -65,28 +67,38 @@ export function setHabitReminder(
     .get(habitId) as { id: string } | undefined
   if (!habit) throw new Error('习惯不存在')
 
-  const existing = getHabitReminder(db, habitId)
+  const existing = db
+    .prepare('SELECT * FROM habit_reminders WHERE habit_id = ?')
+    .get(habitId) as unknown as HabitReminderRow | undefined
+  const now = nowIso()
+
   if (time == null || time.trim() === '') {
-    if (existing) {
-      db.prepare('DELETE FROM habit_reminders WHERE habit_id = ?').run(habitId)
-      logChange(db, 'habit_reminder', existing.id, 'delete', { id: existing.id, habitId })
+    if (existing && existing.deleted_at == null) {
+      db.prepare(
+        'UPDATE habit_reminders SET deleted_at = ?, enabled = 0, updated_at = ? WHERE id = ?'
+      ).run(now, now, existing.id)
+      logChange(db, 'habit_reminder', existing.id, 'update', {
+        id: existing.id,
+        habitId,
+        deletedAt: now
+      })
     }
     return null
   }
 
   const triggerAt = nextDailyTrigger(time.trim())
-  const now = nowIso()
 
   if (existing) {
     db.prepare(
-      'UPDATE habit_reminders SET trigger_at = ?, enabled = 1, updated_at = ? WHERE id = ?'
+      'UPDATE habit_reminders SET trigger_at = ?, enabled = 1, deleted_at = NULL, updated_at = ? WHERE id = ?'
     ).run(triggerAt, now, existing.id)
     logChange(db, 'habit_reminder', existing.id, 'update', {
       id: existing.id,
       habitId,
-      triggerAt
+      triggerAt,
+      deletedAt: null
     })
-    return { ...existing, triggerAt, enabled: true, updatedAt: now }
+    return { ...toReminder(existing), triggerAt, enabled: true, deletedAt: null, updatedAt: now }
   }
 
   const id = uuidv7()
@@ -118,6 +130,7 @@ export function listDueHabitReminders(
        FROM habit_reminders r
        JOIN habits h ON h.id = r.habit_id
        WHERE r.enabled = 1
+         AND r.deleted_at IS NULL
          AND r.trigger_at <= ?
          AND h.deleted_at IS NULL
          AND h.archived = 0
@@ -141,7 +154,7 @@ export function advanceHabitReminder(
   triggerAt: string
 ): void {
   db.prepare(
-    'UPDATE habit_reminders SET trigger_at = ?, sent_at = ?, updated_at = ? WHERE id = ?'
+    'UPDATE habit_reminders SET trigger_at = ?, sent_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
   ).run(triggerAt, sentAt, sentAt, id)
   logChange(db, 'habit_reminder', id, 'update', { id, triggerAt, sentAt })
 }
@@ -156,6 +169,7 @@ export function listHabitReminderCenter(
        FROM habit_reminders r
        JOIN habits h ON h.id = r.habit_id
        WHERE r.enabled = 1
+         AND r.deleted_at IS NULL
          AND r.trigger_at > ?
          AND h.deleted_at IS NULL
          AND h.archived = 0
@@ -173,6 +187,7 @@ export function listHabitReminderCenter(
        FROM habit_reminders r
        JOIN habits h ON h.id = r.habit_id
        WHERE r.sent_at IS NOT NULL
+         AND r.deleted_at IS NULL
          AND r.sent_at >= ?
          AND h.deleted_at IS NULL
        ORDER BY r.sent_at DESC
@@ -198,14 +213,18 @@ export function listHabitReminderCenter(
 
 export function deleteHabitRemindersForHabit(db: DatabaseSync, habitId: string): void {
   const rows = db
-    .prepare('SELECT id FROM habit_reminders WHERE habit_id = ?')
+    .prepare('SELECT id FROM habit_reminders WHERE habit_id = ? AND deleted_at IS NULL')
     .all(habitId) as Array<{ id: string }>
   if (rows.length === 0) return
-  db.prepare('DELETE FROM habit_reminders WHERE habit_id = ?').run(habitId)
+  const now = nowIso()
+  db.prepare(
+    'UPDATE habit_reminders SET deleted_at = ?, enabled = 0, updated_at = ? WHERE habit_id = ? AND deleted_at IS NULL'
+  ).run(now, now, habitId)
   for (const row of rows) {
-    logChange(db, 'habit_reminder', String(row.id), 'delete', {
+    logChange(db, 'habit_reminder', String(row.id), 'update', {
       id: String(row.id),
-      habitId
+      habitId,
+      deletedAt: now
     })
   }
 }

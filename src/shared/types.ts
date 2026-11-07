@@ -199,6 +199,8 @@ export interface HabitReminder {
   sentAt: string | null
   createdAt: string
   updatedAt: string
+  /** 取消提醒的 tombstone；参与跨端合并。 */
+  deletedAt?: string | null
 }
 
 export interface HabitReminderWithHabit extends HabitReminder {
@@ -247,6 +249,8 @@ export interface HabitLog {
   note: string
   createdAt: string
   updatedAt: string
+  /** 取消打卡的 tombstone；同一习惯同一天只保留一行。 */
+  deletedAt?: string | null
 }
 
 export interface HabitWithStats extends Habit {

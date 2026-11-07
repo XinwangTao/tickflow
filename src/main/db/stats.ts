@@ -119,7 +119,7 @@ export function getStatsOverview(db: DatabaseSync): StatsOverview {
       `SELECT l.log_date AS day, COUNT(*) AS c
        FROM habit_logs l
        JOIN habits h ON h.id = l.habit_id
-       WHERE l.log_date >= ? AND h.deleted_at IS NULL AND h.archived = 0
+       WHERE l.log_date >= ? AND l.deleted_at IS NULL AND h.deleted_at IS NULL AND h.archived = 0
        GROUP BY day`
     )
     .all(startKey) as unknown as Array<{ day: string; c: number }>
@@ -131,7 +131,7 @@ export function getStatsOverview(db: DatabaseSync): StatsOverview {
     .prepare(
       `SELECT h.id, h.name, h.color, COUNT(l.id) AS c
        FROM habits h
-       LEFT JOIN habit_logs l ON l.habit_id = h.id AND l.log_date >= ?
+       LEFT JOIN habit_logs l ON l.habit_id = h.id AND l.log_date >= ? AND l.deleted_at IS NULL
        WHERE h.deleted_at IS NULL AND h.archived = 0
        GROUP BY h.id
        ORDER BY c DESC, h.sort_order ASC

@@ -91,7 +91,7 @@ npm run test:android -- --cycles=20 --offline=3
 - 番茄：25 分钟专注 / 5 分钟短休息 / 4 个番茄后 15 分钟长休息，支持暂停、跳过、重置、白噪音（Web Audio 生成，可调音量）
 - 统计：近 7/30 天完成、近 7 天专注分钟与打卡，7 天柱状图和数据表
 
-这三类数据保存在手机 IndexedDB 本地（Dexie v2 表 `habits` / `habitLogs` / `pomodoroSessions`），**不参与 R2 快照同步**；桌面与安卓目前只同步清单和任务。
+这三类数据保存在手机 IndexedDB（Dexie 表 `habits` / `habitLogs` / `pomodoroSessions`）。自 2026-11-07 起参与 R2 快照同步：打卡按 `(habitId, logDate)` 去重，取消打卡写 tombstone；习惯提醒仅桌面端同步与提醒，安卓端暂不使用。
 
 ## 本地备份
 

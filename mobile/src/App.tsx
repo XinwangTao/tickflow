@@ -799,7 +799,7 @@ function SettingsTab({
         <p className="hint">
           {usage
             ? `云端 ${usage.objects} 份快照 · ${(usage.bytes / 1024).toFixed(1)} KB（R2 免费额度 10GB）`
-            : '仅同步清单与任务，每台设备覆盖写一份快照，单份上限 5 MiB。'}
+            : '每台设备覆盖写一份快照，单份上限 5 MiB。'}
         </p>
         <p className="hint">
           Android 需要给桶配置 CORS（允许 https://localhost）。

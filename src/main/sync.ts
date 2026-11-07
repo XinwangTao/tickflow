@@ -1,5 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Priority, SyncResult, TaskStatus, TodoList } from '@shared/types'
+import type {
+  Habit,
+  HabitLog,
+  HabitReminder,
+  PomodoroSession,
+  Priority,
+  SyncResult,
+  TaskStatus,
+  TodoList
+} from '@shared/types'
 import type { R2Config, SyncSnapshot, SyncTask } from '@shared/sync'
 import { R2Client, syncWithR2 } from '@shared/sync'
 import { logChange } from './db/change-log'
@@ -78,15 +87,99 @@ export function buildSnapshot(db: DatabaseSync): SyncSnapshot {
     }
   })
 
-  return { version: 1, deviceId, updatedAt: nowIso(), lists, tasks }
+  const habitRows = db.prepare('SELECT * FROM habits').all() as unknown as Array<
+    Record<string, unknown>
+  >
+  const habits: Habit[] = habitRows.map((row) => ({
+    id: text(row.id),
+    name: text(row.name, '习惯'),
+    icon: row.icon == null ? null : text(row.icon),
+    color: text(row.color, '#30a46c'),
+    frequency: text(row.frequency) === 'weekly' ? 'weekly' : 'daily',
+    targetPerWeek: Number(row.target_per_week ?? 7),
+    archived: bool(row.archived),
+    sortOrder: Number(row.sort_order ?? 0),
+    createdAt: text(row.created_at),
+    updatedAt: text(row.updated_at),
+    deletedAt: row.deleted_at == null ? null : text(row.deleted_at)
+  }))
+
+  const logRows = db.prepare('SELECT * FROM habit_logs').all() as unknown as Array<
+    Record<string, unknown>
+  >
+  const habitLogs: HabitLog[] = logRows.map((row) => ({
+    id: text(row.id),
+    habitId: text(row.habit_id),
+    logDate: text(row.log_date),
+    value: Number(row.value ?? 1),
+    note: text(row.note),
+    createdAt: text(row.created_at),
+    updatedAt: text(row.updated_at),
+    deletedAt: row.deleted_at == null ? null : text(row.deleted_at)
+  }))
+
+  const sessionRows = db
+    .prepare('SELECT * FROM pomodoro_sessions')
+    .all() as unknown as Array<Record<string, unknown>>
+  const pomodoroSessions: PomodoroSession[] = sessionRows.map((row) => ({
+    id: text(row.id),
+    taskId: row.task_id == null ? null : text(row.task_id),
+    mode: text(row.mode) === 'break' ? 'break' : 'focus',
+    durationMinutes: Number(row.duration_minutes ?? 0),
+    startedAt: text(row.started_at),
+    endedAt: text(row.ended_at),
+    completed: bool(row.completed),
+    createdAt: text(row.created_at)
+  }))
+
+  const reminderRows = db
+    .prepare('SELECT * FROM habit_reminders')
+    .all() as unknown as Array<Record<string, unknown>>
+  const habitReminders: HabitReminder[] = reminderRows.map((row) => ({
+    id: text(row.id),
+    habitId: text(row.habit_id),
+    triggerAt: text(row.trigger_at),
+    enabled: bool(row.enabled),
+    sentAt: row.sent_at == null ? null : text(row.sent_at),
+    createdAt: text(row.created_at),
+    updatedAt: text(row.updated_at),
+    deletedAt: row.deleted_at == null ? null : text(row.deleted_at)
+  }))
+
+  return {
+    version: 1,
+    deviceId,
+    updatedAt: nowIso(),
+    lists,
+    tasks,
+    habits,
+    habitLogs,
+    pomodoroSessions,
+    habitReminders
+  }
 }
 
 export function applySnapshot(
   db: DatabaseSync,
   snapshot: SyncSnapshot
-): { lists: number; tasks: number } {
+): {
+  lists: number
+  tasks: number
+  habits: number
+  habitLogs: number
+  pomodoroSessions: number
+  habitReminders: number
+} {
   const lists = Array.isArray(snapshot.lists) ? snapshot.lists : []
   const tasks = Array.isArray(snapshot.tasks) ? snapshot.tasks : []
+  const habits = Array.isArray(snapshot.habits) ? snapshot.habits : []
+  const habitLogs = Array.isArray(snapshot.habitLogs) ? snapshot.habitLogs : []
+  const pomodoroSessions = Array.isArray(snapshot.pomodoroSessions)
+    ? snapshot.pomodoroSessions
+    : []
+  const habitReminders = Array.isArray(snapshot.habitReminders)
+    ? snapshot.habitReminders
+    : []
   const inboxId = getInboxId(db)
   const deviceId = getDeviceId(db)
   const now = nowIso()
@@ -202,13 +295,152 @@ export function applySnapshot(
       )
     }
 
+    const habitIds = new Set(
+      (
+        db.prepare('SELECT id FROM habits').all() as unknown as Array<{ id: string }>
+      ).map((row) => String(row.id))
+    )
+    for (const habit of habits) {
+      if (!habit.id) continue
+      habitIds.add(text(habit.id))
+      db.prepare(
+        `INSERT INTO habits(
+          id, name, icon, color, frequency, target_per_week, archived, sort_order,
+          created_at, updated_at, deleted_at, device_id
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          icon = excluded.icon,
+          color = excluded.color,
+          frequency = excluded.frequency,
+          target_per_week = excluded.target_per_week,
+          archived = excluded.archived,
+          sort_order = excluded.sort_order,
+          updated_at = excluded.updated_at,
+          deleted_at = excluded.deleted_at`
+      ).run(
+        text(habit.id),
+        text(habit.name, '习惯'),
+        habit.icon == null ? null : text(habit.icon),
+        text(habit.color, '#30a46c'),
+        habit.frequency === 'weekly' ? 'weekly' : 'daily',
+        Math.min(7, Math.max(1, Number(habit.targetPerWeek ?? 7))),
+        habit.archived ? 1 : 0,
+        Number(habit.sortOrder ?? 0),
+        text(habit.createdAt, now),
+        text(habit.updatedAt, now),
+        habit.deletedAt == null ? null : text(habit.deletedAt),
+        deviceId
+      )
+    }
+
+    for (const log of habitLogs) {
+      if (!log.id || !log.habitId || !log.logDate) continue
+      if (!habitIds.has(text(log.habitId))) continue
+      const existing = db
+        .prepare('SELECT id FROM habit_logs WHERE habit_id = ? AND log_date = ?')
+        .get(text(log.habitId), text(log.logDate)) as { id: string } | undefined
+      if (existing && String(existing.id) !== text(log.id)) {
+        db.prepare('DELETE FROM habit_logs WHERE id = ?').run(String(existing.id))
+      }
+      db.prepare(
+        `INSERT INTO habit_logs(
+          id, habit_id, log_date, value, note, created_at, updated_at, deleted_at, device_id
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          habit_id = excluded.habit_id,
+          log_date = excluded.log_date,
+          value = excluded.value,
+          note = excluded.note,
+          updated_at = excluded.updated_at,
+          deleted_at = excluded.deleted_at`
+      ).run(
+        text(log.id),
+        text(log.habitId),
+        text(log.logDate),
+        Number(log.value ?? 1),
+        text(log.note),
+        text(log.createdAt, now),
+        text(log.updatedAt, now),
+        log.deletedAt == null ? null : text(log.deletedAt),
+        deviceId
+      )
+    }
+
+    for (const session of pomodoroSessions) {
+      if (!session.id) continue
+      const taskId =
+        session.taskId != null && taskIds.has(text(session.taskId))
+          ? text(session.taskId)
+          : null
+      db.prepare(
+        `INSERT OR REPLACE INTO pomodoro_sessions(
+          id, task_id, mode, duration_minutes, started_at, ended_at, completed, created_at, device_id
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        text(session.id),
+        taskId,
+        session.mode === 'break' ? 'break' : 'focus',
+        Number(session.durationMinutes ?? 0),
+        text(session.startedAt, now),
+        text(session.endedAt, now),
+        session.completed ? 1 : 0,
+        text(session.createdAt, now),
+        deviceId
+      )
+    }
+
+    for (const reminder of habitReminders) {
+      if (!reminder.id || !reminder.habitId) continue
+      if (!habitIds.has(text(reminder.habitId))) continue
+      const existing = db
+        .prepare('SELECT id FROM habit_reminders WHERE habit_id = ?')
+        .get(text(reminder.habitId)) as { id: string } | undefined
+      if (existing && String(existing.id) !== text(reminder.id)) {
+        db.prepare('DELETE FROM habit_reminders WHERE id = ?').run(String(existing.id))
+      }
+      db.prepare(
+        `INSERT INTO habit_reminders(
+          id, habit_id, trigger_at, enabled, sent_at, created_at, updated_at, deleted_at, device_id
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          habit_id = excluded.habit_id,
+          trigger_at = excluded.trigger_at,
+          enabled = excluded.enabled,
+          sent_at = excluded.sent_at,
+          updated_at = excluded.updated_at,
+          deleted_at = excluded.deleted_at`
+      ).run(
+        text(reminder.id),
+        text(reminder.habitId),
+        text(reminder.triggerAt, now),
+        reminder.enabled ? 1 : 0,
+        reminder.sentAt == null ? null : text(reminder.sentAt),
+        text(reminder.createdAt, now),
+        text(reminder.updatedAt, now),
+        reminder.deletedAt == null ? null : text(reminder.deletedAt),
+        deviceId
+      )
+    }
+
     logChange(db, 'sync', 'batch', 'update', {
       lists: lists.length,
       tasks: tasks.length,
+      habits: habits.length,
+      habitLogs: habitLogs.length,
+      pomodoroSessions: pomodoroSessions.length,
+      habitReminders: habitReminders.length,
       at: now
     })
     db.exec('COMMIT')
-    return { lists: lists.length, tasks: tasks.length }
+    return {
+      lists: lists.length,
+      tasks: tasks.length,
+      habits: habits.length,
+      habitLogs: habitLogs.length,
+      pomodoroSessions: pomodoroSessions.length,
+      habitReminders: habitReminders.length
+    }
   } catch (error) {
     db.exec('ROLLBACK')
     throw error

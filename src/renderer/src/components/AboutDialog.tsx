@@ -44,7 +44,7 @@ export function AboutDialog({ onClose }: { onClose: () => void }): ReactNode {
       </div>
       <code className="settings-path">{info?.dataDir ?? '加载中…'}</code>
       <p className="settings-note">
-        数据默认保存在本机；R2 同步只传输清单与任务，桌面端密钥使用系统安全存储加密。
+        数据默认保存在本机；R2 同步清单、任务与习惯数据，桌面端密钥使用系统安全存储加密。
       </p>
       <div className="modal-actions">
         <button type="button" className="btn" onClick={() => void openDir()}>

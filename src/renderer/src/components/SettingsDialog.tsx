@@ -774,7 +774,7 @@ export function SettingsDialog(): React.ReactNode {
           </p>
         ) : null}
         <p className="settings-note">
-          仅同步清单与任务；每台设备覆盖写一份快照，单份上限 5 MiB，正常使用远低于 R2 免费额度。
+          同步清单、任务、习惯、打卡与番茄记录（习惯提醒仅桌面端）；每台设备覆盖写一份快照，单份上限 5 MiB，正常使用远低于 R2 免费额度。
         </p>
         {usage ? (
           <p className="settings-note">

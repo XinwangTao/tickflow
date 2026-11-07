@@ -108,7 +108,7 @@ export function listHabits(db: DatabaseSync): HabitWithStats[] {
 
   const logRows = db
     .prepare(
-      `SELECT * FROM habit_logs WHERE log_date >= ? ORDER BY log_date ASC`
+      `SELECT * FROM habit_logs WHERE deleted_at IS NULL AND log_date >= ? ORDER BY log_date ASC`
     )
     .all(cutoff) as unknown as LogRow[]
 
@@ -226,20 +226,30 @@ export function toggleHabitLog(db: DatabaseSync, habitId: string, logDate: strin
   if (!habit) throw new Error('习惯不存在')
 
   const existing = db
-    .prepare('SELECT id FROM habit_logs WHERE habit_id = ? AND log_date = ?')
-    .get(habitId, logDate) as { id: string } | undefined
+    .prepare('SELECT id, deleted_at FROM habit_logs WHERE habit_id = ? AND log_date = ?')
+    .get(habitId, logDate) as { id: string; deleted_at: string | null } | undefined
   const now = nowIso()
 
   if (existing) {
-    db.prepare('DELETE FROM habit_logs WHERE id = ?').run(existing.id)
-    logChange(db, 'habit_log', String(existing.id), 'delete', { id: existing.id })
+    const deleted = existing.deleted_at != null
+    db.prepare('UPDATE habit_logs SET deleted_at = ?, updated_at = ? WHERE id = ?').run(
+      deleted ? null : now,
+      now,
+      existing.id
+    )
+    logChange(db, 'habit_log', String(existing.id), 'update', {
+      id: existing.id,
+      habitId,
+      logDate,
+      deletedAt: deleted ? null : now
+    })
     return
   }
 
   const id = uuidv7()
   db.prepare(
-    `INSERT INTO habit_logs(id, habit_id, log_date, value, note, created_at, updated_at, device_id)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO habit_logs(id, habit_id, log_date, value, note, created_at, updated_at, deleted_at, device_id)
+     VALUES(?, ?, ?, ?, ?, ?, ?, NULL, ?)`
   ).run(id, habitId, logDate, 1, '', now, now, getDeviceId(db))
   logChange(db, 'habit_log', id, 'create', { id, habitId, logDate })
 }

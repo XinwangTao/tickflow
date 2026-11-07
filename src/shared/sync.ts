@@ -1,5 +1,13 @@
 import { AwsClient } from 'aws4fetch'
-import type { Priority, TaskStatus, TodoList } from './types'
+import type {
+  Habit,
+  HabitLog,
+  HabitReminder,
+  PomodoroSession,
+  Priority,
+  TaskStatus,
+  TodoList
+} from './types'
 
 export const DEFAULT_R2_PREFIX = 'tickflow/snapshots/'
 
@@ -31,6 +39,11 @@ export interface SyncSnapshot {
   updatedAt: string
   lists: TodoList[]
   tasks: SyncTask[]
+  /** 以下为 2026-11-07 扩展的可选数组；旧客户端忽略，旧快照缺失按空处理。 */
+  habits?: Habit[]
+  habitLogs?: HabitLog[]
+  pomodoroSessions?: PomodoroSession[]
+  habitReminders?: HabitReminder[]
 }
 
 export interface R2Config {
@@ -68,6 +81,38 @@ function mergeById<T extends { id: string; updatedAt: string }>(
   return Array.from(map.values())
 }
 
+/** 按复合键做 last-write-wins（打卡：习惯 + 日期；提醒：习惯）。 */
+function mergeByKey<T extends { updatedAt: string }>(
+  local: T[],
+  remote: T[],
+  keyOf: (item: T) => string
+): T[] {
+  const map = new Map(local.map((item) => [keyOf(item), item]))
+  for (const item of remote) {
+    const key = keyOf(item)
+    const existing = map.get(key)
+    if (!existing || item.updatedAt > existing.updatedAt) map.set(key, item)
+  }
+  return Array.from(map.values())
+}
+
+/** 只增日志按 id 并集；同 id 保留先出现者（调用方先放本地）。 */
+function mergeAppendById<T extends { id: string }>(local: T[], remote: T[]): T[] {
+  const map = new Map(local.map((item) => [item.id, item]))
+  for (const item of remote) {
+    if (!map.has(item.id)) map.set(item.id, item)
+  }
+  return Array.from(map.values())
+}
+
+export function habitLogKey(log: Pick<HabitLog, 'habitId' | 'logDate'>): string {
+  return `${log.habitId}\u0000${log.logDate}`
+}
+
+export function habitReminderKey(reminder: Pick<HabitReminder, 'habitId'>): string {
+  return reminder.habitId
+}
+
 /** 按实体 updated_at 做 last-write-wins；删除用 tombstone（deletedAt）参与比较。 */
 export function mergeSnapshots(
   local: SyncSnapshot,
@@ -75,17 +120,40 @@ export function mergeSnapshots(
 ): SyncSnapshot {
   let lists = local.lists
   let tasks = local.tasks
+  let habits = local.habits ?? []
+  let habitLogs = local.habitLogs ?? []
+  let pomodoroSessions = local.pomodoroSessions ?? []
+  let habitReminders = local.habitReminders ?? []
   for (const remote of remotes) {
     if (!remote || remote.version !== 1) continue
     lists = mergeById(lists, Array.isArray(remote.lists) ? remote.lists : [])
     tasks = mergeById(tasks, Array.isArray(remote.tasks) ? remote.tasks : [])
+    habits = mergeById(habits, Array.isArray(remote.habits) ? remote.habits : [])
+    habitLogs = mergeByKey(
+      habitLogs,
+      Array.isArray(remote.habitLogs) ? remote.habitLogs : [],
+      habitLogKey
+    )
+    pomodoroSessions = mergeAppendById(
+      pomodoroSessions,
+      Array.isArray(remote.pomodoroSessions) ? remote.pomodoroSessions : []
+    )
+    habitReminders = mergeByKey(
+      habitReminders,
+      Array.isArray(remote.habitReminders) ? remote.habitReminders : [],
+      habitReminderKey
+    )
   }
   return {
     version: 1,
     deviceId: local.deviceId,
     updatedAt: new Date().toISOString(),
     lists,
-    tasks
+    tasks,
+    habits,
+    habitLogs,
+    pomodoroSessions,
+    habitReminders
   }
 }
 

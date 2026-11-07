@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>刻度清单 TickFlow — 同步范围扩展</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --line: #2a2f3a;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --main: #5a6377;
+    --view: #2f5f8f;
+    --fail: #b4545f;
+    --manual: #c9a227;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header { padding: 22px 30px 6px; }
+  h1 { font-size: 20px; margin: 0 0 6px; font-weight: 650; letter-spacing: .2px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; padding: 10px 30px 4px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .swatch.main { background: #1b2029; border: 1.5px solid #3a4252; }
+  .swatch.view { background: #15202e; border: 1.5px solid var(--view); }
+  .swatch.failure { background: #2a1a1d; border: 1.5px solid var(--fail); }
+  .swatch.manual { background: transparent; border: 1.5px dashed var(--manual); }
+  .canvas-wrap { padding: 8px 20px 0; }
+  svg { display: block; width: 100%; height: auto; }
+  .node rect { fill: #1b2029; stroke: #3a4252; stroke-width: 1.5; }
+  .node.view rect { fill: #15202e; stroke: var(--view); }
+  .node.failure rect { fill: #2a1a1d; stroke: var(--fail); }
+  .node text.title { font-size: 14px; font-weight: 600; fill: #e6e8ee; }
+  .node text.detail { font-size: 11px; fill: #8b93a7; }
+  .edge { fill: none; stroke: var(--main); stroke-width: 1.7; }
+  .edge.failure { stroke: var(--fail); stroke-dasharray: 6 5; }
+  .edge.manual { stroke: var(--manual); stroke-dasharray: 3 5; }
+  .edge-label {
+    font-size: 11px;
+    fill: #aab2c5;
+    paint-order: stroke;
+    stroke: var(--bg);
+    stroke-width: 4px;
+    stroke-linejoin: round;
+  }
+  footer { padding: 10px 30px 26px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+  code { color: #c8d0e0; background: #171a21; border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f7f8fa; --panel: #ffffff; --line: #e3e6ec; --text: #1c2028; --muted: #667085; }
+    .node rect { fill: #ffffff; stroke: #cdd3de; }
+    .node.view rect { fill: #f0f7ff; stroke: var(--view); }
+    .node.failure rect { fill: #fff2f3; stroke: var(--fail); }
+    .node text.title { fill: #1c2028; }
+    .node text.detail { fill: #667085; }
+    .edge-label { fill: #475467; stroke: var(--bg); }
+    .swatch.main { background: #ffffff; }
+    .swatch.view { background: #f0f7ff; }
+    .swatch.failure { background: #fff2f3; }
+    code { background: #ffffff; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="meta" id="meta"></div>
+</header>
+<div class="legend" id="legend"></div>
+<div class="canvas-wrap">
+  <svg id="graph" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="同步范围扩展示意图"></svg>
+</div>
+<footer id="footer"></footer>
+<noscript>此图需要启用 JavaScript 才能渲染；数据同时保存在 sync_scope_workflow.json。</noscript>
+<script id="graph-data" type="application/json">
+{
+  "name": "sync_scope_workflow",
+  "title": "刻度清单 TickFlow — 同步范围扩展（习惯 / 打卡 / 番茄 / 提醒）",
+  "level": "L1",
+  "version": "0.1",
+  "updated": "2026-11-07",
+  "layout": {
+    "width": 1100,
+    "height": 560,
+    "nodeWidth": 200,
+    "nodeHeight": 76
+  },
+  "legend": [
+    {
+      "type": "main",
+      "label": "主流程节点"
+    },
+    {
+      "type": "view",
+      "label": "视图 / 分支"
+    },
+    {
+      "type": "failure",
+      "label": "失败出口"
+    },
+    {
+      "type": "manual",
+      "label": "人工入口（虚线）"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "S1",
+      "label": "本地写入",
+      "type": "main",
+      "x": 40,
+      "y": 80,
+      "detail": [
+        "习惯 / 打卡 / 番茄 / 提醒",
+        "写入后标记变更"
+      ]
+    },
+    {
+      "id": "S2",
+      "label": "快照扩展",
+      "type": "main",
+      "x": 300,
+      "y": 80,
+      "detail": [
+        "version 1 + 可选数组",
+        "旧客户端忽略未知字段"
+      ]
+    },
+    {
+      "id": "S3",
+      "label": "合并分流",
+      "type": "view",
+      "x": 560,
+      "y": 80,
+      "detail": [
+        "软删实体按 id + updatedAt",
+        "只增日志按 id 并集"
+      ]
+    },
+    {
+      "id": "S4",
+      "label": "习惯合并",
+      "type": "main",
+      "x": 40,
+      "y": 250,
+      "detail": [
+        "habits 按 id 取新",
+        "删除用 deletedAt tombstone"
+      ]
+    },
+    {
+      "id": "S5",
+      "label": "打卡合并",
+      "type": "main",
+      "x": 300,
+      "y": 250,
+      "detail": [
+        "键 (habit_id, log_date)",
+        "取消打卡写 tombstone"
+      ]
+    },
+    {
+      "id": "S6",
+      "label": "番茄合并",
+      "type": "main",
+      "x": 560,
+      "y": 250,
+      "detail": [
+        "只增不删，按 id 并集",
+        "task_id 缺失置空"
+      ]
+    },
+    {
+      "id": "S7",
+      "label": "提醒合并",
+      "type": "main",
+      "x": 820,
+      "y": 250,
+      "detail": [
+        "键 habit_id（每习惯一条）",
+        "取消提醒写 tombstone"
+      ]
+    },
+    {
+      "id": "S8",
+      "label": "应用与兼容",
+      "type": "view",
+      "x": 430,
+      "y": 420,
+      "detail": [
+        "先习惯，后打卡 / 提醒",
+        "单事务写回，失败回滚"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "S1",
+      "to": "S2",
+      "label": "每次写入"
+    },
+    {
+      "from": "S2",
+      "to": "S3",
+      "label": "合并快照"
+    },
+    {
+      "from": "S3",
+      "to": "S4",
+      "label": "习惯",
+      "points": [
+        [
+          660,
+          156
+        ],
+        [
+          660,
+          215
+        ],
+        [
+          140,
+          215
+        ],
+        [
+          140,
+          250
+        ]
+      ]
+    },
+    {
+      "from": "S3",
+      "to": "S5",
+      "label": "打卡",
+      "points": [
+        [
+          660,
+          156
+        ],
+        [
+          660,
+          225
+        ],
+        [
+          400,
+          225
+        ],
+        [
+          400,
+          250
+        ]
+      ]
+    },
+    {
+      "from": "S3",
+      "to": "S6",
+      "label": "番茄",
+      "points": [
+        [
+          660,
+          156
+        ],
+        [
+          660,
+          250
+        ]
+      ]
+    },
+    {
+      "from": "S3",
+      "to": "S7",
+      "label": "提醒",
+      "points": [
+        [
+          660,
+          156
+        ],
+        [
+          660,
+          235
+        ],
+        [
+          920,
+          235
+        ],
+        [
+          920,
+          250
+        ]
+      ]
+    },
+    {
+      "from": "S4",
+      "to": "S8",
+      "label": "写回",
+      "points": [
+        [
+          140,
+          326
+        ],
+        [
+          140,
+          380
+        ],
+        [
+          530,
+          380
+        ],
+        [
+          530,
+          420
+        ]
+      ]
+    },
+    {
+      "from": "S5",
+      "to": "S8",
+      "label": "写回",
+      "points": [
+        [
+          400,
+          326
+        ],
+        [
+          400,
+          360
+        ],
+        [
+          530,
+          360
+        ],
+        [
+          530,
+          420
+        ]
+      ]
+    },
+    {
+      "from": "S6",
+      "to": "S8",
+      "label": "写回",
+      "points": [
+        [
+          660,
+          326
+        ],
+        [
+          660,
+          420
+        ]
+      ]
+    },
+    {
+      "from": "S7",
+      "to": "S8",
+      "label": "写回",
+      "points": [
+        [
+          920,
+          326
+        ],
+        [
+          920,
+          400
+        ],
+        [
+          530,
+          400
+        ],
+        [
+          530,
+          420
+        ]
+      ]
+    }
+  ]
+}
+</script>
+<script>
+(function () {
+  "use strict";
+  var data = JSON.parse(document.getElementById("graph-data").textContent);
+  var NS = "http://www.w3.org/2000/svg";
+  var W = data.layout.nodeWidth;
+  var H = data.layout.nodeHeight;
+  var svg = document.getElementById("graph");
+  svg.setAttribute("viewBox", "0 0 " + data.layout.width + " " + data.layout.height);
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+  function el(name, attrs, text) {
+    var n = document.createElementNS(NS, name);
+    if (attrs) Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+    if (text !== undefined && text !== null) n.textContent = text;
+    return n;
+  }
+
+  // markers
+  var defs = el("defs");
+  [["arrow", "#5a6377"], ["arrowFail", "#b4545f"], ["arrowManual", "#c9a227"]].forEach(function (m) {
+    var marker = el("marker", {
+      id: m[0], viewBox: "0 0 10 10", refX: "9", refY: "5",
+      markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse"
+    });
+    marker.appendChild(el("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: m[1] }));
+    defs.appendChild(marker);
+  });
+  svg.appendChild(defs);
+
+  document.getElementById("title").textContent = data.title;
+  document.getElementById("meta").textContent =
+    data.level + " · v" + data.version + " · " + data.updated +
+    " · " + data.nodes.length + " 节点 / " + data.edges.length + " 边";
+
+  var legend = document.getElementById("legend");
+  data.legend.forEach(function (item) {
+    var span = document.createElement("span");
+    var sw = document.createElement("i");
+    sw.className = "swatch " + item.type;
+    span.appendChild(sw);
+    span.appendChild(document.createTextNode(item.label));
+    legend.appendChild(span);
+  });
+
+  var byId = {};
+  data.nodes.forEach(function (n) { byId[n.id] = n; });
+
+  function defaultPoints(a, b) {
+    var ax = a.x + W / 2, ay = a.y + H / 2;
+    var bx = b.x + W / 2, by = b.y + H / 2;
+    if (Math.abs(bx - ax) >= Math.abs(by - ay)) {
+      return bx > ax
+        ? [[a.x + W, ay], [b.x, by]]
+        : [[a.x, ay], [b.x + W, by]];
+    }
+    return by > ay
+      ? [[ax, a.y + H], [bx, b.y]]
+      : [[ax, a.y], [bx, b.y + H]];
+  }
+
+  function roundedPath(pts, r) {
+    if (pts.length < 2) return "";
+    var d = "M " + pts[0][0] + " " + pts[0][1];
+    for (var i = 1; i < pts.length - 1; i++) {
+      var p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+      var v1x = p1[0] - p0[0], v1y = p1[1] - p0[1];
+      var v2x = p2[0] - p1[0], v2y = p2[1] - p1[1];
+      var l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
+      if (!l1 || !l2) { d += " L " + p1[0] + " " + p1[1]; continue; }
+      var rr = Math.min(r, l1 / 2, l2 / 2);
+      var q1x = p1[0] - v1x / l1 * rr, q1y = p1[1] - v1y / l1 * rr;
+      var q2x = p1[0] + v2x / l2 * rr, q2y = p1[1] + v2y / l2 * rr;
+      d += " L " + q1x + " " + q1y + " Q " + p1[0] + " " + p1[1] + " " + q2x + " " + q2y;
+    }
+    var last = pts[pts.length - 1];
+    d += " L " + last[0] + " " + last[1];
+    return d;
+  }
+
+  // edges first (under nodes)
+  var labels = [];
+  data.edges.forEach(function (e) {
+    var a = byId[e.from], b = byId[e.to];
+    if (!a || !b) return;
+    var pts = e.points && e.points.length ? e.points : defaultPoints(a, b);
+    var path = el("path", { d: roundedPath(pts, 12), "class": "edge " + (e.kind || "") });
+    var marker = e.kind === "failure" ? "arrowFail" : (e.kind === "manual" ? "arrowManual" : "arrow");
+    path.setAttribute("marker-end", "url(#" + marker + ")");
+    svg.appendChild(path);
+    labels.push({ edge: e, path: path });
+  });
+
+  // nodes
+  data.nodes.forEach(function (n) {
+    var g = el("g", { "class": "node " + n.type });
+    g.appendChild(el("rect", { x: n.x, y: n.y, width: W, height: H, rx: 10 }));
+    g.appendChild(el("text", { x: n.x + 14, y: n.y + 27, "class": "title" }, n.label));
+    (n.detail || []).forEach(function (line, i) {
+      g.appendChild(el("text", { x: n.x + 14, y: n.y + 49 + i * 15, "class": "detail" }, line));
+    });
+    svg.appendChild(g);
+  });
+
+  // labels on top
+  labels.forEach(function (item) {
+    var e = item.edge, path = item.path;
+    var len = 0;
+    try { len = path.getTotalLength(); } catch (err) { return; }
+    if (!len) return;
+    var p = path.getPointAtLength(len / 2);
+    svg.appendChild(el("text", {
+      x: p.x, y: p.y - 7, "class": "edge-label", "text-anchor": "middle"
+    }, e.label));
+  });
+
+  document.getElementById("footer").textContent =
+    "主节点 4 个，视图 2 个；范围从清单 / 任务 / 标签扩展到习惯、打卡、番茄、习惯提醒。待确认：① 快照仍用 version 1 + 可选数组（不升 2，旧客户端仍能合并任务）；② 打卡与习惯提醒删除改为 deletedAt tombstone（需迁移）；③ 去重键：打卡取 (habit_id, log_date)、提醒取 habit_id，同键按 updatedAt 取新；④ 删除习惯时其打卡 / 提醒保留但不展示。图与 sync_scope_workflow.json 同源。";
+})();
+</script>
+</body>
+</html>

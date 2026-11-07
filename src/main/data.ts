@@ -415,8 +415,8 @@ export async function importJson(
       if (!id || !habitIds.has(habitId) || !/^\d{4}-\d{2}-\d{2}$/.test(logDate)) continue
       const changes = db
         .prepare(
-          `INSERT OR IGNORE INTO habit_logs(id, habit_id, log_date, value, note, created_at, updated_at, device_id)
-           VALUES(?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT OR IGNORE INTO habit_logs(id, habit_id, log_date, value, note, created_at, updated_at, deleted_at, device_id)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -426,6 +426,7 @@ export async function importJson(
           str(log.note),
           str(log.created_at, now),
           str(log.updated_at, now),
+          log.deleted_at == null ? null : str(log.deleted_at),
           getDeviceId(db)
         )
       if (Number(changes.changes) > 0) counts.logs += 1

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { R2Client, mergeSnapshots } from '../src/shared/sync'
 import type { SyncSnapshot, SyncTask } from '../src/shared/sync'
-import type { TodoList } from '../src/shared/types'
+import type { Habit, HabitLog, HabitReminder, PomodoroSession, TodoList } from '../src/shared/types'
 
 const list: TodoList = {
   id: 'list-1',
@@ -50,6 +50,65 @@ function snapshot(deviceId: string, tasks: SyncTask[]): SyncSnapshot {
   }
 }
 
+function habit(overrides: Partial<Habit> = {}): Habit {
+  return {
+    id: 'habit-1',
+    name: '喝水',
+    icon: null,
+    color: '#30a46c',
+    frequency: 'daily',
+    targetPerWeek: 7,
+    archived: false,
+    sortOrder: 0,
+    createdAt: '2026-11-01T00:00:00.000Z',
+    updatedAt: '2026-11-05T10:00:00.000Z',
+    deletedAt: null,
+    ...overrides
+  }
+}
+
+function habitLog(overrides: Partial<HabitLog> = {}): HabitLog {
+  return {
+    id: 'log-1',
+    habitId: 'habit-1',
+    logDate: '2026-11-05',
+    value: 1,
+    note: '',
+    createdAt: '2026-11-05T08:00:00.000Z',
+    updatedAt: '2026-11-05T08:00:00.000Z',
+    deletedAt: null,
+    ...overrides
+  }
+}
+
+function habitReminder(overrides: Partial<HabitReminder> = {}): HabitReminder {
+  return {
+    id: 'reminder-1',
+    habitId: 'habit-1',
+    triggerAt: '2026-11-06T09:00:00.000Z',
+    enabled: true,
+    sentAt: null,
+    createdAt: '2026-11-01T00:00:00.000Z',
+    updatedAt: '2026-11-05T10:00:00.000Z',
+    deletedAt: null,
+    ...overrides
+  }
+}
+
+function pomodoro(overrides: Partial<PomodoroSession> = {}): PomodoroSession {
+  return {
+    id: 'session-1',
+    taskId: null,
+    mode: 'focus',
+    durationMinutes: 25,
+    startedAt: '2026-11-05T08:00:00.000Z',
+    endedAt: '2026-11-05T08:25:00.000Z',
+    completed: true,
+    createdAt: '2026-11-05T08:00:00.000Z',
+    ...overrides
+  }
+}
+
 describe('sync merge', () => {
   it('按 updated_at 做 last-write-wins', () => {
     const local = snapshot('pc', [task({ title: '本地较新' })])
@@ -89,6 +148,83 @@ describe('sync merge', () => {
     ])
     const merged = mergeSnapshots(local, [remote])
     expect(merged.tasks.map((item) => item.id)).toContain('task-2')
+  })
+
+  it('习惯按 id 做 LWW，删除 tombstone 参与比较', () => {
+    const local = snapshot('pc', [])
+    local.habits = [habit()]
+    const remote = snapshot('phone', [])
+    remote.habits = [
+      habit({
+        name: '喝水（已删）',
+        deletedAt: '2026-11-05T12:00:00.000Z',
+        updatedAt: '2026-11-05T12:00:00.000Z'
+      })
+    ]
+    const merged = mergeSnapshots(local, [remote])
+    expect(merged.habits).toHaveLength(1)
+    expect(merged.habits?.[0].name).toBe('喝水（已删）')
+    expect(merged.habits?.[0].deletedAt).toBe('2026-11-05T12:00:00.000Z')
+  })
+
+  it('打卡按习惯 + 日期去重，较新的取消打卡覆盖旧记录', () => {
+    const local = snapshot('pc', [])
+    local.habitLogs = [habitLog({ id: 'log-local' })]
+    const remote = snapshot('phone', [])
+    remote.habitLogs = [
+      habitLog({
+        id: 'log-remote',
+        updatedAt: '2026-11-05T09:00:00.000Z',
+        deletedAt: '2026-11-05T09:00:00.000Z'
+      })
+    ]
+    const merged = mergeSnapshots(local, [remote])
+    expect(merged.habitLogs).toHaveLength(1)
+    expect(merged.habitLogs?.[0].id).toBe('log-remote')
+    expect(merged.habitLogs?.[0].deletedAt).toBe('2026-11-05T09:00:00.000Z')
+  })
+
+  it('番茄记录按 id 并集且不重复', () => {
+    const local = snapshot('pc', [])
+    local.pomodoroSessions = [pomodoro()]
+    const remote = snapshot('phone', [])
+    remote.pomodoroSessions = [
+      pomodoro(),
+      pomodoro({ id: 'session-2', startedAt: '2026-11-05T10:00:00.000Z' })
+    ]
+    const merged = mergeSnapshots(local, [remote])
+    expect(merged.pomodoroSessions?.map((item) => item.id).sort()).toEqual([
+      'session-1',
+      'session-2'
+    ])
+  })
+
+  it('习惯提醒按 habitId 取新，取消提醒的 tombstone 生效', () => {
+    const local = snapshot('pc', [])
+    local.habitReminders = [habitReminder()]
+    const remote = snapshot('phone', [])
+    remote.habitReminders = [
+      habitReminder({
+        id: 'reminder-2',
+        triggerAt: '2026-11-06T10:00:00.000Z',
+        deletedAt: '2026-11-05T11:00:00.000Z',
+        updatedAt: '2026-11-05T11:00:00.000Z'
+      })
+    ]
+    const merged = mergeSnapshots(local, [remote])
+    expect(merged.habitReminders).toHaveLength(1)
+    expect(merged.habitReminders?.[0].id).toBe('reminder-2')
+    expect(merged.habitReminders?.[0].deletedAt).toBe('2026-11-05T11:00:00.000Z')
+  })
+
+  it('旧快照缺少扩展数组时按空处理', () => {
+    const local = snapshot('pc', [])
+    const remote = snapshot('phone', [])
+    const merged = mergeSnapshots(local, [remote])
+    expect(merged.habits).toEqual([])
+    expect(merged.habitLogs).toEqual([])
+    expect(merged.pomodoroSessions).toEqual([])
+    expect(merged.habitReminders).toEqual([])
   })
 })
 

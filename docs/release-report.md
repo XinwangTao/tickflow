@@ -9,8 +9,8 @@
 | 项 | 结果 |
 |---|---|
 | TypeScript 类型检查 | 通过（main / preload / renderer） |
-| Vitest | 38 个文件 / 517 项全部通过 |
-| Playwright Electron E2E | 35 条通过（含自动同步防抖与失败提示、键盘操作、日历行内添加、日历 AI 草稿、关闭到托盘、自启最小化、关于弹窗、R2 mock 同步；每个用例使用独立 `TICKFLOW_USER_DATA` 临时目录，不读写真实数据） |
+| Vitest | 39 个文件 / 527 项全部通过 |
+| Playwright Electron E2E | 36 条通过（含习惯/打卡/番茄/提醒双端合并、自动同步防抖与失败提示、键盘操作、日历行内添加、日历 AI 草稿、关闭到托盘、自启最小化、关于弹窗、R2 mock 同步；每个用例使用独立 `TICKFLOW_USER_DATA` 临时目录，不读写真实数据） |
 | 构建体积预算 | 通过：main 200.8 KB / 220 KB，preload 9.2 KB / 16 KB，renderer JS 969.8 KB / 1400 KB（首屏入口 789.3 KB），CSS 67.8 KB / 90 KB |
 | 桌面安装包 | NSIS 重建成功，117 MB，未签名；`release/win-unpacked` 打包版冒烟通过（启动、日历/设置按需 chunk、详情抽屉） |
 | Android debug APK | 5.0 MB，`com.tickflow.mobile`，minSdk 24 / targetSdk 36 |
@@ -23,9 +23,9 @@
 
 | 产物 | 大小 | SHA-256 |
 |---|---|---|
-| `release/刻度清单 Setup 0.1.0.exe` | 121,590,233 B | `125764652d1d457dbb0f7036c7c1b0bfcb5e6e97ba6bca2de10d183700075c3a` |
-| `mobile/android/app/build/outputs/apk/debug/app-debug.apk` | 5,278,097 B | `c908a7aa839f8bdf389cc7145361746b1a4875909af700d36ec70ffca6f0cfbf` |
-| `mobile/android/app/build/outputs/apk/release/app-release.apk` | 3,801,693 B | `99188186949ebe9308e121f874e4ccd30ff83f9d56bfaddd0713e4df0648e86d` |
+| `release/刻度清单 Setup 0.1.0.exe` | 121,592,822 B | `ec7e6aef6d368e5cac23d0c39f16111b7318fd92386a6f3038a78bfa231391c2` |
+| `mobile/android/app/build/outputs/apk/debug/app-debug.apk` | 5,278,466 B | `b8418dc56f6310887c713581b9af7a5bda7c2d6c9928c9d33f3ffb71d991a120` |
+| `mobile/android/app/build/outputs/apk/release/app-release.apk` | 3,801,989 B | `49a2ca733c6de2618df0b99eb5acb0ee62dbcfbf118558c6547097ae13eb4d74` |
 
 校验文件：`release/SHA256SUMS.txt`（`sha256sum -c` 可直接复核）
 
@@ -47,7 +47,7 @@ cd android && gradlew.bat assembleRelease
 
 - NSIS 安装包未签名，Windows SmartScreen 可能提示；发布前应配置代码签名证书。
 - Android 目前是 `versionCode 1 / versionName 0.1.0`；后续发版需递增 versionCode 才能覆盖升级。
-- R2 只同步清单、任务与任务标签；附件、习惯、番茄、模板、过滤器、习惯提醒仍为本地数据。
+- R2 同步清单、任务、任务标签、习惯、打卡、番茄与桌面端习惯提醒；附件、模板、过滤器仍为本地数据。
 - R2 免费额度已核对：单快照 5 MiB 上限、每设备一个对象覆盖写，正常使用远低于 10 GB / 100 万 Class A / 1000 万 Class B。
 - 评论/共享清单属于首版明确不做范围。
 - 开机自启与启动最小化只在安装版写入系统启动项；开发模式不写。

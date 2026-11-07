@@ -221,6 +221,19 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_habit_reminders_trigger ON habit_reminders(trigger_at);
       `)
     }
+  },
+  {
+    version: 7,
+    up(db) {
+      // 跨端同步需要 tombstone：取消打卡/取消提醒不能直接删行，否则会被旧快照复活。
+      db.exec(`
+        ALTER TABLE habit_logs ADD COLUMN deleted_at TEXT;
+        ALTER TABLE habit_reminders ADD COLUMN deleted_at TEXT;
+
+        CREATE INDEX IF NOT EXISTS idx_habit_logs_deleted ON habit_logs(deleted_at);
+        CREATE INDEX IF NOT EXISTS idx_habit_reminders_deleted ON habit_reminders(deleted_at);
+      `)
+    }
   }
 ]
 

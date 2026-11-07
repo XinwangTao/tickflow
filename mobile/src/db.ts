@@ -334,13 +334,21 @@ export async function buildSnapshot(): Promise<SyncSnapshot> {
     deviceId: await getDeviceId(),
     updatedAt: nowIso(),
     lists: await db.lists.toArray(),
-    tasks: await db.tasks.toArray()
+    tasks: await db.tasks.toArray(),
+    habits: await db.habits.toArray(),
+    habitLogs: await db.habitLogs.toArray(),
+    pomodoroSessions: await db.pomodoroSessions.toArray()
   }
 }
 
 export async function applySnapshot(snapshot: SyncSnapshot): Promise<void> {
   const lists = Array.isArray(snapshot.lists) ? snapshot.lists : []
   const tasks = Array.isArray(snapshot.tasks) ? snapshot.tasks : []
+  const habits = Array.isArray(snapshot.habits) ? snapshot.habits : []
+  const habitLogs = Array.isArray(snapshot.habitLogs) ? snapshot.habitLogs : []
+  const pomodoroSessions = Array.isArray(snapshot.pomodoroSessions)
+    ? snapshot.pomodoroSessions
+    : []
   const listIds = new Set((await db.lists.toArray()).map((list) => list.id))
   for (const list of lists) listIds.add(list.id)
   const normalized = tasks.map((task) => ({
@@ -348,10 +356,30 @@ export async function applySnapshot(snapshot: SyncSnapshot): Promise<void> {
     listId: listIds.has(task.listId) ? task.listId : INBOX_ID
   }))
 
-  await db.transaction('rw', db.lists, db.tasks, async () => {
-    if (lists.length) await db.lists.bulkPut(lists)
-    if (normalized.length) await db.tasks.bulkPut(normalized)
-  })
+  await db.transaction(
+    'rw',
+    [db.lists, db.tasks, db.habits, db.habitLogs, db.pomodoroSessions],
+    async () => {
+      if (lists.length) await db.lists.bulkPut(lists)
+      if (normalized.length) await db.tasks.bulkPut(normalized)
+      if (habits.length) await db.habits.bulkPut(habits)
+      if (habitLogs.length) {
+        // 同一习惯同一天只保留一行：本地 id 不同且远端胜出时删掉旧行。
+        const local = await db.habitLogs.toArray()
+        const byKey = new Map(
+          local.map((log) => [`${log.habitId}\u0000${log.logDate}`, log])
+        )
+        for (const log of habitLogs) {
+          const existing = byKey.get(`${log.habitId}\u0000${log.logDate}`)
+          if (existing && existing.id !== log.id) await db.habitLogs.delete(existing.id)
+        }
+        await db.habitLogs.bulkPut(habitLogs)
+      }
+      if (pomodoroSessions.length) {
+        await db.pomodoroSessions.bulkPut(pomodoroSessions)
+      }
+    }
+  )
   await ensureSeed()
 }
 
@@ -411,7 +439,9 @@ export async function listHabits(): Promise<MobileHabit[]> {
   const habits = (await db.habits.toArray())
     .filter((habit) => !habit.archived && !habit.deletedAt)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt))
-  const logs = (await db.habitLogs.toArray()).filter((log) => log.logDate >= cutoff)
+  const logs = (await db.habitLogs.toArray()).filter(
+    (log) => !log.deletedAt && log.logDate >= cutoff
+  )
 
   const byHabit = new Map<string, HabitLog[]>()
   for (const log of logs) {
@@ -459,12 +489,13 @@ export async function createHabit(name: string, color = '#30a46c'): Promise<Habi
 export async function deleteHabit(id: string): Promise<void> {
   const habit = await db.habits.get(id)
   if (!habit) return
+  const now = nowIso()
   await db.habits.put({
     ...habit,
     archived: true,
-    updatedAt: nowIso()
+    deletedAt: now,
+    updatedAt: now
   })
-  await db.habitLogs.where('habitId').equals(id).delete()
 }
 
 export async function toggleHabitToday(id: string): Promise<boolean> {
@@ -473,11 +504,16 @@ export async function toggleHabitToday(id: string): Promise<boolean> {
     .where('[habitId+logDate]')
     .equals([id, today])
     .first()
-  if (existing) {
-    await db.habitLogs.delete(existing.id)
-    return false
-  }
   const now = nowIso()
+  if (existing) {
+    const nextDeleted = existing.deletedAt ? null : now
+    await db.habitLogs.put({
+      ...existing,
+      deletedAt: nextDeleted,
+      updatedAt: now
+    })
+    return nextDeleted == null
+  }
   await db.habitLogs.put({
     id: uuidv7(),
     habitId: id,
@@ -485,7 +521,8 @@ export async function toggleHabitToday(id: string): Promise<boolean> {
     value: 1,
     note: '',
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    deletedAt: null
   })
   return true
 }
