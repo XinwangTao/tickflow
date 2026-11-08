@@ -6,6 +6,7 @@ import { useAppStore } from '../store/useAppStore'
 /** 统计页的 AI 周复盘卡片：点击才生成，AI 不可用时显示本地统计版。 */
 export function AiWeeklyReview({ overview }: { overview: StatsOverview }): React.ReactNode {
   const aiEnabled = useAppStore((state) => state.settings.aiEnabled)
+  const showToast = useAppStore((state) => state.showToast)
   const [loading, setLoading] = useState(false)
   const [review, setReview] = useState<AiWeeklyReviewData | null>(null)
   const [source, setSource] = useState<'ai' | 'rule' | null>(null)
@@ -65,6 +66,29 @@ export function AiWeeklyReview({ overview }: { overview: StatsOverview }): React
       <div className="ai-summary-head">
         <span className="ai-summary-title">AI 周复盘</span>
         <div className="ai-summary-actions">
+          {review ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                const text = [
+                  'AI 周复盘',
+                  review.summary,
+                  review.wins.length ? `做得好：${review.wins.join('；')}` : '',
+                  review.risks.length ? `风险：${review.risks.join('；')}` : '',
+                  review.nextWeek.length ? `下周建议：${review.nextWeek.join('；')}` : ''
+                ]
+                  .filter(Boolean)
+                  .join(String.fromCharCode(10))
+                void navigator.clipboard
+                  .writeText(text)
+                  .then(() => showToast('复盘已复制'))
+                  .catch(() => showToast('复制失败，请手动选择文本'))
+              }}
+            >
+              复制
+            </button>
+          ) : null}
           <button type="button" className="btn" disabled={loading} onClick={() => void generate()}>
             {loading ? '生成中…' : review ? '重新生成' : '生成复盘'}
           </button>
