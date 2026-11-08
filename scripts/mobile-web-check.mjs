@@ -91,8 +91,20 @@ try {
   await expect(page.locator('.batch-count')).toHaveText('已选 0 项')
   await page.locator('.task-row', { hasText: '待删除任务' }).click()
   await expect(page.locator('.batch-count')).toHaveText('已选 1 项')
-  page.once('dialog', (dialog) => dialog.accept())
   await page.locator('.batch-btn.danger').click()
+  const confirmCard = page.locator('.confirm-card')
+  await expect(confirmCard).toContainText('删除选中的 1 个任务')
+  await expect(confirmCard.locator('.btn-ghost')).toHaveText('取消')
+  await expect(confirmCard.locator('.btn-danger')).toHaveText('删除')
+  // 先取消：任务与多选状态都应保留
+  await confirmCard.locator('.btn-ghost').click()
+  await expect(confirmCard).toHaveCount(0)
+  await expect(page.locator('.batch-count')).toHaveText('已选 1 项')
+  await expect(page.locator('.task-row', { hasText: '待删除任务' })).toHaveCount(1)
+  // 再确认：任务删除、多选条收起
+  await page.locator('.batch-btn.danger').click()
+  await page.locator('.confirm-card .btn-danger').click()
+  await expect(page.locator('.confirm-card')).toHaveCount(0)
   await expect(page.locator('.batch-bar')).toHaveCount(0)
   await expect(page.locator('.task-row')).toHaveCount(0)
 

@@ -25,6 +25,7 @@ import {
 } from './notifications'
 import { localTimeOf } from './habit-reminder-time'
 import { Icon } from './Icon'
+import { useConfirm } from './ConfirmSheet'
 
 type Page = 'habits' | 'pomodoro' | 'stats'
 type Toast = (message: string, kind?: 'info' | 'success' | 'error') => void
@@ -47,6 +48,7 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
   const [color, setColor] = useState(HABIT_COLORS[0])
   const [reminderTimes, setReminderTimes] = useState<Record<string, string>>({})
   const [editingReminder, setEditingReminder] = useState<string | null>(null)
+  const { ask: askConfirm, dialog: confirmDialog } = useConfirm()
   const [reminderDraft, setReminderDraft] = useState('09:00')
   const [permission, setPermission] = useState<NotificationPermission>('unsupported')
   const [exactAlarm, setExactAlarm] = useState<ExactAlarmSetting>('unsupported')
@@ -83,7 +85,14 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
   }
 
   const remove = async (habit: MobileHabit): Promise<void> => {
-    if (!window.confirm(`删除习惯「${habit.name}」？打卡记录会保留但不再显示。`)) return
+    if (
+      !(await askConfirm(`删除习惯「${habit.name}」？打卡记录会保留但不再显示。`, {
+        title: '删除习惯',
+        confirmText: '删除',
+        danger: true
+      }))
+    )
+      return
     await deleteHabit(habit.id)
     await reconcileHabitNotifications()
     await reload()
@@ -293,6 +302,7 @@ function HabitPanel({ onToast }: { onToast: Toast }): ReactNode {
         })
       )}
       <p className="more-note">习惯数据已纳入 R2 同步；提醒使用系统本地通知（移动端）。</p>
+      {confirmDialog}
     </div>
   )
 }

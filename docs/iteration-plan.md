@@ -50,16 +50,24 @@
    - 真机（2026-11-07 16:2x，PKJ110 / Android 17，debug 16:20:55 安装）：铃铛设置 16:22 → 通知渠道 `habit-reminders` 建立、AlarmManager 注册；应用退到后台后到点收到系统通知「习惯提醒 / 该打卡「晨间喝水-5934」了」；点通知打开「更多 → 习惯」；关闭提醒后待触发通知清空。截图 `docs/device-2026-11-07/`。
    - 修正：`isExactNotification` / `isExactMandatory` 属于通知对象而非 `schedule` 内字段；改为按 `checkExactNotificationSetting()` 结果决定是否排精确闹钟，未授权时退回不精确并在习惯页提示「可能明显延迟」+「去开启」，避免插件每次启动都跳系统设置页。
    - 剩余真机项（锁屏到点、杀进程后到点、系统重启、权限拒绝恢复、时区）在 `docs/TODO-device.md`
-8. ⬜ 真机验收（待设备接入，按 `docs/TODO-device.md` 顺序执行）
-   - 见 `docs/TODO-device.md`：备份导出分享面板、用量核对、release 覆盖安装、返回键五路径、习惯/番茄/统计、真实 R2 双端、无线重连、versionCode 递增
+8. 🟡 真机验收（PKJ110 已接入，按 `docs/TODO-device.md` 顺序执行）
+   - ✅ 2026-11-07 16:38–16:51，debug 0.1.0（versionCode 1，安装 16:51:23）：导出 JSON 走剪贴板（80.1 KB，无系统分享面板）、查看用量 3 份 / 107.7 KB、返回键五路径全过、番茄页与同步说明文案正常
+   - 截图：`docs/device-acceptance-2026-11-07/`（01–26）；安装脚本 `F:/projects/_agent-runs/android-deploy.sh`
+   - 待验：release 覆盖安装（需卸载，会清 IndexedDB）、真实 R2 双端、习惯/番茄 R2、多选批量、搜索历史、无线重连、versionCode 递增；习惯提醒剩余触发场景见 `TODO-device.md`
 
 ## 复盘状态（第 60 轮，2026-11-07）
 
-- **已完成（本区间）**：首屏拆包（-43%）、任务行键盘操作、800 任务渲染基线、同步可靠性调度（防抖/单飞/退避/错误可见）、同步范围扩展（习惯/打卡/番茄/提醒 + tombstone）、Android 多选批量与搜索历史、Android 习惯提醒（本地通知 + 权限 + 对账）、MIT 许可证与 CI、永久删除确认
-- **可离线队列**：空（不新增低价值改动凑数）
+- **已完成（本区间）**：首屏拆包（-43%）、任务行键盘操作、800 任务渲染基线、同步可靠性调度（防抖/单飞/退避/错误可见）、同步范围扩展（习惯/打卡/番茄/提醒 + tombstone）、Android 多选批量与搜索历史、Android 习惯提醒（本地通知 + 权限 + 对账）、MIT 许可证与 CI、永久删除确认、Android 二次确认改自绘（2026-11-08）
+- **可离线队列**：空
+- **2026-11-08 离线迭代**：移动端三处 `window.confirm`（批量删除 / 删除清单 / 删除习惯）改为自绘 `ConfirmSheet`
+  - 新增 `mobile/src/ConfirmSheet.tsx`（`useConfirm` 返回 `ask` + `dialog`，Promise 化、连续触发按取消收尾），`styles.css` 补 `.confirm-card` / `.btn-danger`
+  - 桌面端原有 `ConfirmDialog` 不动；移动端弹层改为居中卡片（深色主题一致、中文按钮）
+  - `scripts/mobile-web-check.mjs` 覆盖取消与确认两条路径（取消后任务/多选不变，确认后删除并收起多选条）
+  - 验证：`mobile` 构建通过（tsc + vite）、`npm run check:mobile-web` 通过
 - **长尾离线池**：空
 - **阻塞（写明解除条件）**：
-  - 真机验收：等 OPPO PKJ110 接入无线调试；设备在线后按 `docs/TODO-device.md` 顺序执行（含通知触发/重启/权限恢复、习惯/番茄同步）
+  - release 覆盖安装：需卸载 debug（会清 IndexedDB），待用户确认后执行
+  - 真实 R2 双端同步：需桌面端同时在线改数据，按 `docs/TODO-device.md` 逐项验收
 
 ## 明确不做
 

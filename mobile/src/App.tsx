@@ -29,6 +29,7 @@ import {
 import { Icon } from './Icon'
 import { AiSettings } from './AiSettings'
 import { MoreTab } from './MoreTab'
+import { useConfirm } from './ConfirmSheet'
 import { buildBackupJson, importBackupJson } from './backup'
 import {
   onHabitNotificationTap,
@@ -1035,6 +1036,7 @@ export default function App(): ReactNode {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [toast, setToast] = useState<{ id: number; message: string; kind: ToastKind } | null>(null)
+  const { ask: askConfirm, dialog: confirmDialog } = useConfirm()
   const [theme, setTheme] = useState('dark')
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [calendarMonth, setCalendarMonth] = useState(todayKey().slice(0, 7))
@@ -1062,7 +1064,7 @@ export default function App(): ReactNode {
   }
 
   const removeList = async (id: string, name: string): Promise<void> => {
-    if (!window.confirm(`删除清单「${name}」？其中的任务会一并删除。`)) return
+    if (!(await askConfirm(`删除清单「${name}」？其中的任务会一并删除。`, { title: '删除清单', confirmText: '删除', danger: true }))) return
     try {
       await deleteList(id)
       setListMenuId(null)
@@ -1280,7 +1282,7 @@ export default function App(): ReactNode {
   }
 
   const batchDelete = async (): Promise<void> => {
-    if (!window.confirm(`删除选中的 ${selectedIds.length} 个任务？`)) return
+    if (!(await askConfirm(`删除选中的 ${selectedIds.length} 个任务？`, { title: '批量删除', confirmText: '删除', danger: true }))) return
     const count = await removeTasks(selectedIds)
     exitSelection()
     setRefreshKey((value) => value + 1)
@@ -1738,6 +1740,7 @@ export default function App(): ReactNode {
         />
       ) : null}
 
+      {confirmDialog}
       {toast ? <div className={`toast ${toast.kind}`}>{toast.message}</div> : null}
     </div>
   )
