@@ -15,5 +15,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      # 移动端是独立 package（dexie / @capacitor 不在根依赖里），typecheck 会一起检查。
+      - run: npm ci --prefix mobile
       - run: npm run typecheck
       - run: npm test
