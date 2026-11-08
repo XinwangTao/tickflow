@@ -71,6 +71,33 @@ export interface AiSummaryTask {
   overdue: boolean
 }
 
+export const AI_WEEKLY_MAX_TOKENS = 1600
+
+/** 周复盘输入：最近 7 天的完成/新增/专注，100% 来自本机统计。 */
+export interface AiWeeklyInput {
+  startDate: string
+  endDate: string
+  days: Array<{ date: string; completed: number; focusMinutes: number }>
+  overdue: number
+  createdTotal: number
+  completedTotal: number
+}
+
+export interface AiWeeklyReview {
+  summary: string
+  wins: string[]
+  risks: string[]
+  nextWeek: string[]
+}
+
+export interface AiWeeklyResponse {
+  ok: boolean
+  source: AiSource
+  review: AiWeeklyReview
+  warning: string | null
+  attempts?: number
+}
+
 export interface AiSummaryInput {
   date: string
   tasks: AiSummaryTask[]
@@ -734,6 +761,64 @@ export const AI_SUBTASK_SYSTEM =
   '你是任务拆解助手。你只输出严格 JSON，不输出解释或 Markdown。'
 export const AI_SUMMARY_SYSTEM =
   '你是务实的每日计划助手。你只输出严格 JSON，不输出解释或 Markdown。'
+
+export const AI_WEEKLY_SYSTEM =
+  '你是务实的每周复盘助手。你只输出严格 JSON，不输出解释或 Markdown。'
+
+/** 周复盘规则降级：不依赖 AI 也能给出可读统计与建议。 */
+export function ruleWeeklyReview(input: AiWeeklyInput): AiWeeklyReview {
+  const totalDone = input.days.reduce((sum, day) => sum + day.completed, 0)
+  const totalCreated = input.createdTotal
+  const focus = input.days.reduce((sum, day) => sum + day.focusMinutes, 0)
+  const best = [...input.days].sort((a, b) => b.completed - a.completed)[0]
+  const summary =
+    `${input.startDate} 到 ${input.endDate}：完成 ${totalDone} 个任务，新建 ${totalCreated} 个，专注 ${focus} 分钟` +
+    (input.overdue > 0 ? `，当前仍有 ${input.overdue} 个逾期。` : '。')
+  const wins: string[] = []
+  if (best && best.completed > 0) wins.push(`${best.date} 完成最多（${best.completed} 个）`)
+  if (focus > 0) wins.push(`累计专注 ${focus} 分钟`)
+  if (totalDone >= totalCreated && totalDone > 0) wins.push('完成数不低于新增数，积压没有变大')
+  const risks: string[] = []
+  if (input.overdue > 0) risks.push(`还有 ${input.overdue} 个任务逾期未处理`)
+  if (totalCreated > totalDone + 3) risks.push('新增明显多于完成，待办在变多')
+  return {
+    summary,
+    wins: wins.slice(0, 4),
+    risks: risks.slice(0, 4),
+    nextWeek: [
+      '先清掉逾期任务，再排新任务',
+      '把最难的一件事放在效率最高的时段',
+      '每天留一段不被打断的专注时间'
+    ]
+  }
+}
+
+/** 校验 AI 周复盘结构。 */
+export function normalizeAiWeekly(raw: unknown): AiWeeklyReview | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const record = raw as Record<string, unknown>
+  const summary = typeof record.summary === 'string' ? record.summary.trim() : ''
+  if (!summary) return null
+  return {
+    summary,
+    wins: normalizeStringList(record.wins, 4),
+    risks: normalizeStringList(record.risks, 4),
+    nextWeek: normalizeStringList(record.nextWeek, 4)
+  }
+}
+
+export function buildWeeklyPrompt(input: AiWeeklyInput): string {
+  const lines = input.days.map(
+    (day) => `${day.date}：完成 ${day.completed}，专注 ${day.focusMinutes} 分钟`
+  )
+  return [
+    '请根据下面一周的数据写复盘，只输出 JSON：',
+    '{"summary":"两三句总结","wins":["做得好"],"risks":["风险"],"nextWeek":["下周建议"]}',
+    `区间：${input.startDate} 至 ${input.endDate}`,
+    `逾期未完成：${input.overdue}；本周新建：${input.createdTotal}；本周完成合计：${input.completedTotal}`,
+    ...lines
+  ].join(String.fromCharCode(10))
+}
 
 /** 从任务集合中筛出“今日相关”任务，供总结使用（未完成今日/逾期 + 今日完成）。 */
 export function buildSummaryInput(tasks: TaskWithMeta[], date: string): AiSummaryInput {

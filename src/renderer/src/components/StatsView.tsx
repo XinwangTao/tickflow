@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { StatsOverview } from '@shared/types'
 import { PRIORITY_LABELS } from '../lib/colors'
 import { useAppStore } from '../store/useAppStore'
+import { AiWeeklyReview } from './AiWeeklyReview'
 
 function niceMax(value: number): number {
   if (value <= 4) return 4
@@ -236,6 +237,8 @@ export function StatsView(): React.ReactNode {
           <small>近 7 天新增 {overview.tasksCreated7d}</small>
         </div>
       </div>
+
+      <AiWeeklyReview overview={overview} />
 
       <div className="stats-grid">
         <ChartCard

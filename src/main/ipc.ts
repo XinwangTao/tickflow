@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
-import { aiConfigFromSettings, buildSummaryInput } from '@shared/ai'
+import { aiConfigFromSettings, buildSummaryInput, type AiWeeklyInput } from '@shared/ai'
 import { normalizeDateKey, todayKey } from '@shared/dates'
 import type {
   ApplyTemplateInput,
@@ -33,6 +33,7 @@ import {
   registerAiRequest,
   releaseAiRequest,
   summarizeTodayWithAi,
+  weeklyReviewWithAi,
   testAiConnection
 } from './ai'
 import {
@@ -269,6 +270,16 @@ export function registerIpc(scheduler: SyncScheduler): void {
     ]
     const controller = requestId ? registerAiRequest(requestId) : null
     const pending = summarizeTodayWithAi(buildSummaryInput(tasks, todayKey()), {
+      config: aiConfigFromSettings(settingsRepo.getSettings(db)),
+      signal: controller?.signal
+    })
+    if (!requestId || !controller) return pending
+    return pending.finally(() => releaseAiRequest(requestId))
+  })
+  ipcMain.handle(IPC.aiWeekly, (_event, input: AiWeeklyInput, requestId?: string) => {
+    const db = getDb()
+    const controller = requestId ? registerAiRequest(requestId) : null
+    const pending = weeklyReviewWithAi(input, {
       config: aiConfigFromSettings(settingsRepo.getSettings(db)),
       signal: controller?.signal
     })

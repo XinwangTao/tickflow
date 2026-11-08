@@ -150,6 +150,7 @@ const api: TickFlowApi = {
     breakdownSubtasks: (taskId, requestId) =>
       ipcRenderer.invoke(IPC.aiSubtasks, taskId, requestId),
     dailySummary: (requestId) => ipcRenderer.invoke(IPC.aiSummary, requestId),
+    weeklyReview: (input, requestId) => ipcRenderer.invoke(IPC.aiWeekly, input, requestId),
     models: (requestId?: string) => ipcRenderer.invoke(IPC.aiModels, requestId),
     test: () => ipcRenderer.invoke(IPC.aiTest),
     transcribe: (audio: ArrayBuffer, requestId?: string) =>

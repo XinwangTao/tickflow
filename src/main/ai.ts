@@ -9,10 +9,13 @@ import {
   AI_SUBTASKS_MAX_TOKENS,
   AI_SUBTASK_SYSTEM,
   AI_SUMMARY_MAX_TOKENS,
+  AI_WEEKLY_MAX_TOKENS,
+  AI_WEEKLY_SYSTEM,
   AI_SUMMARY_SYSTEM,
   buildQuickAddPrompt,
   buildSubtasksPrompt,
   buildSummaryPrompt,
+  buildWeeklyPrompt,
   describeAiFailure,
   filterNewSubtasks,
   isListNameMentioned,
@@ -21,8 +24,10 @@ import {
   normalizeAiQuickAdd,
   normalizeAiSubtasks,
   normalizeAiSummary,
+  normalizeAiWeekly,
   parseAiJson,
   ruleDailySummary,
+  ruleWeeklyReview,
   ruleQuickAdd,
   ruleSubtasks,
   type AiConfig,
@@ -30,6 +35,8 @@ import {
   type AiQuickAddResponse,
   type AiSubtasksResponse,
   type AiSummaryInput,
+  type AiWeeklyInput,
+  type AiWeeklyResponse,
   type AiSummaryResponse,
   type AiTestResult
 } from '@shared/ai'
@@ -326,6 +333,38 @@ export async function summarizeTodayWithAi(
       summary: fallback,
       ...failureOf(error, runtime.config, attempts)
     }
+  }
+}
+
+export async function weeklyReviewWithAi(
+  input: AiWeeklyInput,
+  runtime: AiRuntime
+): Promise<AiWeeklyResponse> {
+  const fallback = ruleWeeklyReview(input)
+  if (disabledConfig(runtime.config)) {
+    return { ok: false, source: 'rule', review: fallback, warning: 'AI 已关闭或未配置模型', attempts: 0 }
+  }
+  let attempts = 1
+  try {
+    const result = await requestAiTextResult(
+      runtime.config,
+      {
+        system: AI_WEEKLY_SYSTEM,
+        prompt: buildWeeklyPrompt(input),
+        maxTokens: AI_WEEKLY_MAX_TOKENS,
+        temperature: 0.4
+      },
+      requestOptions(runtime)
+    )
+    attempts = result.attempts
+    const review = normalizeAiWeekly(parseAiJson(result.text))
+    if (!review) throw new Error('AI 返回结构无法识别')
+    return { ok: true, source: 'ai', review, warning: null, attempts }
+  } catch (error) {
+    if (isAiCanceled(error)) {
+      return { ok: false, source: 'rule', review: fallback, warning: '已取消，先看本地统计', attempts }
+    }
+    return { ok: false, source: 'rule', review: fallback, ...failureOf(error, runtime.config, attempts) }
   }
 }
 

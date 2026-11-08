@@ -59,6 +59,10 @@
 
 - **已完成（本区间）**：首屏拆包（-43%）、任务行键盘操作、800 任务渲染基线、同步可靠性调度（防抖/单飞/退避/错误可见）、同步范围扩展（习惯/打卡/番茄/提醒 + tombstone）、Android 多选批量与搜索历史、Android 习惯提醒（本地通知 + 权限 + 对账）、MIT 许可证与 CI、永久删除确认、Android 二次确认改自绘（2026-11-08）
 - **可离线队列**：空
+- **2026-11-08 AI 迭代**：统计页新增「AI 周复盘」——把近 7 天完成/新建/逾期/专注时长交给 AI，
+  输出总结、做得好、风险、下周建议；AI 关闭或失败时用 `ruleWeeklyReview` 本地降级，不空白。
+  代码：`shared/ai.ts`（类型/提示词/校验/降级）、`main/ai.ts`（weeklyReviewWithAi）、
+  IPC `ai:weekly`、`AiWeeklyReview.tsx`；测试 `tests/ai-weekly.test.ts`（3 项）。
 - **2026-11-08 离线迭代**：移动端三处 `window.confirm`（批量删除 / 删除清单 / 删除习惯）改为自绘 `ConfirmSheet`
   - 新增 `mobile/src/ConfirmSheet.tsx`（`useConfirm` 返回 `ask` + `dialog`，Promise 化、连续触发按取消收尾），`styles.css` 补 `.confirm-card` / `.btn-danger`
   - 桌面端原有 `ConfirmDialog` 不动；移动端弹层改为居中卡片（深色主题一致、中文按钮）

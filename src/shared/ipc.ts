@@ -3,6 +3,8 @@ import type {
   AiQuickAddResponse,
   AiSubtasksResponse,
   AiSummaryResponse,
+  AiWeeklyInput,
+  AiWeeklyResponse,
   AiTestResult
 } from './ai'
 import type { AsrEnvironment, VoiceTranscribeResult } from './voice'
@@ -114,6 +116,7 @@ export const IPC = {
   aiCancel: 'ai:cancel',
   aiSubtasks: 'ai:subtasks',
   aiSummary: 'ai:summary',
+  aiWeekly: 'ai:weekly',
   aiModels: 'ai:models',
   aiTest: 'ai:test',
   aiTranscribe: 'ai:transcribe',
@@ -235,6 +238,8 @@ export interface TickFlowApi {
     breakdownSubtasks(taskId: string, requestId?: string): Promise<AiSubtasksResponse>
     /** requestId 同样可传给 `cancel`，用于在超时前主动中止总结或拆解。 */
     dailySummary(requestId?: string): Promise<AiSummaryResponse>
+    /** 周复盘：输入由设置页/统计页按本机数据组装，main 只负责调 AI 与降级。 */
+    weeklyReview(input: AiWeeklyInput, requestId?: string): Promise<AiWeeklyResponse>
     models(requestId?: string): Promise<AiModelsResult>
     test(): Promise<AiTestResult>
     /** 离线语音转写：传入录音字节，返回识别文本（失败时给一句人话）。 */
